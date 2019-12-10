@@ -21,7 +21,6 @@ def connect(name: str, *, config=None, manager: str = None, **kwargs) -> Manager
 
     else:
         for entry_point in pkg_resources.iter_entry_points('storage_managers'):
-            print(entry_point)
             if entry_point.name == manager:
                 mClass = MANAGERS[manager] = entry_point.load()
                 break
