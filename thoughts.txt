@@ -1,0 +1,17 @@
+import sync
+
+sync(fs1, fs2)
+
+changes = sync.sync()
+
+print(len(changes))
+print(len(changes.create))
+print(len(changes.update))
+print(len(changes.delete))
+print(len(changes.conflicts))
+
+for conflict in changes.conflicts:
+    conflict.resolve(fs1)
+
+sync.apply(changes[fs1])
+sync.apply(c for c in changes[fs1].delete if c.type is Change.DELETE)

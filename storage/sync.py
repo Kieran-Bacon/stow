@@ -20,20 +20,21 @@ class Conflict:
     """
 
     def __init__(self, filepath: str, local: int, remote: int):
-        pass
+        self.file = filepath
+        self.local = local
+        self.remote = remote
+
+    def __str__(self): return "File '{}' - local = {}, remote = {} ".format(self.file, self.local, self.remote)
 
 class Sync:
-    CREATED = 3
-    UPDATED = 2
-    DELETED = 1
+    CREATED = "CREATED"
+    UPDATED = "UPDATED"
+    DELETED = "DELETED"
 
-    @classmethod
-    def load(cls, config_path: str):
-        raise NotImplementedError()
-        config = better.ConfigParser().read(config_path)
-
-        return cls(config['directories'], connect(**config['remote']), config['expectations'], **config.get('options', {}))
-
+    CONFLICT = 'CONFLICT'
+    TRUST_LOCAL = 'LOCAL'
+    TRUST_REMOTE = 'REMOTE'
+    STOP_EXECUTION = 'STOP'
 
     def __init__(self,
         local: Manager,
@@ -41,7 +42,8 @@ class Sync:
         *,
         tracked_timestamp = 0000000000,
         tracked = set(),
-        filters: [str] = []
+        filters: [str] = [],
+        conflict_policy: str = CONFLICT
         ):
 
         # Record the managers
@@ -49,6 +51,7 @@ class Sync:
         self._remote = remote
         self._trackedTime = datetime.datetime.fromtimestamp(tracked_timestamp)
         self._tracked = tracked
+        self._conflictPolicy = conflict_policy
 
         self._filters = filters
 
@@ -71,6 +74,55 @@ class Sync:
         for filename in filenames:
             if filename in self._local: self._local.rm(filename)
             else: self._remote.rm(filename)
+
+    def conflict(self, conflicts: [Conflict]):
+        if self._conflictPolicy == self.STOP_EXECUTION:
+            raise RuntimeError("Conflicts occurred on files: \n\t{}".format('\n\t'.format([str(x) for x in conflicts])))
+
+        upload, download, delete = set(), set(), set()
+
+        for conflict in conflicts:
+
+            policy = self._conflictPolicy
+
+            if self._conflictPolicy == self.CONFLICT:
+
+                while True:
+
+                    # Render the conflict and await for a resolution to be given
+                    print(str(conflict))
+
+                    # Ask the user to chose a resolution
+                    choice = input('Choice local or remote (local, remote): ').strip().lower()
+
+                    # Check that the choice is valid
+                    if choice not in ['local', 'remote']:
+                        print("Not a valid selection")
+                        continue
+
+                    policy = self.TRUST_LOCAL if choice == 'local' else self.TRUST_REMOTE
+                    break
+
+
+            if policy == self.TRUST_LOCAL:
+
+                if conflict.local == self.UPDATED:
+                    upload.add(conflict.file)
+
+                else:
+                    delete.add(conflict.file)
+
+            else:
+
+                if conflicts.remote == self.UPDATED:
+                    download.add(conflicts.file)
+
+                else:
+                    delete.add(conflict.file)
+
+        if upload:self.upload(upload)
+        if download: self.download(download)
+        if delete: self.delete(delete)
 
     def sync(self):
 
@@ -145,10 +197,10 @@ class Sync:
                 # Both the local and remote has changed - conflict!
                 conflicts.add(Conflict(file, local=self.UPDATED, remote=self.UPDATED))
 
-
-        self.upload(uploadable)
-        self.download(downloadable)
-        self.delete(deletable)
+        if uploadable: self.upload(uploadable)
+        if downloadable: self.download(downloadable)
+        if deletable: self.delete(deletable)
+        if conflicts: self.conflict(conflicts)
 
         self._tracked = uploadable.union(downloadable).union(expected).difference(deletable)
         self._trackedTime = datetime.datetime.now()
@@ -160,5 +212,9 @@ class Sync:
             "tracked": {
                 "tracked_timestamp": self._trackedTime.timestamp(),
                 "tracked": self._tracked
+            },
+
+            "options": {
+                "conflict_policy": self._conflictPolicy
             }
         }
