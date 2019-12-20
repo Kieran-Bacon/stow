@@ -5,6 +5,7 @@ import json
 import uuid
 
 from .interfaces import Manager
+from .artefacts import File
 
 import logging
 log = logging.getLogger(__name__)
@@ -12,13 +13,46 @@ log = logging.getLogger(__name__)
 class Change:
     """ Representation of a single change """
 
-    pass
+    DELETE = 'DELETE'
+    PULL = "PULL"
+
+    def __init__(self, target: Manager, filename: str, change_type: str):
+        """ A representation of a single change """
+        self.target = target
+        self.filename = filename
+        self.change_type = change_type
+
+class Conflict:
+
+    NEW = 'NEW'
+    UPDATED = 'UPDATED'
+    DELETED = 'DELETED'
+
+    def __init__(self, filename: str, manager1_type: str, manager2_type: str):
+        pass
 
 class StagedChanges:
     """ Changes that are going would be made between to managers to synchronise them """
 
-    def __init__(self):
-        pass
+    def __init__(self, manager1: Manager, manager2: Manager):
+        self.manager1 = manager1
+        self.manager2 = manager2
+
+        self._changes = []
+        self._conflicts = []
+
+    def __iter__(self): return iter(self._changes)
+
+    def addChange(self, change: Change):
+        """ """
+        self._changes.append(change)
+
+    def addConflict(self, conflict: Conflict):
+        """ Record a conflict """
+        self._conflicts.append(conflict)
+
+    def hasConflicts(self): return bool(len(self._conflicts))
+
 
 class SyncMeta:
 
@@ -103,6 +137,14 @@ class Sync:
         # Connect/ensure the meta data for the two managers
         try:
             meta1.compare(meta2)
+
+            self._meta = {
+                self._manager1: meta1,
+                self._manager2: meta2
+            }
+
+            self._expectations = meta1.expectations[meta2.machineId].union(meta2.expectations[meta1.machineId])
+
         except:
             if not force: raise
 
@@ -110,92 +152,77 @@ class Sync:
             meta1.groupId = meta2.groupId = uuid.uuid4()
             meta1.synctime = meta2.synctime = datetime.datetime.fromtimestamp(0000000000)
 
-    def sync(self):
+    def calculateChanges(self):
+
+        # Unpack the manager files and the expected files
+        m1 = set(self._manager1.paths(File).keys())
+        m2 = set(self._manager2.paths(File).keys())
+        expected = self._expectations
 
         changes = StagedChanges(self._manager1, self._manager2)
 
-        for filename in
+        # Identify the newly added files on either machine (won't exist in expected or on the other machine)
+        for a, b, bm in [(m1, m2, self._manager2), (m2, m1, self._manager1)]:
+            for filename in a.difference(expected).difference(b):
+                changes.addChange(Change(bm, filename, Change.PULL))
 
-        # Relation tabs -
-        self._syncTo(self._manager1, self._manager2)
-        self._syncTo(self._manager2, self._manager1)
+        # File added to both
+        for filename in m1.intersection(m2).difference(expected):
+            changes.addConflict(Conflict(filename, Conflict.NEW, Conflict.NEW))
 
+        # Identify the files that need to be deleted/conflict as one has updated and one has been deleted
+        for a, am, b in [(m1, self._manager1, m2), (m2, self._manager2, m1)]:
+            for filename in a.intersection(expected).difference(b):
 
-    def _syncTo(self, mFrom, mTo):
+                if am[filename].motifiedTime <= self._meta[am].synctime:
+                    changes.addChange(Change(am, filename, Change.DELETE))
 
-        origin, expected, destination = set(), set(), set()
+                else:
+                    changes.addConflict(Conflict(filename, Conflict.DELETED, Conflict.DELETED))
 
-        push, pull, delete, conflict = set(), set(), set(), set()
+        # Resolve differences when the files exists on both
+        for filename in m1.intersection(m2).intersection(expected):
 
-        for filename in origin.difference(expected).difference(destination):
-            push.add(filename)
+            # Unpack the files from the managers
+            af, bf  =  self._manager1[filename], self._manager2[filename]
 
-        for filename in local
+            t1 = af.modifiedTime <= self._meta[self._manager1].synctime
+            t2 = bf.modifiedTime <= self._meta[self._manager2].synctime
 
+            if (not t1) and (not t2):
+                # Both have been updated
+                changes.addConflict(Conflict(filename, Conflict.UPDATED, Conflict.UPDATED))
 
+            elif t1:
+                # Manager 1 hasn't been changed
+                changes.addChange(Change(self._manager1, filename, Change.PULL))
 
+            elif t2:
+                # Manager 2 hasn't been changed
+                changes.addChange(Change(self._manager2, filename, Change.PULL))
 
-        # Perform the synchronisation
-        for file in local.difference(expected).difference(remote):
-            uploadable.add(file)
+        # Return the stages changes
+        return changes
 
-        # 6 Files on the remote, not to download
-        for file in remote.difference(expected).difference(local):
-            downloadable.add(file)
+    def applyChanges(self, changes: StagedChanges):
 
-        # 4 - drop none expected things - hopefully this just happens - As the file is no longer on the local or remote
+        if changes.hasConflicts():
+            raise RuntimeError('Cannot perform sync when there are conflicts on files.')
 
-        # 7 The file is new locally and a version exists on the remote - conflict
-        for file in local.intersection(remote).difference(expected):
-            conflicts.add(Conflict(file, local=self.CREATED, remote=self.CREATED))
+        for change in changes:
 
-        # 2 The file was expected to be on the remote but it wasn't
-        for file in local.intersection(expected).difference(remote):
+            # Identify the opposite manager
+            oppositeManager  = self._manager2 if change.target == self._manager1 else self._manager1
 
-            localFile = self._local[file]
+            if change.change_type == change.PULL:
+                change.target.put(oppositeManager[change.filename], change.filename)
 
-            if localFile.modifiedTime <= self._trackedTime:
-                # The local file is the same as the expected - absent from the remote means it was deleted by another
-                deletable.add(file)
+            elif change.change_type == change.DELETE:
+                change.target.rm(change.filename)
 
-            else:
-                # The local file has been editted and deleted on the remote - a conflict has occurred since last syncing
-                conflicts.add(Conflict(file, local=self.UPDATED, remote=self.DELETED))
+    def sync(self):
+        changes = self.calculateChanges()
 
-        # 5
-        for file in remote.intersection(expected).difference(local):
-            # Exists on remote but deleted locally
+        # Apply any conflict policy
 
-            remoteFile = self._remote[file]
-            if remoteFile.modifiedTime <= self._trackedTime:
-                # The file was deleted locally and not changed since last sync on the remote - delete the remote
-                deletable.add(file)
-
-            else:
-                # Updated on the remote before the deleted file was pushed
-                conflicts.add(Conflict(file, local=self.DELETED, remote=self.UPDATED))
-
-        # 3
-        for file in local.intersection(expected).intersection(remote):
-            # When the file exists everywhere
-
-            localFile = self._local[file]
-            remoteFile = self._remote[file]
-
-            if localFile.modifiedTime <= self._trackedTime and remoteFile.modifiedTime <= self._trackedTime:
-                # No change has occurred
-                continue
-
-            elif localFile.modifiedTime <= self._trackedTime:
-                # The local file has not been changed
-                downloadable.add(file)
-
-            elif remoteFile.modifiedTime <= self._trackedTime:
-                # The remote has not changed, local changes to be pushed up
-                uploadable.add(file)
-
-            else:
-                # Both the local and remote has changed - conflict!
-                conflicts.add(Conflict(file, local=self.UPDATED, remote=self.UPDATED))
-
-
+        self.applyChanges(changes)

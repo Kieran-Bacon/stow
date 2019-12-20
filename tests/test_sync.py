@@ -11,7 +11,7 @@ class Test_Syncing(unittest.TestCase):
     def setUp(self):
 
         # Create a large container for all the directories to exist in to check syncing
-        self._container = '/Users/kieranbacon/Projects/personal/Storage/tests/data/' # tempfile.mkdtemp()
+        self._container = tempfile.mkdtemp()
 
         # Define the starting directories
         self._localContainer = os.path.join(self._container, 'local')
@@ -26,8 +26,7 @@ class Test_Syncing(unittest.TestCase):
         self.remote = storage.connect('remote', manager='FS', path=self._remoteContainer)
 
     def tearDown(self):
-        shutil.rmtree(self._localContainer)
-        shutil.rmtree(self._remoteContainer)
+        shutil.rmtree(self._container)
 
     def test_uploadOnly(self):
 
@@ -53,7 +52,6 @@ class Test_Syncing(unittest.TestCase):
         self.assertEqual(open(os.path.join(self._remoteContainer, 'directory1', 'd2','d3', 'f3'), 'r').read(), 'Content in the deep')
 
     def test_updatingLocallyandPushing(self):
-
 
         file1 = self.local.touch('/file1')
         file2 = self.local.touch('/directory1/file2')
