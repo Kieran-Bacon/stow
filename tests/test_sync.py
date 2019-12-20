@@ -1,4 +1,5 @@
 import unittest
+import pytest
 
 import os
 import shutil
@@ -116,3 +117,51 @@ class Test_Syncing(unittest.TestCase):
 
         self.assertFalse(os.path.exists(os.path.join(self._remoteContainer, 'file1')))
         self.assertFalse(os.path.exists(os.path.join(self._localContainer, 'file2')))
+
+    def test_conflictAccept1(self):
+
+        # Enumerate files
+        for i, m in enumerate([self.local, self.remote]):
+            f = m.touch('/file1')
+            with f.open('w') as fh: fh.write('Testing ' + str(i))
+
+        # Create the syncing method
+        s = storage.Sync(self.local, self.remote, conflictPolicy=storage.Sync.ACCEPT_1)
+        s.sync()
+
+        # Get the files
+        f = self.remote['/file1']
+
+        # Read the contents of the file to see that the conflict was resolved positively
+        with f.open('r') as fh: self.assertEqual(fh.read(), 'Testing 0')
+
+    def test_conflictAccept2(self):
+
+        # Enumerate files
+        for i, m in enumerate([self.local, self.remote]):
+            f = m.touch('/file1')
+            with f.open('w') as fh: fh.write('Testing ' + str(i))
+
+        # Create the syncing method
+        s = storage.Sync(self.local, self.remote, conflictPolicy=storage.Sync.ACCEPT_2)
+        s.sync()
+
+        # Get the files
+        f = self.local['/file1']
+
+        # Read the contents of the file to see that the conflict was resolved positively
+        with f.open('r') as fh: self.assertEqual(fh.read(), 'Testing 1')
+
+    def test_conflictStopExecution(self):
+
+        # Enumerate files
+        for i, m in enumerate([self.local, self.remote]):
+            f = m.touch('/file1')
+            with f.open('w') as fh: fh.write('Testing ' + str(i))
+
+        # Create the syncing method
+        s = storage.Sync(self.local, self.remote, conflictPolicy=storage.Sync.STOP_EXECUTION)
+
+        # Check that the syncing process raises the correct error
+        with pytest.raises(ValueError):
+            s.sync()

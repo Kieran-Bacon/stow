@@ -29,7 +29,10 @@ class Conflict:
     DELETED = 'DELETED'
 
     def __init__(self, filename: str, manager1_type: str, manager2_type: str):
-        pass
+
+        self.filename = filename
+        self.manager1_type = manager1_type
+        self.manager2_type = manager2_type
 
 class StagedChanges:
     """ Changes that are going would be made between to managers to synchronise them """
@@ -51,6 +54,11 @@ class StagedChanges:
         """ Record a conflict """
         self._conflicts.append(conflict)
 
+    def conflicts(self): return self._conflicts
+
+    def removeConflict(self, conflict: Conflict):
+        self._conflicts.remove(conflict)
+
     def hasConflicts(self): return bool(len(self._conflicts))
 
 
@@ -65,7 +73,7 @@ class SyncMeta:
 
     @classmethod
     def emptyMeta(cls):
-        return cls(uuid.uuid4(), None, datetime.datetime.fromtimestamp(0000000000), {})
+        return cls(str(uuid.uuid4()), None, datetime.datetime.fromtimestamp(0000000000), {})
 
     @classmethod
     def read(cls, handle):
@@ -75,7 +83,7 @@ class SyncMeta:
             data['gid'],
             datetime.datetime.fromtimestamp(data['time']),
 
-            data['exp']
+            {k: set(v) for k, v in data['exp']}
         )
 
     def write(self, handle):
@@ -83,7 +91,7 @@ class SyncMeta:
             'mid': self.machineId,
             'gid': self.groupId,
             'time': self.synctime.timestamp(),
-            'exp': self.expectations
+            'exp': {k: list(v) for k, v in self.expectations.items()}
         }, handle)
 
     def compare(self, other):
@@ -96,7 +104,7 @@ class SyncMeta:
         if other.machineId not in self.expectations: self.expectations[other.machineId] = set()
 
         if self.groupId is None and other.groupId is None:
-            self.groupId = other.groupId = uuid.uuid4()
+            self.groupId = other.groupId = str(uuid.uuid4())
         elif self.groupId is None:
             self.groupId = other.groupId
         elif other.groupId is None:
@@ -113,10 +121,16 @@ class Sync:
 
     _META_PATH = '/.__syncdata__'
 
-    def __init__(self, manager1: Manager, manager2: Manager, force: bool = False):
+    CONFLICT = 'CONFLICT'
+    ACCEPT_1 = 'ACCEPT_1'
+    ACCEPT_2 = 'ACCEPT_2'
+    STOP_EXECUTION = 'STOP'
+
+    def __init__(self, manager1: Manager, manager2: Manager, *, force: bool = False, conflictPolicy: str = 'CONFLICT'):
 
         self._manager1 = manager1
         self._manager2 = manager2
+        self._conflictPolicy = conflictPolicy
 
         # Load the meta for the first manager
         if self._META_PATH in manager1:
@@ -138,6 +152,8 @@ class Sync:
         try:
             meta1.compare(meta2)
 
+            self._meta1 = meta1
+            self._meta2 = meta2
             self._meta = {
                 self._manager1: meta1,
                 self._manager2: meta2
@@ -159,6 +175,11 @@ class Sync:
         m2 = set(self._manager2.paths(File).keys())
         expected = self._expectations
 
+        # Remove the meta path from consideration
+        m1.discard(self._META_PATH)
+        m2.discard(self._META_PATH)
+
+        # Create the stages changes container
         changes = StagedChanges(self._manager1, self._manager2)
 
         # Identify the newly added files on either machine (won't exist in expected or on the other machine)
@@ -174,7 +195,7 @@ class Sync:
         for a, am, b in [(m1, self._manager1, m2), (m2, self._manager2, m1)]:
             for filename in a.intersection(expected).difference(b):
 
-                if am[filename].motifiedTime <= self._meta[am].synctime:
+                if am[filename].modifiedTime <= self._meta[am].synctime:
                     changes.addChange(Change(am, filename, Change.DELETE))
 
                 else:
@@ -186,8 +207,8 @@ class Sync:
             # Unpack the files from the managers
             af, bf  =  self._manager1[filename], self._manager2[filename]
 
-            t1 = af.modifiedTime <= self._meta[self._manager1].synctime
-            t2 = bf.modifiedTime <= self._meta[self._manager2].synctime
+            t1 = af.modifiedTime <= self._meta1.synctime
+            t2 = bf.modifiedTime <= self._meta2.synctime
 
             if (not t1) and (not t2):
                 # Both have been updated
@@ -220,9 +241,67 @@ class Sync:
             elif change.change_type == change.DELETE:
                 change.target.rm(change.filename)
 
+        # Calculate the new expectations of the two
+        synctime = datetime.datetime.now()
+        self._expectations = set(self._manager1.paths(File).keys()).union(self._manager2.paths(File).keys()).union(self._expectations)
+
+        self._meta1.synctime = synctime
+        self._meta1.expectations[self._meta2.machineId] = self._expectations
+        self._meta2.synctime = synctime
+        self._meta2.expectations[self._meta1.machineId] = self._expectations
+
+        # Create a new meta files on the managers and write the meta data back to the manager
+        metapath1 = self._manager1.touch(self._META_PATH)
+        with metapath1.open('w') as fh:
+            self._meta1.write(fh)
+
+        metapath2 = self._manager2.touch(self._META_PATH)
+        with metapath2.open('w') as fh:
+            self._meta2.write(fh)
+
     def sync(self):
         changes = self.calculateChanges()
 
-        # Apply any conflict policy
+        # Resolve the conflicts in the staged changes
+        for conflict in changes.conflicts():
 
+            if self._conflictPolicy == self.STOP_EXECUTION:
+                raise ValueError("Sync has conflicts - policy requires execution to stop")
+
+            policy = self._conflictPolicy
+
+            if self._conflictPolicy == self.CONFLICT:
+
+                while True:
+
+                    # Render the conflict and await for a resolution to be given
+                    print(str(conflict))
+
+                    # Ask the user to chose a resolution
+                    choice = input('which change should be accepted? (1, 2): ').strip().lower()
+
+                    # Check that the choice is valid
+                    if choice not in ['1', '2']:
+                        print("Not a valid selection")
+                        continue
+
+                    policy = self.ACCEPT_1 if choice == '1' else self.ACCEPT_2
+                    break
+
+            if policy == self.ACCEPT_1:
+                target, methodType = self._manager2, conflict.manager1_type
+            
+            else:
+                target, methodType = self._manager1, conflict.manager2_type
+
+            # Select the method of the conflict
+            method = Change.PULL if methodType in ['NEW', 'UPDATED'] else Change.DELETE
+
+            # Create the change for the conflict
+            changes.addChange(Change(target, conflict.filename, method))
+
+            # Remove the conflict from the stages changes
+            changes.removeConflict(conflict)
+
+        # Apply any conflict policy
         self.applyChanges(changes)
