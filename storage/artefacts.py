@@ -82,6 +82,10 @@ class File(Artefact):
                 # The file has been changed - upload the file's contents
                 self._container.put(path, self)
 
+                stats = os.stat(path)
+                self._modified_date = datetime.datetime.now()
+                self._size = stats.st_size
+
     def _update(self, modifiedTime, size):
         self._modified_date = modifiedTime
         self._size = size
