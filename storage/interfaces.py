@@ -188,7 +188,7 @@ class Manager(Container):
         with tempfile.TemporaryDirectory() as directory:
             return self.put(directory, path)
 
-    def touch(self, path: str):
+    def touch(self, path: str) -> Artefact:
 
         with tempfile.TemporaryDirectory() as directory:
             emptyFile = os.path.join(directory, 'empty_file')
