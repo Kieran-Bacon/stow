@@ -200,5 +200,16 @@ class Manager(Container):
         """ Return a config of the arguments to generate this manager again for saving and reloading of the manager """
         pass
 
+    @abc.abstractmethod
+    def refresh(self):
+        """ Trigger the manager to re-assess the state of its artefacts, as to capture modifications made not using 
+        this interface.
+        """
+        pass
+
+    @abc.abstractclassmethod
+    def CLI(self):
+        """ Provide a CLI for the manager construction """
+        pass
+
     #TODO: Add a refresh function ask the manager to check the entire storage container again to ensure that modified times are right
-    #TODO: Add a write function

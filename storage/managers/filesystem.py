@@ -53,8 +53,12 @@ class FS(Manager):
     def __init__(self, name: str, path: str):
         super().__init__(name)
 
-        # Set the top level of the manager
+        # Set the top level of the manager - trigger a re-assessment of the state of the manager (initialise it)
         self._path = os.path.abspath(path)
+        self.refresh()
+
+    def refresh(self):
+        self._paths = {}
         self._root = self._walk(self._path)
         self._paths[sep] = self._root
 
@@ -168,6 +172,26 @@ class FS(Manager):
         path = os.path.join(self._path, relativeObjPath.strip(sep))
         method = shutil.rmtree if os.path.isdir(path) else os.remove
         method(path)
+
+    @classmethod
+    def CLI(cls):
+        
+        print('Initialising a File system manager.')
+
+        name = input('Name of the filesystem(reference only): ')
+
+        while True:
+            path = input('Directory path: ')
+
+            try:
+                if not os.path.exists(path):
+                    print("The path given doesn't exist. Please try again.\n")
+
+                break
+            except:
+                continue
+
+        return cls(name, path)
 
     def toConfig(self):
         return {'name': self.name, 'manager': 'FS', 'path': self._path}
