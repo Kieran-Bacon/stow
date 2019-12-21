@@ -16,6 +16,9 @@ setup(
     packages=find_packages(),
 
     entry_points={
+        'console_scripts': [
+            'backup = storage.backup:BackupManager.main',
+        ],
         'storage_managers': [
             'FS=storage.managers:FS',
             'LFS=storage.managers:FS',

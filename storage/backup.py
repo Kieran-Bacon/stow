@@ -21,7 +21,7 @@ class Backup:
         # Create a synchronizer object for the two objects
         synchronizer = Sync(self._local, self._remote)
 
-        # Perform sync 
+        # Perform sync
         synchronizer.sync()
 
     @classmethod
@@ -43,7 +43,7 @@ class Backup:
         )
 
     def save(self):
-        
+
         # Save the files
         config_paths = os.path.join(CONFIG_DIRECTORY, self._name)
         better.ConfigParser({
@@ -59,10 +59,27 @@ class BackupManager:
 
     @classmethod
     def main(cls):
-        pass
 
-    
-    def createBackupScript(self, name):
+        import argparse
+
+        parser = argparse.ArgumentParser(prog='Python backup utility (pypi storage)')
+        group = parser.add_mutually_exclusive_group()
+
+        group.add_argument('run', nargs='?', help='Run the backup process with the given name')
+        group.add_argument('-c', '--create', help='Create a new backup process', nargs='?')
+        group.add_argument('-r', '--remove', help='Remove a backup process', nargs='?')
+        group.add_argument('-l', '--list', action='store_true', help='List all backup processes')
+
+        arguments = parser.parse_args()
+
+        if arguments.create: cls.createBackup(arguments.create)
+        elif arguments.run: cls.executeBackup(arguments.run)
+        elif arguments.remove: cls.removeBackup(arguments.remove)
+        elif arguments.list: cls.listBackups()
+        else: parser.print_help()
+
+    @staticmethod
+    def createBackup(name):
 
         print('Creating a new backup process')
 
@@ -94,6 +111,15 @@ class BackupManager:
         # Create the backup process and save its details
         Backup(name, *managers, policy=policy).save()
 
-    def runSync(self, name):
+    @staticmethod
+    def executeBackup(name):
         Backup.load(name).sync()
-            
+
+    @staticmethod
+    def removeBackup(name):
+        os.remove(os.path.join(CONFIG_DIRECTORY, name))
+
+    @staticmethod
+    def listBackups():
+        print(os.listdir(CONFIG_DIRECTORY))
+
