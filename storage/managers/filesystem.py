@@ -62,6 +62,9 @@ class FS(Manager):
         self._root = self._walk(self._path)
         self._paths[sep] = self._root
 
+    def __repr__(self):
+        return '<Manager(FS): {} - {}>'.format(self.name, self._path)
+
     def get(self, src_remote, dest_local):
 
         # Call the generic get function which ensures the src_remote path
@@ -175,7 +178,7 @@ class FS(Manager):
 
     @classmethod
     def CLI(cls):
-        
+
         print('Initialising a File system manager.')
 
         name = input('Name of the filesystem(reference only): ')

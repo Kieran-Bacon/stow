@@ -23,6 +23,9 @@ class Change:
         self.filename = filename
         self.change_type = change_type
 
+    def __repr__(self):
+        return '<Artefact-Change: {}{} {}>'.format(self.target, self.filename, self.change_type)
+
 class Conflict:
 
     NEW = 'NEW'
@@ -211,7 +214,11 @@ class Sync:
             t1 = af.modifiedTime <= self._meta1.synctime
             t2 = bf.modifiedTime <= self._meta2.synctime
 
-            if (not t1) and (not t2):
+            if t1 and t2:
+                # They files haven't changed. Nothing to do here
+                continue
+
+            elif (not t1) and (not t2):
                 # Both have been updated
                 changes.addConflict(Conflict(filename, Conflict.UPDATED, Conflict.UPDATED))
 
@@ -291,7 +298,7 @@ class Sync:
 
             if policy == self.ACCEPT_1:
                 target, methodType = self._manager2, conflict.manager1_type
-            
+
             else:
                 target, methodType = self._manager1, conflict.manager2_type
 
