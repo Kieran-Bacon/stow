@@ -211,5 +211,3 @@ class Manager(Container):
     def CLI(self):
         """ Provide a CLI for the manager construction """
         pass
-
-    #TODO: Add a refresh function ask the manager to check the entire storage container again to ensure that modified times are right
