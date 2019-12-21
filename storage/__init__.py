@@ -2,4 +2,4 @@ sep = '/'
 
 from .artefacts import File, Directory
 from .utils import connect
-from .sync2 import Sync
+from .sync import Sync

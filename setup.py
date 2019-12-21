@@ -1,7 +1,8 @@
+import os
 from setuptools import setup, find_packages
 
-requires = [
-]
+with open(os.path.join(os.path.dirname(__file__), 'requirements.txt')) as fh:
+    requires = fh.read().splitlines()
 
 setup(
     name='storage',
