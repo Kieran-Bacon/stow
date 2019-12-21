@@ -31,13 +31,11 @@ class File(Artefact):
 
     def __len__(self): return self._size
 
+    def __hash__(self):
+        return hash(id(self))
+
     def __eq__(self, other):
-        return (
-            isinstance(other, File) and
-            self.name == other.name and
-            self.modifiedTime == other.modifiedTime and
-            self.size == other.size
-        )
+        return self is other
 
     @property
     def modifiedTime(self): return self._modified_date
@@ -93,19 +91,19 @@ class File(Artefact):
 class Directory(Artefact, Container):
     """ A directory represents an os FS directory """
 
-    def __init__(self, container: Manager, remote_path: str, contents: set):
+    def __init__(self, container: Manager, remote_path: str, contents: set = None):
         super().__init__(container, remote_path)
 
-        self._contents = contents
+        self._contents = set(contents) if contents else set()
 
     def add(self, artefact: Artefact) -> None:
-        self._contents.append(artefact)
+        self._contents.add(artefact)
 
     def mkdir(self, path: str):
-        self._contents.mkdir(os.path.join(self._path, path.strip(sep)))
+        self._container.mkdir(os.path.join(self._path, path.strip(sep)))
 
     def touch(self, path):
-        self._contents.touch(os.path.join(self._path, path.strip(sep)))
+        self._container.touch(os.path.join(self._path, path.strip(sep)))
 
     def ls(self, recursive: bool = False):
         return self._contents

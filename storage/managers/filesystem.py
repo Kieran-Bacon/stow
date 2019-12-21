@@ -18,7 +18,7 @@ class FS(Manager):
     def _walk(self, directory: str) -> Directory:
 
         # Hold the building contents of the directory
-        contents = []
+        contents = set()
 
         # Iterate through the contents of the directory
         for obj in os.listdir(directory):
@@ -44,7 +44,7 @@ class FS(Manager):
 
             # Record the path to the file object and add it to the collection of items found within the directory
             self._paths[relativeObjPath] = art
-            contents.append(art)
+            contents.add(art)
 
         # Create a directory object for this directory that has been navigated
         d = Directory(self, directory[len(self._path):], contents)
@@ -140,7 +140,7 @@ class FS(Manager):
                 break
 
             else:
-                focus = Directory(self, parent, [art])
+                focus = Directory(self, parent, {art})
                 self._paths[parent] = focus
                 relativePath = parent
 
