@@ -1,37 +1,62 @@
 import os
 import better
 
+from .interfaces import Manager
 from .sync import Sync
 from .utils import connect
 
 CONFIG_DIRECTORY = os.path.expanduser(os.path.join('~', '.backup_configs'))
+if not os.path.exists(CONFIG_DIRECTORY): os.mkdir(CONFIG_DIRECTORY)
 
-def backup(name: str = None):
+class Backup:
 
-    # Ensure that the backup directory is defined
-    if not os.path.exists(CONFIG_DIRECTORY): os.mkdir(CONFIG_DIRECTORY)
+    def __init__(self, name: str, local: Manager, remote: Manager, *, policy: str = 'STOP'):
+        self._name = name
+        self._local = local
+        self._remote = remote
+        self._policy = policy
 
-    # Load for the selected backup process and sync
-    filenames = [name] if name is not None else os.listdir(CONFIG_DIRECTORY)
+    def sync(self):
 
-    for filename in filenames:
+        # Create a synchronizer object for the two objects
+        synchronizer = Sync(self._local, self._remote)
 
-        # Open a backup config
-        config = better.ConfigParser().read(os.path.join(CONFIG_DIRECTORY, filename))
+        # Perform sync 
+        synchronizer.sync()
 
-        # Setup a Synchroniser
-        synchroniser = Sync(
+    @classmethod
+    def load(cls, name: str):
+
+        # Define the path to the config
+        config_paths = os.path.join(CONFIG_DIRECTORY, name)
+        if not os.path.exists(config_paths):
+            raise ValueError("Not backup config with that name")
+
+        # Read the config
+        config = better.ConfigParser().read(config_paths)
+
+        return cls(
+            name,
             connect(config['container1'].pop('name'), **config['container1']),
             connect(config['container2'].pop('name'), **config['container2']),
-            **config['tracked'],
-            **config.get('options', {})
+            **config['options']
         )
 
-        # Begin the Synchroniser method
-        synchroniser.sync()
+    def save(self):
+        
+        # Save the files
+        config_paths = os.path.join(CONFIG_DIRECTORY, self._name)
+        better.ConfigParser({
+            'container1': self._local.toConfig(),
+            'container2': self._remote.toConfig(),
+            'options': {
+                'policy': self._policy
+            }
+        }).write(config_paths)
 
-        # Overwrite the config stored originall with the new tracked information
-        better.ConfigParser(synchroniser.toConfig()).write(os.path.join(CONFIG_DIRECTORY, filename))
 
+class BackupManager:
 
-
+    @classmethod
+    def main(cls):
+        pass
