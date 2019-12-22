@@ -106,4 +106,4 @@ class Directory(Artefact, Container):
         self._container.touch(os.path.join(self._path, path.strip(sep)))
 
     def ls(self, recursive: bool = False):
-        return self._contents
+        return self._contents.copy()
