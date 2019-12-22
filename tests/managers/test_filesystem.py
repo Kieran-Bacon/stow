@@ -10,13 +10,11 @@ import storage
 class Test_Filesystem(unittest.TestCase, ManagerTests):
 
     def setUp(self):
-
-        # Create a temporary directory for the testing to commence in
+        # Make the managers local space to store files
         self.directory = tempfile.mkdtemp()
 
         # Define the manager
         self.manager = storage.connect('test', manager='FS', path=self.directory)
-
 
     def tearDown(self):
 

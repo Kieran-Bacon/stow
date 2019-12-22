@@ -1,6 +1,9 @@
+import unittest
+import pytest
+
 import os
 import tempfile
-import unittest
+import shutil
 
 import storage
 
@@ -86,3 +89,47 @@ class ManagerTests:
             art = self.manager.put(d, '/testdir')
 
             self.assertIsInstance(art, storage.artefacts.Directory)
+
+    def test_ls(self):
+        pass
+
+    def test_mv(self):
+        pass
+
+    def test_rm(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            # Delete a file
+            # Delete a directory
+            # Fail to delete a directory with contents
+            # Delete an full directory
+
+            # Create a file on the manager
+            self.manager.touch('/file1.txt')
+
+            # Demonstrate that the file can be collected/played with
+            file = self.manager['/file1.txt']
+            self.assertTrue(file._exists)
+            self.manager.get('/file1.txt', os.path.join(directory, 'temp.txt'))
+            os.stat(os.path.join(directory, 'temp.txt'))
+
+            # Delete the file
+            self.manager.rm('/file1.txt')
+
+            # Demonstrate that the file has been removed from the manager
+            with pytest.raises(KeyError):
+                self.manager['/file1.txt']
+
+            self.assertFalse(file._exists)
+
+            with pytest.raises(FileNotFoundError):
+                self.manager.get('/file1.txt', os.path.join(directory, 'temp.txt'))
+                os.stat(os.path.join(directory, 'temp.txt'))
+
+            self.manager.mkdir('/directory')
+            self.manager.mkdir('/directory2')
+            self.manager.touch('/directory2/file1.txt')
+
+
+
