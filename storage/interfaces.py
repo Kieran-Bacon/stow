@@ -164,6 +164,23 @@ class Manager(Container):
 
             return dest_remote
 
+    def ls(self, path, recursive):
+        return self._paths[path].ls(recursive)
+
+    def mv(self, src_remote, dest_remote):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            # Resolve the artefact with it's path - declear a local path for item
+            src_path = src_remote.path if isinstance(src_remote, Artefact) else src_remote
+            download = os.path.abspath(os.path.join(directory, src_path))
+
+            # Download the content into the local space
+            self.get(src_remote, download)
+
+            # Upload the item to where it should be
+            self.put(download, dest_remote)
+
     @abc.abstractmethod
     def rm(self, obj: typing.Union[Artefact, str], recursive: bool = True) -> None:
         # Identify the path to be loaded
@@ -202,7 +219,7 @@ class Manager(Container):
 
     @abc.abstractmethod
     def refresh(self):
-        """ Trigger the manager to re-assess the state of its artefacts, as to capture modifications made not using 
+        """ Trigger the manager to re-assess the state of its artefacts, as to capture modifications made not using
         this interface.
         """
         pass
