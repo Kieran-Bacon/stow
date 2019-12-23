@@ -90,13 +90,37 @@ class ManagerTests:
 
             self.assertIsInstance(art, storage.artefacts.Directory)
 
+    def test_putting_directories_overwrites(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            # Create a directory and a file on the manager
+            self.manager.touch('/directory/file1.txt')
+
+            # Create a local directory and similar file
+            path = os.path.join(directory, 'directory')
+            os.mkdir(path)
+            open(os.path.join(path, 'file2.txt'), 'w').close()
+
+            # Put the local directory into the machine, ensure that its overwritten
+            self.manager.put(path, '/directory')
+
+            folder = self.manager['/directory']
+
+            self.assertEqual(len(folder), 1)
+
+            with pytest.raises(KeyError):
+                self.manager['/directory/file1.txt']
+
+            self.manager['/directory/file2.txt']
+
     def test_ls(self):
-        pass
+        self.fail()
 
     def test_mv(self):
-        pass
+        self.fail()
 
-    def test_rm(self):
+    def test_rm_file(self):
 
         with tempfile.TemporaryDirectory() as directory:
 
@@ -127,9 +151,55 @@ class ManagerTests:
                 self.manager.get('/file1.txt', os.path.join(directory, 'temp.txt'))
                 os.stat(os.path.join(directory, 'temp.txt'))
 
+
+    def test_rm_empty_directory(self):
+
+        # Make an empty directory to delete
+        self.manager.mkdir('/directory')
+
+        tempDir = self.manager['/directory']
+        self.assertTrue(tempfile._exists)
+
+        # Delete the directory
+        self.manager.rm('/directory')
+
+        self.assertFalse(tempDir._exists)
+
+
+    def test_rm_non_empty_directory(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            # Make a directory and some content
             self.manager.mkdir('/directory')
-            self.manager.mkdir('/directory2')
-            self.manager.touch('/directory2/file1.txt')
+            self.manager.touch('/directory/file1.txt')
 
+            # Get the two items
+            folder = self.manager['/directory']
+            file = self.manager['/directory/file1.txt']
 
+            # Ensure that they exist
+            for i, (art, method) in enumerate([(folder, os.path.isdir), (file, os.path.isfile)]):
+                self.assertTrue(art._exists)
 
+                local_path = os.path.join(directory, str(i))
+
+                self.manager.get(art, local_path)
+
+                self.assertTrue(os.path.exists(local_path))
+                self.assertTrue(method(local_path))
+
+            # Ensure that one cannot delete the directory while it still has contents
+            with pytest.raises(storage.interfaces.Exceptions.OperationNotPermitted):
+                self.manager.rm(folder)
+
+            # Remove recursively
+            self.manager.rm(folder, True)
+
+            # Assert that the items are not removed
+            # Ensure that they exist
+            for art in [folder, file]:
+                self.assertFalse(art._exists)
+
+                with pytest.raises(KeyError):
+                    self.manager[art.__dict__['path']]

@@ -1,9 +1,14 @@
+#TODO Ensure that when objects are removed from a directory (such that its now empty) that the directory itself isn't removed
+#TODO maybe clear up the placeholder object in the event that the directory has items added to it
+
 import os
 import boto3
+import tempfile
 
 from ..interfaces import Manager, Artefact
 from ..artefacts import File, Directory
 
+PLACEHOLDER = 'placeholder.ignore'
 toAWSPath = lambda x: x.strip('/')
 fromAWSPath = lambda x: '/' + x.strip('/')
 dirpath = lambda x: '/'.join(x.split('/')[:-1]) or '/'
@@ -57,7 +62,7 @@ class Amazon(Manager):
 
     def refresh(self, prefix=None):
 
-        # TODO Ensure that when refreshing, that artefacts that are believed to exist that no longer to are remoed
+        # TODO Ensure that when refreshing, that artefacts that are believed to exist that no longer to are removed
         #? Thinking that a set of the expected names could be created
         #? When a file is found its path is removed from the set
         #? Any left names must be removed from the manager => self.rm(name)
@@ -94,6 +99,8 @@ class Amazon(Manager):
 
             if name:
                 # The object is a file
+                if name == PLACEHOLDER: continue
+
                 art = File(self, remote_path, obj.last_modified, obj.size)
 
             else:
@@ -111,7 +118,10 @@ class Amazon(Manager):
         remote_path = toAWSPath(path)
 
         # Get the local artefact that is being downloaded
-        art = self._paths[path]
+        if path in self._paths:
+            art = self._paths[path]
+        else:
+            raise FileNotFoundError("Couldn't find find artefact with path {}".format(path))
 
         if isinstance(art, Directory):
 
@@ -184,16 +194,50 @@ class Amazon(Manager):
         # Get the artefact that is being deleted
         art = self._paths[path]
 
+        # Get the owner for the object and remove it
+        owner = self._getHierarchy(dirpath(art.path))
+        owner.remove(art)
+
         if isinstance(art, Directory):
 
             # Delete all contents at that location - to be here with items recursive must have been true
             for obj in self._bucket.objects.filter(Prefix=toAWSPath(art.path)):
                 obj.delete()
 
-            # TODO update for all child artefacts that they are now deleted
+            # run the deletion method for self + all children
+            toDelete = art.ls()
+            while toDelete:
+                # NOTE as the parent is being detached and so are the parents - the GC can clean up
+                # No need to remove each artefact from their parent.
+                a = toDelete.pop()
+
+                if isinstance(a, Directory): toDelete += a.ls()
+
+                # Trigger the artefact to no longer exist
+                a._exists = False
+
+                # Remove the artefact from the internal store
+                del self._paths[a.path]
 
         else:
-            pass
-            # TODO Get the aws object and delete it
+            # The item to delete is a file
 
-        # TODO Remove the artefact from internal data stores and their owning directory
+            # Get the object from AWS and delete it
+            awsObj = self._bucket.Object(toAWSPath(art.path))
+            awsObj.delete()
+
+        # Set the artefact to no longer exist and remove from the internal store
+        art._exists = False
+        del self._paths[art.path]
+
+    def mkdir(self, path):
+        with tempfile.TemporaryDirectory() as directory:
+
+            fp = os.path.join(directory, PLACEHOLDER)
+
+            open(fp, 'w').close()
+
+            self._bucket.upload_file(Filename=fp, Key=toAWSPath(path + '/' + PLACEHOLDER))
+
+        self.refresh(path)
+

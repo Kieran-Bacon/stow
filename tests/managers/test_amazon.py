@@ -76,10 +76,10 @@ class Test_Amazon(unittest.TestCase, ManagerTests):
         self.s3.Bucket(self.bucket_name).objects.delete()
 
     def test_toAWSPath(self):
-        pass
+        self.fail()
 
     def test_fromAWSPath(self):
-        pass
+        self.fail()
 
     def test_dirpath(self):
         self.assertEqual(storage.managers.amazon.dirpath('/file1'), '/')
