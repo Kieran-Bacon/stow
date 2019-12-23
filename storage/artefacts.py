@@ -96,8 +96,13 @@ class Directory(Artefact, Container):
 
         self._contents = set(contents) if contents else set()
 
+    def __len__(self): return len(self._contents)
+
     def add(self, artefact: Artefact) -> None:
         self._contents.add(artefact)
+
+    def remove(self, artefact: Artefact) -> None:
+        self._contents.remove(artefact)
 
     def mkdir(self, path: str):
         self._container.mkdir(os.path.join(self._path, path.strip(sep)))
