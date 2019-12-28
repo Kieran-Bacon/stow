@@ -5,7 +5,7 @@ import json
 import uuid
 from tqdm import tqdm
 
-from .interfaces import Manager
+from .manager import Manager
 from .artefacts import File
 
 import logging

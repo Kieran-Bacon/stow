@@ -1,7 +1,7 @@
 import os
 import better
 
-from .interfaces import Manager
+from .manager import Manager
 from .sync import Sync
 from .utils import find, connect
 

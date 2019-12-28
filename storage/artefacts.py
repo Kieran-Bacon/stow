@@ -6,7 +6,7 @@ import hashlib
 import contextlib
 
 from . import sep
-from .interfaces import Artefact, Container, Manager
+from .interfaces import Artefact, Container
 
 class File(Artefact):
     """ File stuff """
@@ -20,7 +20,7 @@ class File(Artefact):
 
         return hash_md5.hexdigest()
 
-    def __init__(self, container: Manager, remote_path: str, modified_date: datetime.datetime, size: float):
+    def __init__(self, container: Container, remote_path: str, modified_date: datetime.datetime, size: float):
         super().__init__(container, remote_path)
 
         self._modified_date = modified_date
@@ -91,12 +91,16 @@ class File(Artefact):
 class Directory(Artefact, Container):
     """ A directory represents an os FS directory """
 
-    def __init__(self, container: Manager, remote_path: str, contents: set = None):
+    def __init__(self, container: Container, remote_path: str, contents: set = None):
         super().__init__(container, remote_path)
 
         self._contents = set(contents) if contents else set()
 
+    def __repr__(self): return '<storage.Directory({})>'.format(self._path)
+
     def __len__(self): return len(self._contents)
+
+    def __iter__(self): return iter(self._contents)
 
     def add(self, artefact: Artefact) -> None:
         self._contents.add(artefact)
@@ -111,4 +115,18 @@ class Directory(Artefact, Container):
         self._container.touch(os.path.join(self._path, path.strip(sep)))
 
     def ls(self, recursive: bool = False):
+
+        if recursive:
+
+            # Iterate through contents and recursively add lower level artifacts
+            contents = set()
+            for art in self._contents:
+                if isinstance(art, Directory):
+                    contents = contents.union(art.ls(recursive))
+
+                contents.add(art)
+
+            # Return all child content
+            return contents
+
         return self._contents.copy()

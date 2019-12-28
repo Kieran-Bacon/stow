@@ -1,6 +1,6 @@
 import pkg_resources
 
-from .interfaces import Manager
+from .manager import Manager
 
 sep = '/'
 MANAGERS = {}
