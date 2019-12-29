@@ -1,7 +1,9 @@
 import os
 import abc
 import typing
+import shutil
 import tempfile
+import contextlib
 
 from .interfaces import Container, Artefact, Exceptions
 from .artefacts import File, Directory
@@ -51,7 +53,8 @@ class Manager(Container):
 
 
     @abc.abstractmethod
-    def put(self, src_local: str, dest_remote: typing.Union[Artefact, str]) -> None:
+    @contextlib.contextmanager
+    def put(self, src_local: str, dest_remote: typing.Union[Artefact, str]) -> (str, str):
         """ Put a local artefact onto the remote at the location given.
 
         Params:
@@ -59,18 +62,38 @@ class Manager(Container):
             dest_remote (Artefact/str): A file object to overwrite or the relative path to a destination on the
                 remote
         """
+
+        # Ensure that source local
+        temp_source = None
+        if isinstance(src_local, Artefact):
+            # Src local is a complex object, need to download the item to interact with it
+
+            # Generate a place for the source to be stored
+            temp_source_dir = tempfile.mkdtemp()
+            temp_source_name = os.path.join(temp_source_dir, '.transfer.file')
+
+            # Save the source file to that location
+            src_local.save(temp_source_name)
+
+        else:
+            temp_source_name = src_local
+
         # Identify the path to be loaded
         if isinstance(dest_remote, Artefact):
             if dest_remote.manager is not self:
                 raise Exceptions.ArtefactNotMember("Provided artefact is not a member of the manager")
 
-            return dest_remote.path
+            yield temp_source_name, dest_remote.path
 
         else:
             if dest_remote not in self._paths:
                 Exceptions.ArtefactNotFound("There is no item at the location given: {}".format(src_local))
 
-            return dest_remote
+            yield temp_source_name, dest_remote
+
+        if temp_source is not None:
+            # the file was downloaded
+            shutil.rmtree(temp_source)
 
     def ls(self, path: str = '/', recursive: bool = False):
 
