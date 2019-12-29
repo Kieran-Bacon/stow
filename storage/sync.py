@@ -38,6 +38,9 @@ class Conflict:
         self.manager1_type = manager1_type
         self.manager2_type = manager2_type
 
+    def __repr__(self):
+        return '<storage.sync.Conflict: {} {} {}>'.format(self.filename, self.manager1_type, self.manager2_type)
+
 class StagedChanges:
     """ Changes that are going would be made between to managers to synchronise them """
 
@@ -48,6 +51,7 @@ class StagedChanges:
         self._changes = []
         self._conflicts = []
 
+    def __len__(self): return len(self._changes) + len(self._conflicts)
     def __iter__(self): return iter(self._changes)
 
     def addChange(self, change: Change):
@@ -58,7 +62,7 @@ class StagedChanges:
         """ Record a conflict """
         self._conflicts.append(conflict)
 
-    def conflicts(self): return self._conflicts
+    def conflicts(self): return self._conflicts.copy()
 
     def removeConflict(self, conflict: Conflict):
         self._conflicts.remove(conflict)
@@ -125,6 +129,15 @@ class Sync:
 
     _META_PATH = '/.__syncdata__'
 
+    @classmethod
+    def _filterMeta(cls, m):
+        # Remove the meta path from consideration
+        differ = set()
+        for filepath in m:
+            if '/' + filepath.split('/')[-1] == cls._META_PATH:
+                differ.add(filepath)
+        return m.difference(differ)
+
     CONFLICT = 'CONFLICT'
     ACCEPT_1 = 'ACCEPT_1'
     ACCEPT_2 = 'ACCEPT_2'
@@ -179,9 +192,8 @@ class Sync:
         m2 = set(self._manager2.paths(File).keys())
         expected = self._expectations
 
-        # Remove the meta path from consideration
-        m1.discard(self._META_PATH)
-        m2.discard(self._META_PATH)
+        m1 = self._filterMeta(m1)
+        m2 = self._filterMeta(m2)
 
         # Create the stages changes container
         changes = StagedChanges(self._manager1, self._manager2)
