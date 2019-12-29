@@ -37,6 +37,16 @@ class Amazon(Manager):
         self._bucket = self._s3.Bucket(name=bucket)
         self._paths['/'] = Directory(self, '/')
 
+        self._config = {
+            'name': name,
+            'manager': 'AWS',
+            'bucket': bucket,
+            'aws_access_key_id': aws_access_key_id,
+            'aws_secret_access_key': aws_secret_access_key,
+            'region_name': region_name
+
+        }
+
         self.refresh()
 
     def _getHierarchy(self, path) -> Directory:
@@ -244,3 +254,25 @@ class Amazon(Manager):
 
         self.refresh(path)
 
+    @classmethod
+    def CLI(cls):
+
+        #TODO ask for name
+        #TODO For each of these - ask for their details
+        #TODO when they are given, validate by attempting to create a connection
+        #TODO if fail retry - if pass list buckets in resource number them for selection
+        #TODO offer the ability to create a bucket by using c and then take their input
+        # TODO attempt to create it, go round in circles until it works
+        # TODO a config has then been created - create and return
+
+        s3 = boto3.resource(
+            's3',
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            region_name=region_name
+        )
+
+        return cls(name, bucket, aws_access_key_id, aws_secret_access_key, region_name)
+
+    def toConfig(self):
+        return self._config
