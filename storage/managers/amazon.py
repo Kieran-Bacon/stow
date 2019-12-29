@@ -102,7 +102,7 @@ class Amazon(Manager):
                 # The object is a file
                 if name == PLACEHOLDER: continue
 
-                art = File(self, remote_path, obj.last_modified, obj.size)
+                art = File(self, remote_path, obj.last_modified.replace(tzinfo=None), obj.size)
 
             else:
                 # The object is a directory
@@ -181,7 +181,7 @@ class Amazon(Manager):
 
                 else:
                     # The file is a new file and needs to be generated
-                    file = File(self, destination_path, awsFile.last_modified, awsFile.content_length)
+                    file = File(self, destination_path, awsFile.last_modified.replace(tzinfo=None), awsFile.content_length)
 
                     self._paths[destination_path] = file
                     directory = self._getHierarchy(dirpath(destination_path))
