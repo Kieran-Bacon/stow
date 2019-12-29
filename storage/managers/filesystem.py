@@ -7,6 +7,7 @@ from .. import sep
 from ..interfaces import Artefact, Exceptions
 from ..artefacts import File, Directory
 from ..manager import Manager
+from ..utils import connect
 
 class FS(Manager):
     """ Wrap a local filesystem (a networked drive or local directory)
@@ -197,18 +198,27 @@ class FS(Manager):
 
 class Locals(Manager):
 
-    def __init__(self, directories):
-        super().__init__('local')
+    def __init__(self, name, directories):
+        super().__init__(name)
 
         # Unpack all the directories and keep references to the original managers
         directories = [os.path.expanduser(d) for d in directories]
+        self._default = directories[0].split(os.path.sep)[-1]
         self._namesToPaths = {d.split(os.path.sep)[-1]: os.path.abspath(d) for d in directories}
         self._managers = {name: connect(name, manager='FS', path=path) for name, path in self._namesToPaths.items()}
 
+    def refresh(self):
+        for manager in self._managers.values():
+            manager.refresh()
+
+    def paths(self, artefactType = None):
         # Set up the paths for the manager
-        for name, manager in self._managers.items():
-            for path, art in manager.paths().items():
-                self._paths["{sep}{}{sep}{}".format(name, path.strip(sep), sep=sep)] = art
+        return {
+            "{sep}{}{sep}{}".format(name, path.strip(sep), sep=sep): art
+            for name, manager in self._managers.items()
+            for path, art in manager.paths().items()
+            if artefactType is None or isinstance(art, artefactType)
+        }
 
     @ staticmethod
     def _splitFilepath(filepath: str) -> (str, str):
@@ -217,16 +227,34 @@ class Locals(Manager):
 
     def __getitem__(self, filepath: str):
         d, path = self._splitFilepath(filepath)
+        if d not in self._managers:
+            return self._managers[self._default][filepath]
         return self._managers[d][path]
 
+    def __contains__(self, filepath: str):
+        if isinstance(filepath, Artefact): return super().__contains__(filepath)
+        d, path = self._splitFilepath(filepath)
+        if d not in self._managers:
+            return filepath in self._managers[self._default]
+        return path in self._managers[d]
+
+
     def get(self, src_remote: str, dest_local):
-        d, path = self._splitFilepath(src_remote)
+        source_path = super().get(src_remote, dest_local)
+        d, path = self._splitFilepath(source_path)
+        if d not in self._managers:
+            return self._managers[self._default].get(source_path, dest_local)
         return self._managers[d].get(path, dest_local)
 
     def put(self, src_local: str, dest_remote):
-        d, path = self._splitFilepath(dest_remote)
-        return self._managers[d].put(src_local, path)
+        with super().put(src_local, dest_remote) as (source_path, destination_path):
+            d, path = self._splitFilepath(destination_path)
 
-    def rm(self, filename):
-        d, path = self._splitFilepath(filename)
-        return self._managers[d].rm(path)
+            if d not in self._managers:
+                return self._managers[self._default].put(source_path, destination_path)
+            return self._managers[d].put(source_path, path)
+
+    def rm(self, filename, recursive: bool = False):
+        path = super().rm(filename, recursive)
+        d, path = self._splitFilepath(path)
+        return self._managers[d].rm(path, recursive)
