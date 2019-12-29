@@ -10,6 +10,7 @@ from .. import ETC_DIR
 from .manager import ManagerTests
 
 import storage
+from storage.managers.amazon import toAWSPath, fromAWSPath
 
 BUCKET_NAME_INCLUDE = 'pykb-storage-test-bucket'
 
@@ -75,12 +76,26 @@ class Test_Amazon(unittest.TestCase, ManagerTests):
     def tearDown(self):
         self.s3.Bucket(self.bucket_name).objects.delete()
 
+
+
+class Test_AmazonUtils(unittest.TestCase):
+
     def test_toAWSPath(self):
-        self.fail()
+
+        for raw, worked in [
+            ('/file.txt', 'file.txt'),
+            ('/directory/file1.txt', 'directory/file1.txt')
+        ]:
+            self.assertEqual(toAWSPath(raw), worked)
 
     def test_fromAWSPath(self):
-        self.fail()
+
+        for raw, worked in [
+            ('file.txt', '/file.txt'),
+            ('directory/file1.txt', '/directory/file1.txt')
+        ]:
+            self.assertEqual(fromAWSPath(raw), worked)
+
 
     def test_dirpath(self):
         self.assertEqual(storage.managers.amazon.dirpath('/file1'), '/')
-

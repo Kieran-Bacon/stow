@@ -5,8 +5,9 @@ import os
 import boto3
 import tempfile
 
-from ..interfaces import Manager, Artefact
+from ..interfaces import Artefact
 from ..artefacts import File, Directory
+from ..manager import Manager
 
 PLACEHOLDER = 'placeholder.ignore'
 toAWSPath = lambda x: x.strip('/')
@@ -143,48 +144,50 @@ class Amazon(Manager):
 
     def put(self, src_local, dest_remote) -> File:
 
-        # Convert the file path to ensure that it is correct
-        destination_path = super().put(src_local, dest_remote)
+        with super().put(src_local, dest_remote) as (source_path, destination_path):
 
-        if os.path.isdir(src_local):
+            if os.path.isdir(source_path):
 
-            # Walk the directory and add each object to AWS
-            for path, _, files in os.walk(src_local):
+                if destination_path in self._paths:
+                    self.rm(destination_path, True)
 
-                # Remove the original source
-                relative_path = path.replace(src_local, '')
+                # Walk the directory and add each object to AWS
+                for path, _, files in os.walk(source_path):
 
-                # Need to attach the dest_local
-                remote_path = toAWSPath(dest_remote + relative_path)
+                    # Remove the original source
+                    relative_path = path.replace(source_path, '')
 
-                for file in files:
-                    self._bucket.upload_file(os.path.join(path, file), remote_path + '/' + file)
+                    # Need to attach the dest_local
+                    remote_path = toAWSPath(destination_path + relative_path)
 
-            # Refresh the internal objects of the manager from the new directory
-            self.refresh(destination_path)
-            return self._paths[destination_path]
+                    for file in files:
+                        self._bucket.upload_file(os.path.join(path, file), remote_path + '/' + file)
 
-        else:
-            key = toAWSPath(destination_path)
-
-            # Upload the the file to the location and collect an AWS object for that file
-            self._bucket.upload_file(Filename=src_local, Key=key)
-            awsFile = self._bucket.Object(key)
-
-            if destination_path in self._paths:
-                # The file has been updated and the artefact for that file needs to be updated
-                file = self._paths[destination_path]
-                file._update(awsFile.last_modified, awsFile.content_length)
+                # Refresh the internal objects of the manager from the new directory
+                self.refresh(destination_path)
+                return self._paths[destination_path]
 
             else:
-                # The file is a new file and needs to be generated
-                file = File(self, destination_path, awsFile.last_modified, awsFile.content_length)
+                key = toAWSPath(destination_path)
 
-                self._paths[destination_path] = file
-                directory = self._getHierarchy(dirpath(destination_path))
-                directory.add(file)
+                # Upload the the file to the location and collect an AWS object for that file
+                self._bucket.upload_file(Filename=source_path, Key=key)
+                awsFile = self._bucket.Object(key)
 
-            return file
+                if destination_path in self._paths:
+                    # The file has been updated and the artefact for that file needs to be updated
+                    file = self._paths[destination_path]
+                    file._update(awsFile.last_modified, awsFile.content_length)
+
+                else:
+                    # The file is a new file and needs to be generated
+                    file = File(self, destination_path, awsFile.last_modified, awsFile.content_length)
+
+                    self._paths[destination_path] = file
+                    directory = self._getHierarchy(dirpath(destination_path))
+                    directory.add(file)
+
+                return file
 
     def rm(self, artefact: Artefact, recursive: bool = False):
 

@@ -4,8 +4,9 @@ import shutil
 import tempfile
 
 from .. import sep
-from ..interfaces import Manager, Artefact, Exceptions
+from ..interfaces import Artefact, Exceptions
 from ..artefacts import File, Directory
+from ..manager import Manager
 
 class FS(Manager):
     """ Wrap a local filesystem (a networked drive or local directory)
@@ -47,7 +48,7 @@ class FS(Manager):
             contents.add(art)
 
         # Create a directory object for this directory that has been navigated
-        d = Directory(self, directory[len(self._path):], contents)
+        d = Directory(self, directory[len(self._path):] or '/', contents)
         return d
 
     def __init__(self, name: str, path: str):
@@ -58,6 +59,7 @@ class FS(Manager):
         self.refresh()
 
     def refresh(self):
+        #TODO set previous artefacts to not exist as the new ones have been created
         self._paths = {}
         self._root = self._walk(self._path)
         self._paths[sep] = self._root
@@ -76,87 +78,80 @@ class FS(Manager):
         # Download
         method(path, dest_local)
 
+    def _getHierarchy(self, path) -> Directory:
 
-    def put(self, src_local, dest_remote) -> File:
+        if path in self._paths:
+            # The path points to an already established directory
 
-        # Resolve the destination location - get relative path for the manager and the absolute path to the files
-        relativePath = super().put(src_local, dest_remote)
-        abspath = os.path.join(self._path, relativePath.strip(os.path.sep))
+            directory = self._paths[path]
 
-        # Remove anything that exists at the location
-        #if relativePath in self._paths: self.rm(relativePath)
+            if isinstance(directory, File):
+                raise ValueError("Invalid path given. Path points to a file.")
 
-        # Ensure that the directories exist for the incoming files
-        os.makedirs(os.path.dirname(abspath), exist_ok=True)
+            return directory
 
+        # Create the directory at this location
+        art = Directory(self, path)
 
-        # Write the files to the manager location
-        if isinstance(src_local, Artefact):
-            # Save the file/directory into the location
-            src_local.save(abspath)
+        # Fetch the owning directory and add this diretory into it
+        # NOTE os.path.dirname is os agnostic
+        self._getHierarchy(os.path.dirname(path)).add(art)
 
-        else:
-            # src_local is a local path - Identify upload method and upload the files
-            method = shutil.copytree if os.path.isdir(src_local) else shutil.copy
+        self._paths[path] = art
+        return art
 
-            # Upload
-            method(src_local, abspath)
+    def put(self, src_local, dest_remote) -> Artefact:
 
-        # Create objects to represent the new objects found at the location
-        if os.path.isdir(abspath):
-            # TODO HANDLE WHEN THE DIRECTORY ALREADY EXISTS - PROBABLY IN WALK
-            # Walk the new tree and create directories/files for all the items
-            art = self._walk(abspath)
+        with super().put(src_local, dest_remote) as (source_filepath, destination_path):
 
-        else:
-            # A file was put into position
-            stats = os.stat(abspath)  # Get the file information
+            # Convert the relative destination path to an absolute path
+            abspath = os.path.abspath(os.path.join(self._path, destination_path.strip(os.path.sep)))
 
-            if relativePath in self._paths:
-                # A file object already existed for this file - update its values
-                self._paths[relativePath]._update(
+            # Get the owning directory of the item - Ensure that the directories exist for the incoming files
+            os.makedirs(os.path.dirname(abspath), exist_ok=True)
+            owning_directory = self._getHierarchy(os.path.dirname(destination_path))
+
+            # Process the uploading item
+            if os.path.isdir(source_filepath):
+                # Putting a directory
+
+                # Check that the directory doesn't already exist
+                if destination_path in self._paths:
+                    # It exists so remove it and all its children
+                    self.rm(destination_path, recursive=True)
+
+                # Copy the directory into place
+                shutil.copytree(source_filepath, abspath)
+
+                # Walk the directory
+                art = self._walk(abspath)
+
+            else:
+                # Putting a file
+                shutil.copy(source_filepath, abspath)
+
+                stats = os.stat(abspath)  # Get the file information
+
+                if destination_path in self._paths:
+                    # A file object already existed for this file - update its values
+                    self._paths[destination_path]._update(
+                        datetime.datetime.fromtimestamp(stats.st_mtime),
+                        stats.st_size
+                    )
+                    return self._paths[destination_path]
+
+                # Create a new file object at the location
+                art = File(
+                    self,
+                    destination_path,
                     datetime.datetime.fromtimestamp(stats.st_mtime),
                     stats.st_size
                 )
-                return self._paths[relativePath]
 
-            # Create a new file object at the location
-            art = File(
-                self,
-                relativePath,
-                datetime.datetime.fromtimestamp(stats.st_mtime),
-                stats.st_size
-            )
-
-        # Get the relative parent for the newly added items
-        self._paths[relativePath] = art
-
-        # Follow the path for the artefact back up to an established point - adding in missing directories as we go
-        focus = art
-        while True:
-            parent = os.path.dirname(relativePath)
-            if parent in self._paths:
-                self._paths[parent].add(focus)
-                break
-
-            else:
-                focus = Directory(self, parent, {art})
-                self._paths[parent] = focus
-                relativePath = parent
-
-        return art
-
-    def ls(self, path: str = None, recursive: bool = False):
-
-        if path is None: return self._root.ls(recursive)
-
-        # Get from the manager store the object for this path - If failed to collect raise membership error
-        art = self._paths.get(path)
-        if art is None: raise Exceptions.ArtefactNotFound("No directory found at location: {}".format(path))
-
-        # Return the contents of the artefact - if not a container artefact raise error
-        if isinstance(art, Directory): return art.ls(recursive)
-        raise TypeError("None directory artefact found at location")
+            # Save the new artefact
+            owning_directory.add(art)
+            self._paths[destination_path] = art
+            return art
 
     def rm(self, path: str = None, recursive: bool = False):
 

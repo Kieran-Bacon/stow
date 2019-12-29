@@ -12,6 +12,28 @@ class ManagerTests:
     def setUp(self):
         self.manager = storage.interfaces.Manager
 
+    def test_mkdir(self):
+
+        self.manager.mkdir('/directory')
+
+        self.assertEqual(len(self.manager.ls(recursive=True)), 1)
+
+        directory = self.manager['/directory']
+        self.assertIsInstance(directory, storage.Directory)
+        self.assertTrue(len(directory) == 0)
+
+    def test_touch(self):
+
+        self.manager.touch('/file1.txt')
+        self.manager.touch('/directory/file2.txt')
+
+        self.manager.mkdir('/otherdir')
+        self.manager.touch('/otherdir/file3.txt')
+
+        self.assertEqual(len(self.manager.ls(recursive=True)), 5)
+        self.assertIn(self.manager['/directory/file2.txt'], self.manager['/directory'])
+        self.assertIn(self.manager['/otherdir/file3.txt'], self.manager['/otherdir'])
+
     def test_put_and_get(self):
 
         with tempfile.TemporaryDirectory() as directory:
@@ -115,10 +137,78 @@ class ManagerTests:
             self.manager['/directory/file2.txt']
 
     def test_ls(self):
-        self.fail()
+        """ Create a hierarchy of files and show that listing the
+
+        A
+        B c.txt C
+        d.txt e.txt |
+
+        """
+
+        # Create the filesystem
+        self.manager.touch('/A/c.txt')
+        self.manager.touch('/A/B/d.txt')
+        self.manager.touch('/A/B/e.txt')
+        self.manager.mkdir('/A/C')
+
+        # Assert top level
+        self.assertEqual(self.manager.ls(), {self.manager['/A']})
+        self.assertEqual(self.manager.ls(), self.manager['/'].ls())
+
+        # Assert Next level
+        self.assertEqual(self.manager['/A'].ls(), {self.manager[x] for x in ['/A/c.txt', '/A/B', '/A/C']})
+
+        # Assert Next level
+        self.assertEqual(self.manager['/A/B'].ls(), {self.manager[x] for x in ['/A/B/d.txt', '/A/B/e.txt']})
+        self.assertEqual(self.manager['/A/C'].ls(), set())
+
+        # Assert the recursive function
+        objects = set(self.manager.paths().values()).difference({self.manager['/']})
+        self.assertEqual(self.manager.ls(recursive=True), objects)
+        self.assertEqual(self.manager['/'].ls(recursive=True), objects)
 
     def test_mv(self):
-        self.fail()
+
+        content = 'Here is some file content to be verified'
+
+        with tempfile.TemporaryDirectory() as directory:
+            # Create a file on the manager
+            file_one = self.manager.touch('/file1.txt')
+            file_two = self.manager.touch('/file2.txt')
+
+            with file_one.open('w') as fh: fh.write(content)
+            with file_two.open('w') as fh: fh.write(content)
+
+            # Assert that the file exists
+            self.assertTrue(self.manager['/file1.txt'])
+            self.assertTrue(self.manager['/file2.txt'])
+
+            with pytest.raises(KeyError):
+                self.manager['/file3.txt']
+
+            with pytest.raises(KeyError):
+                self.manager['/file4.txt']
+
+            # Move the file
+            self.manager.mv('/file1.txt', '/file3.txt')
+            self.manager.mv(file_two, '/file4.txt')
+
+            # Assert that the file exists
+            self.assertTrue(self.manager['/file3.txt'])
+            self.assertTrue(self.manager['/file4.txt'])
+            with pytest.raises(KeyError): self.manager['/file1.txt']
+            with pytest.raises(KeyError): self.manager['/file2.txt']
+
+            # Open the new file and assert that its content matches
+            path = os.path.join(directory, 'file.txt')
+            self.manager.get('/file3.txt', path)
+            with open(path, 'r') as handle:
+                self.assertEqual(handle.read(), content)
+
+            self.manager.get('/file4.txt', path)
+            with open(path, 'r') as handle:
+                self.assertEqual(handle.read(), content)
+
 
     def test_rm_file(self):
 
