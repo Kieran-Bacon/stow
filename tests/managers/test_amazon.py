@@ -1,7 +1,7 @@
 import unittest
 
 import os
-import better
+import pyini
 import boto3
 from botocore.exceptions import ClientError
 import uuid
@@ -20,7 +20,7 @@ class Test_Amazon(unittest.TestCase, ManagerTests):
     def setUpClass(cls):
 
         # Load aws information
-        cls._config = better.ConfigParser().read(os.path.join(ETC_DIR, 'aws_credentials.ini'))
+        cls._config = pyini.ConfigParser().read(os.path.join(ETC_DIR, 'aws_credentials.ini'))
 
         # Connect to aws
         cls.s3 = boto3.resource(
