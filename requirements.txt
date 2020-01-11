@@ -1,2 +1,3 @@
-betterpy
 tqdm
+pyini
+boto3

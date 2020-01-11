@@ -1,7 +1,7 @@
 import os
-import better
+import pyini
 
-from .interfaces import Manager
+from .manager import Manager
 from .sync import Sync
 from .utils import find, connect
 
@@ -33,7 +33,7 @@ class Backup:
             raise ValueError("Not backup config with that name")
 
         # Read the config
-        config = better.ConfigParser().read(config_paths)
+        config = pyini.ConfigParser().read(config_paths)
 
         return cls(
             name,
@@ -46,7 +46,7 @@ class Backup:
 
         # Save the files
         config_paths = os.path.join(CONFIG_DIRECTORY, self._name)
-        better.ConfigParser({
+        pyini.ConfigParser({
             'container1': self._local.toConfig(),
             'container2': self._remote.toConfig(),
             'options': {

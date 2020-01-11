@@ -26,8 +26,7 @@ class Test_Files(unittest.TestCase):
         shutil.rmtree(self.directory)
 
     def test_opening(self):
-
-        file = self.manager.ls()[0]
+        file = self.manager.ls().pop()
 
         with file.open('r') as fh:
             self.assertEqual(fh.read(), self.filetext)
@@ -50,7 +49,7 @@ class Test_Directories(unittest.TestCase):
     def setUp(self):
 
         self.directory = tempfile.mkdtemp()
-        os.mkdir('dir1')
+        os.mkdir(os.path.join(self.directory, 'dir1'))
 
         self.filepath = os.path.join(self.directory, 'dir1', 'file1')
         self.filetext = 'Another one bits the dust'
@@ -64,7 +63,7 @@ class Test_Directories(unittest.TestCase):
 
     def test_removal(self):
 
-        directory = self.manager.ls()[0]
+        directory = self.manager.ls().pop()
 
         self.assertIsInstance(directory, storage.Directory)
 
