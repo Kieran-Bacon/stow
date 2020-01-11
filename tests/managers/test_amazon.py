@@ -12,15 +12,17 @@ from .manager import ManagerTests
 import storage
 from storage.managers.amazon import toAWSPath, fromAWSPath
 
+CONFIG_PATH = os.path.join(ETC_DIR, 'aws_credentials.ini')
 BUCKET_NAME_INCLUDE = 'pykb-storage-test-bucket'
 
+@unittest.skipIf(not os.path.exists(CONFIG_PATH), 'No credentials at {} to connect to aws'.format(CONFIG_PATH))
 class Test_Amazon(unittest.TestCase, ManagerTests):
 
     @classmethod
     def setUpClass(cls):
 
         # Load aws information
-        cls._config = pyini.ConfigParser().read(os.path.join(ETC_DIR, 'aws_credentials.ini'))
+        cls._config = pyini.ConfigParser().read(CONFIG_PATH)
 
         # Connect to aws
         cls.s3 = boto3.resource(
