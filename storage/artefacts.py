@@ -5,7 +5,7 @@ import tempfile
 import hashlib
 import contextlib
 
-from . import sep
+from . import SEP
 from .interfaces import Artefact, Container
 
 class File(Artefact):
@@ -109,10 +109,10 @@ class Directory(Artefact, Container):
         self._contents.remove(artefact)
 
     def mkdir(self, path: str):
-        self._container.mkdir(os.path.join(self._path, path.strip(sep)))
+        self._container.mkdir(os.path.join(self._path, path.strip(SEP)))
 
     def touch(self, path):
-        self._container.touch(os.path.join(self._path, path.strip(sep)))
+        self._container.touch(os.path.join(self._path, path.strip(SEP)))
 
     def ls(self, recursive: bool = False):
 

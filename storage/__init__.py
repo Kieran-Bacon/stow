@@ -1,4 +1,4 @@
-sep = '/'
+SEP = '/'
 
 from .artefacts import File, Directory
 from .utils import find, connect

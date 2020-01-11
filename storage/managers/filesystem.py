@@ -1,23 +1,49 @@
 import os
+import sys
 import datetime
 import shutil
 import tempfile
 
-from .. import sep
+from .. import SEP
 from ..interfaces import Artefact, Exceptions
 from ..artefacts import File, Directory
 from ..manager import Manager
 from ..utils import connect
 
+WIN32 = 'win32'
+
 class FS(Manager):
     """ Wrap a local filesystem (a networked drive or local directory)
 
     Params:
-        name (str):
+        name (str): A human readable name for logging purposes
         path (str): The local relative path to where the manager is to be initialised
     """
 
+    def __init__(self, name: str, path: str):
+        super().__init__(name)
+
+        # Set the top level of the manager - trigger a re-assessment of the state of the manager (initialise it)
+        self._path = os.path.abspath(path)
+        self.refresh()
+
+    def _relpath(self, path: str):
+        """ Convert the path given into a relative path for the manager """
+        path = path[len(self._path):]
+        if sys.platform == WIN32:
+            return path.replace(os.path.sep, SEP)
+        return path
+
     def _walk(self, directory: str) -> Directory:
+        """ Walk through a directory recursively and build Artefact objects to represent its structure. Capturing the
+        files metadata and paths
+
+        Params:
+            directory (str): Filepath of the os pointing to a directory to walk
+
+        Returns:
+            Directory: Returns a representation of the given directory with all its child elements nested within it
+        """
 
         # Hold the building contents of the directory
         contents = set()
@@ -27,7 +53,7 @@ class FS(Manager):
 
             # Create the absolute path for the obj
             objPath = os.path.join(directory, obj)
-            relativeObjPath = objPath[len(self._path):]
+            relativeObjPath = self._relpath(objPath)
 
             # Resolve whether the obj is a directory or a file
             if os.path.isdir(objPath):
@@ -49,46 +75,26 @@ class FS(Manager):
             contents.add(art)
 
         # Create a directory object for this directory that has been navigated
-        d = Directory(self, directory[len(self._path):] or '/', contents)
+        d = Directory(self, self._relpath(directory) or SEP, contents)
         return d
 
-    def __init__(self, name: str, path: str):
-        super().__init__(name)
-
-        # Set the top level of the manager - trigger a re-assessment of the state of the manager (initialise it)
-        self._path = os.path.abspath(path)
-        self.refresh()
-
-    def refresh(self):
-        #TODO set previous artefacts to not exist as the new ones have been created
-        self._paths = {}
-        self._root = self._walk(self._path)
-        self._paths[sep] = self._root
-
-    def __repr__(self):
-        return '<Manager(FS): {} - {}>'.format(self.name, self._path)
-
-    def get(self, src_remote, dest_local):
-
-        # Call the generic get function which ensures the src_remote path
-        path = os.path.join(self._path, super().get(src_remote, dest_local).strip(os.path.sep))
-
-        # Identify download method
-        method = shutil.copytree if os.path.isdir(path) else shutil.copy
-
-        # Download
-        method(path, dest_local)
-
     def _getHierarchy(self, path) -> Directory:
+        """ Fetch the owning `container` for the manager relative path given. In the event that no `container` object
+        exists for the path, create one and recursively find its owning `container` to add it to. The goal of this
+        function is to traverse up the hierarchy and ensure all the directory objects exist, and when they do quickly
+        return the container they are in
+
+        Params:
+            path (str): The manager relative path for an `Artefact`
+
+        Returns:
+            Directory: The owning directory container, which may have just been created
+        """
 
         if path in self._paths:
             # The path points to an already established directory
-
             directory = self._paths[path]
-
-            if isinstance(directory, File):
-                raise ValueError("Invalid path given. Path points to a file.")
-
+            if isinstance(directory, File): raise ValueError("Invalid path given. Path points to a file.")
             return directory
 
         # Create the directory at this location
@@ -101,12 +107,36 @@ class FS(Manager):
         self._paths[path] = art
         return art
 
+    def refresh(self):
+        #TODO set previous artefacts to not exist as the new ones have been created
+        self._paths = {}
+        self._paths[SEP] = self._walk(self._path)
+
+    def __repr__(self):
+        return '<Manager(FS): {} - {}>'.format(self.name, self._path)
+
+    def get(self, src_remote, dest_local):
+
+        # Create the relative path to the source file
+        path = os.path.abspath(
+            os.path.join(
+                self._path,
+                super().get(src_remote, dest_local).strip(SEP)
+            )
+        )
+
+        # Identify download method
+        method = shutil.copytree if os.path.isdir(path) else shutil.copy
+
+        # Download
+        method(path, dest_local)
+
     def put(self, src_local, dest_remote) -> Artefact:
 
         with super().put(src_local, dest_remote) as (source_filepath, destination_path):
 
             # Convert the relative destination path to an absolute path
-            abspath = os.path.abspath(os.path.join(self._path, destination_path.strip(os.path.sep)))
+            abspath = os.path.abspath(os.path.join(self._path, destination_path.strip(SEP)))
 
             # Get the owning directory of the item - Ensure that the directories exist for the incoming files
             os.makedirs(os.path.dirname(abspath), exist_ok=True)
@@ -114,8 +144,6 @@ class FS(Manager):
 
             # Process the uploading item
             if os.path.isdir(source_filepath):
-                # Putting a directory
-
                 # Check that the directory doesn't already exist
                 if destination_path in self._paths:
                     # It exists so remove it and all its children
@@ -168,7 +196,7 @@ class FS(Manager):
         del self._paths[obj.path]
         obj._exists = False
 
-        path = os.path.join(self._path, relativeObjPath.strip(sep))
+        path = os.path.abspath(os.path.join(self._path, relativeObjPath.strip(SEP)))
         method = shutil.rmtree if os.path.isdir(path) else os.remove
         method(path)
 
@@ -214,7 +242,7 @@ class Locals(Manager):
     def paths(self, artefactType = None):
         # Set up the paths for the manager
         return {
-            "{sep}{}{sep}{}".format(name, path.strip(sep), sep=sep): art
+            "{sep}{}{sep}{}".format(name, path.strip(SEP), sep=SEP): art
             for name, manager in self._managers.items()
             for path, art in manager.paths().items()
             if artefactType is None or isinstance(art, artefactType)
@@ -222,8 +250,8 @@ class Locals(Manager):
 
     @ staticmethod
     def _splitFilepath(filepath: str) -> (str, str):
-        nodes = filepath.strip(sep).split(sep)
-        return nodes[0], sep + sep.join(nodes[1:])
+        nodes = filepath.strip(SEP).split(SEP)
+        return nodes[0], SEP + SEP.join(nodes[1:])
 
     def __getitem__(self, filepath: str):
         d, path = self._splitFilepath(filepath)
