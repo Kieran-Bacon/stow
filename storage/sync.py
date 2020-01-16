@@ -69,7 +69,6 @@ class StagedChanges:
 
     def hasConflicts(self): return bool(len(self._conflicts))
 
-
 class SyncMeta:
 
     def __init__(self, machineId: str, groupId, synctime: datetime.datetime, expectations: {str: {str}}):

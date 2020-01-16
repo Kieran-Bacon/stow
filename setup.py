@@ -23,7 +23,8 @@ setup(
             'FS=storage.managers:FS',
             'LFS=storage.managers:FS',
             'Locals=storage.managers:Locals',
-            'AWS=storage.managers:Amazon'
+            'AWS=storage.managers:Amazon',
+            'S3=storage.managers:Amazon'
         ]
     }
 )

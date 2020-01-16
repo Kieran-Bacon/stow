@@ -28,8 +28,9 @@ def connect(name: str, *, config=None, manager: str = None, **kwargs) -> Manager
 
     if config is not None:
         # Load the contents of the config and assign it to a variable
-        manager = None
-        kwargs = {}
+        config.pop('name', None)
+        manager = config.pop('manager')
+        kwargs = {**config, **kwargs}
 
     # Find the class for the manager
     mClass = find(manager)
