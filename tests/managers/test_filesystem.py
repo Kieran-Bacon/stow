@@ -15,12 +15,40 @@ class Test_Filesystem(unittest.TestCase, ManagerTests):
         self.directory = tempfile.mkdtemp()
 
         # Define the manager
-        self.manager = storage.connect('test', manager='FS', path=self.directory)
+        self.manager = storage.connect(manager='FS', path=self.directory)
 
     def tearDown(self):
 
         # Delete the directory and all it's contents
         shutil.rmtree(self.directory)
+
+    def test_abspath(self):
+
+        # Make a file
+        with self.manager.open('/directory/file.txt', 'w') as handle:
+            handle.write('content')
+
+        file = self.manager['/directory/file.txt']
+
+        # Assert that it's full path
+        self.assertEqual(
+            os.path.join(self.directory, "directory", "file.txt"),
+            self.manager._abspath(file)
+        )
+
+        self.assertEqual(open(os.path.join(self.directory, "directory", "file.txt"), "r").read(), "content")
+
+    def test_dirname(self):
+        pass
+
+    def test_basename(self):
+        pass
+
+    def test_relname(self):
+        pass
+
+
+
 
 class Test_Locals(unittest.TestCase):
 
@@ -35,7 +63,7 @@ class Test_Locals(unittest.TestCase):
             directories.append(path)
 
         # Define the manager
-        self.manager = storage.connect('test', manager='Locals', directories=directories)
+        self.manager = storage.connect(manager='Locals', directories=directories)
 
     def tearDown(self):
 

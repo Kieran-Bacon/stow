@@ -5,8 +5,7 @@ import os
 import boto3
 import tempfile
 
-from ..interfaces import Artefact
-from ..artefacts import File, Directory
+from ..artefacts import Artefact, File, Directory
 from ..manager import Manager
 
 PLACEHOLDER = 'placeholder.ignore'
@@ -49,27 +48,8 @@ class Amazon(Manager):
 
         self.refresh()
 
-    def _getHierarchy(self, path) -> Directory:
-
-        if path in self._paths:
-            # The path points to an already established directory
-
-            directory = self._paths[path]
-
-            if isinstance(directory, File):
-                raise ValueError("Invalid path given. Path points to a file.")
-
-            return directory
-
-        # Create the directory at this location
-        art = Directory(self, path)
-
-        # Fetch the owning directory and add this diretory into it
-        self._getHierarchy(fromAWSPath('/'.join(path.split('/')[:-1]))).add(art)
-
-        self._paths[path] = art
-        return art
-
+    @staticmethod
+    def _dirname(path): return fromAWSPath('/'.join(path.split('/')[:-1]))
 
     def refresh(self, prefix=None):
 

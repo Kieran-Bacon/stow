@@ -2,7 +2,6 @@ import pkg_resources
 
 from .manager import Manager
 
-sep = '/'
 MANAGERS = {}
 
 def find(manager) -> Manager:
@@ -21,14 +20,13 @@ def find(manager) -> Manager:
 
     return mClass
 
-def connect(name: str, *, config=None, manager: str = None, **kwargs) -> Manager:
+def connect(*, config=None, manager: str = None, **kwargs) -> Manager:
 
     if config is None and manager is None:
         raise ValueError("Need to specify a config or a manager")
 
     if config is not None:
         # Load the contents of the config and assign it to a variable
-        config.pop('name', None)
         manager = config.pop('manager')
         kwargs = {**config, **kwargs}
 
@@ -36,4 +34,4 @@ def connect(name: str, *, config=None, manager: str = None, **kwargs) -> Manager
     mClass = find(manager)
 
     # Create the Manager - pass all the kwarg arguments
-    return mClass(name = name, **kwargs)
+    return mClass(**kwargs)

@@ -23,8 +23,8 @@ class Test_Syncing(unittest.TestCase):
         os.mkdir(self._localContainer)
         os.mkdir(self._remoteContainer)
 
-        self.local = storage.connect('local', manager='FS', path=self._localContainer)
-        self.remote = storage.connect('remote', manager='FS', path=self._remoteContainer)
+        self.local = storage.connect(manager='FS', path=self._localContainer)
+        self.remote = storage.connect(manager='FS', path=self._remoteContainer)
 
     def tearDown(self):
         shutil.rmtree(self._container)

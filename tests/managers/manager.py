@@ -10,7 +10,7 @@ import storage
 class ManagerTests:
 
     def setUp(self):
-        self.manager = storage.interfaces.Manager
+        self.manager = storage.manager.Manager
 
     def test_mkdir(self):
 
@@ -167,7 +167,7 @@ class ManagerTests:
         self.assertEqual(self.manager.ls(recursive=True), objects)
         self.assertEqual(self.manager['/'].ls(recursive=True), objects)
 
-    def test_mv(self):
+    def test_mv_files(self):
 
         content = 'Here is some file content to be verified'
 
@@ -200,15 +200,33 @@ class ManagerTests:
             with pytest.raises(KeyError): self.manager['/file2.txt']
 
             # Open the new file and assert that its content matches
-            path = os.path.join(directory, 'file.txt')
-            self.manager.get('/file3.txt', path)
-            with open(path, 'r') as handle:
+            with self.manager.open('/file3.txt', 'r') as handle:
                 self.assertEqual(handle.read(), content)
 
-            self.manager.get('/file4.txt', path)
-            with open(path, 'r') as handle:
+            with self.manager.open('/file4.txt', 'r') as handle:
                 self.assertEqual(handle.read(), content)
 
+            self.assertEqual(file_one.path, "/file3.txt")
+            self.assertEqual(file_two.path, "/file4.txt")
+
+            self.assertEqual(file_one, self.manager['/file3.txt'])
+            self.assertEqual(file_two, self.manager['/file4.txt'])
+
+    def test_mv_directory(self):
+
+        with self.manager.open('/directory/file1.txt', 'w') as handle:
+            handle.write('Some stuff')
+
+        # Get the artefacts to compare with the result of moving the directory
+        directory = self.manager['/directory']
+        file = self.manager['/directory/file1.txt']
+
+        self.manager.mv('/directory', '/another')
+
+        self.assertEqual(directory.path, "/another")
+        self.assertEqual(file.path, "/another/file1.txt")
+
+        self.assertEqual(self.manager.paths().keys(), {"/", "/another", "/another/file1.txt"})
 
     def test_rm_file(self):
 
@@ -237,7 +255,7 @@ class ManagerTests:
 
             self.assertFalse(file._exists)
 
-            with pytest.raises(FileNotFoundError):
+            with pytest.raises(storage.exceptions.ArtefactNotMember):
                 self.manager.get('/file1.txt', os.path.join(directory, 'temp.txt'))
                 os.stat(os.path.join(directory, 'temp.txt'))
 
@@ -280,7 +298,7 @@ class ManagerTests:
                 self.assertTrue(method(local_path))
 
             # Ensure that one cannot delete the directory while it still has contents
-            with pytest.raises(storage.interfaces.Exceptions.OperationNotPermitted):
+            with pytest.raises(storage.exceptions.OperationNotPermitted):
                 self.manager.rm(folder)
 
             # Remove recursively
@@ -293,3 +311,15 @@ class ManagerTests:
 
                 with pytest.raises(KeyError):
                     self.manager[art.__dict__['path']]
+
+            self.assertEqual(self.manager['/'].ls(), set())
+
+    def test_manager_open(self):
+
+        with self.manager.open('/directory/file.txt', 'w') as handle:
+            handle.write('some content')
+
+        file = self.manager['/directory/file.txt']
+
+        with file.open() as handle:
+            self.assertEqual(handle.read(), 'some content')
