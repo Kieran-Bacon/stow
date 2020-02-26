@@ -9,3 +9,6 @@ class ArtefactTypeError(TypeError):
 
 class OperationNotPermitted(Exception):
     pass
+
+class InvalidPath(ValueError):
+    pass

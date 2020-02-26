@@ -47,7 +47,7 @@ class File(Artefact):
 
     def __len__(self): return self._size
     def __repr__(self):
-        return '<storage.File: name({}) - modified({}) - size({})>'.format(self._path, self._modified_date, self._size)
+        return '<storage.File: {} modified({}) size({} bytes)>'.format(self._path, self._modified_date, self._size)
 
     @property
     def modifiedTime(self): return self._modified_date
