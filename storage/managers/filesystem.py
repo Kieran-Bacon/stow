@@ -10,8 +10,6 @@ from ..artefacts import Artefact, File, Directory
 from ..manager import LocalManager
 from ..utils import connect
 
-WIN32 = 'win32'
-
 class FS(LocalManager):
     """ Wrap a local filesystem (a networked drive or local directory)
 
@@ -23,6 +21,8 @@ class FS(LocalManager):
         # Record the local path to the original directory
         self._path = os.path.abspath(path)
         super().__init__()
+
+    def __repr__(self): return '<Manager(FS): {}>'.format(self._path)
 
     def _abspath(self, artefact):
         _, path = self._artefactFormStandardise(artefact)
@@ -67,8 +67,6 @@ class FS(LocalManager):
                 files.add(self._relpath(os.path.join(dp, f)))
 
         return files
-
-    def __repr__(self): return '<Manager(FS): {}>'.format(self._path)
 
     def _get(self, src_remote: str, dest_local: str):
 

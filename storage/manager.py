@@ -36,6 +36,9 @@ class Manager(ABC):
         if isinstance(item, Artefact): return item.manager is self
         return item in self._paths
 
+    @abstractmethod
+    def __repr__(self): pass
+
     def paths(self, classtype = None):
         if classtype is None: return self._paths.copy()
         else: return {path: artefact for path, artefact in self._paths.items() if isinstance(artefact, classtype)}
@@ -406,4 +409,3 @@ class RemoteManager(Manager, ABC):
 
                 # update the objects information with the information from that file
                 object._update(self._makefile(path))
-

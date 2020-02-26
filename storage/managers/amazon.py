@@ -34,6 +34,8 @@ class Amazon(RemoteManager):
 
         super().__init__()
 
+    def __repr__(self): return '<Manager(S3): {}>'.format(self._bucketName)
+
     def _abspath(self, artefact: str):
         """ Difference between AWS and manager path is the removal of a leading '/'. As such remove the first character
         """

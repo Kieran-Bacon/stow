@@ -10,7 +10,6 @@ from .. import ETC_DIR
 from .manager import ManagerTests
 
 import storage
-from storage.managers.amazon import toAWSPath, fromAWSPath
 
 CONFIG_PATH = os.path.join(ETC_DIR, 'aws_credentials.ini')
 BUCKET_NAME_INCLUDE = 'pykb-storage-test-bucket'
@@ -118,26 +117,3 @@ class Test_Amazon(unittest.TestCase, ManagerTests):
 
         for i, o in paths:
             self.assertEqual(self.manager._basename(i), o)
-
-
-class Test_AmazonUtils(unittest.TestCase):
-
-    def test_toAWSPath(self):
-
-        for raw, worked in [
-            ('/file.txt', 'file.txt'),
-            ('/directory/file1.txt', 'directory/file1.txt')
-        ]:
-            self.assertEqual(toAWSPath(raw), worked)
-
-    def test_fromAWSPath(self):
-
-        for raw, worked in [
-            ('file.txt', '/file.txt'),
-            ('directory/file1.txt', '/directory/file1.txt')
-        ]:
-            self.assertEqual(fromAWSPath(raw), worked)
-
-
-    def test_dirpath(self):
-        self.assertEqual(storage.managers.amazon.dirpath('/file1'), '/')
