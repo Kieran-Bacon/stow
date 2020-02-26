@@ -1,29 +1,26 @@
-#TODO Ensure that when objects are removed from a directory (such that its now empty) that the directory itself isn't removed
-#TODO maybe clear up the placeholder object in the event that the directory has items added to it
-
 import os
 import boto3
 import tempfile
+import re
 
 from ..artefacts import Artefact, File, Directory
-from ..manager import Manager
+from ..manager import RemoteManager
+from .. import exceptions
 
-PLACEHOLDER = 'placeholder.ignore'
-toAWSPath = lambda x: x.strip('/')
-fromAWSPath = lambda x: '/' + x.strip('/')
-dirpath = lambda x: '/'.join(x.split('/')[:-1]) or '/'
-
-class Amazon(Manager):
+class Amazon(RemoteManager):
 
     def __init__(
         self,
-        name: str,
         bucket: str,
-        aws_access_key_id: str,
-        aws_secret_access_key: str,
-        region_name: str
+        aws_access_key_id: str = None,
+        aws_secret_access_key: str = None,
+        region_name: str = None
     ):
-        super().__init__(name)
+
+        self._bucketName = bucket
+        self._aws_access_key_id = aws_access_key_id
+        self._aws_secret_access_key = aws_secret_access_key
+        self._region_name = region_name
 
         self._s3 = boto3.resource(
             's3',
@@ -33,90 +30,42 @@ class Amazon(Manager):
         )
 
         # Create a reference to the AWS bucket - create a Directory to represent it
-        self._bucket = self._s3.Bucket(name=bucket)
-        self._paths['/'] = Directory(self, '/')
+        self._bucket = self._s3.Bucket(name=bucket) # pylint: disable=no-member
 
-        self._config = {
-            'name': name,
-            'manager': 'AWS',
-            'bucket': bucket,
-            'aws_access_key_id': aws_access_key_id,
-            'aws_secret_access_key': aws_secret_access_key,
-            'region_name': region_name
+        super().__init__()
 
-        }
+    def _abspath(self, artefact: str):
+        """ Difference between AWS and manager path is the removal of a leading '/'. As such remove the first character
+        """
+        _, path = self._artefactFormStandardise(artefact)
+        return self._relpath(path)[1:]
 
-        self.refresh()
+    def _basename(self, artefact):
+        _, path = self._artefactFormStandardise(artefact)
+        return os.path.basename(self._relpath(path))
 
-    @staticmethod
-    def _dirname(path): return fromAWSPath('/'.join(path.split('/')[:-1]))
+    def _dirname(self, path):
+        _, path = self._artefactFormStandardise(path)
+        return "/".join(self._relpath(path).split('/')[:-1]) or '/'
 
-    def refresh(self, prefix=None):
+    def _walkOrigin(self, prefix = None):
 
-        # TODO Ensure that when refreshing, that artefacts that are believed to exist that no longer to are removed
-        #? Thinking that a set of the expected names could be created
-        #? When a file is found its path is removed from the set
-        #? Any left names must be removed from the manager => self.rm(name)
-        #? Must build in precausion for ^ sub prefixing
-
-        # Create iterable for AWS objects
-        iterable = self._bucket.objects.all() if prefix is None else self._bucket.objects.filter(Prefix=toAWSPath(prefix))
-
-        for obj in iterable:
-
-            # Extract the path of the artefact from the remote
-            remote_path = fromAWSPath(obj.key)
-            if remote_path in self._paths:
-                # An atefact already exists for this object
-
-                # Get artefact
-                art = self._paths[remote_path]
-
-                if isinstance(art, File):
-                    # Update the meta of the file with the objectSummary
-                    art._update(obj.last_modified, obj.size)
-
-                continue
-
-            # Identify what the item is
-            key_components = obj.key.split('/')
-
-            # Split object key to obtain it's name and its relative location
-            name = key_components[-1]
-            directory_path = fromAWSPath('/'.join(key_components[:-1]))
-
-            # Get the owning directory for the object
-            owning_directory = self._getHierarchy(directory_path)
-
-            if name:
-                # The object is a file
-                if name == PLACEHOLDER: continue
-
-                art = File(self, remote_path, obj.last_modified.replace(tzinfo=None), obj.size)
-
-            else:
-                # The object is a directory
-                art = Directory(self, remote_path)
-
-            # Store the newly created artefact in the manager store
-            self._paths[remote_path] = art
-            owning_directory.add(art)
-
-    def get(self, src_remote, dest_local):
-
-        # Call the generic get function which ensures the src_remote path
-        path = super().get(src_remote, dest_local)
-        remote_path = toAWSPath(path)
-
-        # Get the local artefact that is being downloaded
-        if path in self._paths:
-            art = self._paths[path]
+        if prefix is None:
+            objs = self._bucket.objects.all()
         else:
-            raise FileNotFoundError("Couldn't find find artefact with path {}".format(path))
+            objs = self._bucket.objects.filter(Prefix=self._abspath(prefix))
 
-        if isinstance(art, Directory):
+        return [self._relpath(obj.key) for obj in objs]
 
-            for object in self._bucket.objects.filter(Prefix=remote_path):
+    def _makefile(self, remotePath: str):
+        awsObject = self._bucket.Object(self._abspath(remotePath))
+        return File(self, remotePath, awsObject.last_modified, awsObject.content_length)
+
+    def _get(self, src_remote, dest_local):
+
+        if isinstance(src_remote, Directory):
+
+            for object in self._bucket.objects.filter(Prefix=self._abspath(src_remote)):
                 # Collect the objects in that directory - downlad each one
 
                 # Create object absolute path
@@ -129,130 +78,74 @@ class Amazon(Manager):
                 self._bucket.download_file(object.key, path)
 
         else:
+            self._bucket.download_file(self._abspath(src_remote), dest_local)
 
-            self._bucket.download_file(remote_path, dest_local)
+    def _put(self, src_local, dest_remote):
 
-    def put(self, src_local, dest_remote) -> File:
+        if os.path.isdir(src_local):
+            # A directory of items is to be uploaded - walk local directory and uploade each file
 
-        with super().put(src_local, dest_remote) as (source_path, destination_path):
+            for path, _, files in os.walk(src_local):
 
-            if os.path.isdir(source_path):
-
-                if destination_path in self._paths:
-                    self.rm(destination_path, True)
-
-                # Walk the directory and add each object to AWS
-                for path, _, files in os.walk(source_path):
-
-                    # Remove the original source
-                    relative_path = path.replace(source_path, '')
-
-                    # Need to attach the dest_local
-                    remote_path = toAWSPath(destination_path + relative_path)
-
-                    for file in files:
-                        self._bucket.upload_file(os.path.join(path, file), remote_path + '/' + file)
-
-                # Refresh the internal objects of the manager from the new directory
-                self.refresh(destination_path)
-                return self._paths[destination_path]
-
-            else:
-                key = toAWSPath(destination_path)
-
-                # Upload the the file to the location and collect an AWS object for that file
-                self._bucket.upload_file(Filename=source_path, Key=key)
-                awsFile = self._bucket.Object(key)
-
-                if destination_path in self._paths:
-                    # The file has been updated and the artefact for that file needs to be updated
-                    file = self._paths[destination_path]
-                    file._update(awsFile.last_modified, awsFile.content_length)
-
-                else:
-                    # The file is a new file and needs to be generated
-                    file = File(self, destination_path, awsFile.last_modified.replace(tzinfo=None), awsFile.content_length)
-
-                    self._paths[destination_path] = file
-                    directory = self._getHierarchy(dirpath(destination_path))
-                    directory.add(file)
-
-                return file
-
-    def rm(self, artefact: Artefact, recursive: bool = False):
-
-        # Ensure/Resolve the passed object
-        path = super().rm(artefact, recursive=recursive)
-
-        # Get the artefact that is being deleted
-        art = self._paths[path]
-
-        # Get the owner for the object and remove it
-        owner = self._getHierarchy(dirpath(art.path))
-        owner.remove(art)
-
-        if isinstance(art, Directory):
-
-            # Delete all contents at that location - to be here with items recursive must have been true
-            for obj in self._bucket.objects.filter(Prefix=toAWSPath(art.path)):
-                obj.delete()
-
-            # run the deletion method for self + all children
-            toDelete = art.ls()
-            while toDelete:
-                # NOTE as the parent is being detached and so are the parents - the GC can clean up
-                # No need to remove each artefact from their parent.
-                a = toDelete.pop()
-
-                if isinstance(a, Directory): toDelete += a.ls()
-
-                # Trigger the artefact to no longer exist
-                a._exists = False
-
-                # Remove the artefact from the internal store
-                del self._paths[a.path]
+                # For each file at this point - construct their local absolute path and their relative remote path
+                for file in files:
+                    self._bucket.upload_file(
+                        os.path.join(path, file),
+                        self._abspath(self._join(dest_remote, path[len(src_local):], file))
+                    )
 
         else:
-            # The item to delete is a file
+            # Putting a file
+            self._bucket.upload_file(src_local, dest_remote)
 
-            # Get the object from AWS and delete it
-            awsObj = self._bucket.Object(toAWSPath(art.path))
-            awsObj.delete()
+    def _rm(self, artefact: Artefact, artefactPath: str):
 
-        # Set the artefact to no longer exist and remove from the internal store
-        art._exists = False
-        del self._paths[art.path]
+        key = self._abspath(artefactPath)
+        if isinstance(artefact, Directory):
+            for obj in self._bucket.objects.filter(Prefix=key):
+                obj.delete()
+
+        else:
+            self._bucket.Object(key).delete()
+
+    def _mvFile(self, source, destination):
+
+        self._bucket.Object(destination).copy_from(CopySource={'Bucket': self._bucketName, 'Key': source})
+        self._bucket.Object(source).delete()
+
+    def _mv(self, srcObj: Artefact, destPath: str):
+        """ Move the object to the desintation """
+
+        source_path, dest_path = self._abspath(srcObj.path), self._abspath(destPath)
+        if isinstance(srcObj, Directory):
+            for obj in self._bucket.objects.filter(Prefix=source_path):
+                relative = obj.key[len(source_path):]
+                self._mvFile(obj.key, self._abspath(self._join(dest_path, relative)))
+
+        else:
+            self._mvFile(source_path, dest_path)
 
     def mkdir(self, path):
+
         with tempfile.TemporaryDirectory() as directory:
-
-            fp = os.path.join(directory, PLACEHOLDER)
-
+            fp = os.path.join(directory, self._PLACEHOLDER)
             open(fp, 'w').close()
+            self._bucket.upload_file(Filename=fp, Key=self._abspath(self._join(path, self._PLACEHOLDER)))
 
-            self._bucket.upload_file(Filename=fp, Key=toAWSPath(path + '/' + PLACEHOLDER))
+        # Identify the owning directory
+        owning_directory = self._backfillHierarchy(self._dirname(path))
+        art = Directory(self, path)
 
-        self.refresh(path)
-
-    @classmethod
-    def CLI(cls):
-
-        #TODO ask for name
-        #TODO For each of these - ask for their details
-        #TODO when they are given, validate by attempting to create a connection
-        #TODO if fail retry - if pass list buckets in resource number them for selection
-        #TODO offer the ability to create a bucket by using c and then take their input
-        # TODO attempt to create it, go round in circles until it works
-        # TODO a config has then been created - create and return
-
-        s3 = boto3.resource(
-            's3',
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-            region_name=region_name
-        )
-
-        return cls(name, bucket, aws_access_key_id, aws_secret_access_key, region_name)
+        # Save the new artefact
+        owning_directory._add(art)
+        self._paths[path] = art
+        return art
 
     def toConfig(self):
-        return self._config
+        return {
+            'manager': 'AWS',
+            'bucket': self._bucketName,
+            'aws_access_key_id': self._aws_access_key_id,
+            'aws_secret_access_key': self._aws_secret_access_key,
+            'region_name': self._region_name
+        }

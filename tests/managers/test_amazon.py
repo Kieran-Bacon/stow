@@ -29,7 +29,7 @@ class Test_Amazon(unittest.TestCase, ManagerTests):
             's3',
             aws_access_key_id=cls._config['aws_access_key_id'],
             aws_secret_access_key=cls._config['aws_secret_access_key'],
-            region_name=cls._config['region_name']
+            # region_name=cls._config['region_name']
         )
 
         for bucket in cls.s3.buckets.all():
@@ -49,7 +49,7 @@ class Test_Amazon(unittest.TestCase, ManagerTests):
                 try:
                     cls.s3.create_bucket(
                         Bucket=bucket_name,
-                        CreateBucketConfiguration={'LocationConstraint': cls._config['region_name']}
+                        # CreateBucketConfiguration={'LocationConstraint': cls._config['region_name']}
                     )
 
                 except ClientError as e:
@@ -67,17 +67,57 @@ class Test_Amazon(unittest.TestCase, ManagerTests):
 
         # Define the manager
         self.manager = storage.connect(
-            'test',
             manager='AWS',
             bucket=self.bucket_name,
             aws_access_key_id=self._config['aws_access_key_id'],
             aws_secret_access_key=self._config['aws_secret_access_key'],
-            region_name=self._config['region_name']
+            # region_name=self._config['region_name']
         )
 
     def tearDown(self):
         self.s3.Bucket(self.bucket_name).objects.delete()
 
+
+    def test_abspath(self):
+
+        paths = [
+            ('/hello/kieran', 'hello/kieran'),
+            ('/hello/kieran', 'hello/kieran'),
+            (r'\what\the\hell', 'what/the/hell'),
+            (r'C:\\what\\the\\something', 'what/the/something'),
+            ('s3://path/like/this', 'path/like/this')
+        ]
+
+
+        for i, o in paths:
+            self.assertEqual(self.manager._abspath(i), o)
+    def test_relPath(self):
+
+        paths = [
+            ('/hello/kieran', '/hello/kieran'),
+            ('/hello/kieran/', '/hello/kieran'),
+            (r'\what\the\hell', '/what/the/hell'),
+            (r'C:\\what\\the\\hell', '/what/the/hell'),
+            ('s3://path/like/this', '/path/like/this')
+        ]
+
+
+        for i, o in paths:
+            self.assertEqual(self.manager._relpath(i), o)
+
+    def test_basename(self):
+
+        paths = [
+            ('/hello/kieran', 'kieran'),
+            ('/hello/', 'hello'),
+            (r'\what\the\hell', 'hell'),
+            (r'C:\\what\\the\\something', 'something'),
+            ('s3://path/like/this', 'this')
+        ]
+
+
+        for i, o in paths:
+            self.assertEqual(self.manager._basename(i), o)
 
 
 class Test_AmazonUtils(unittest.TestCase):

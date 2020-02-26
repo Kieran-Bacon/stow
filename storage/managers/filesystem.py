@@ -26,16 +26,11 @@ class FS(LocalManager):
 
     def _abspath(self, artefact):
         _, path = self._artefactFormStandardise(artefact)
-        path = path[1:]  # NOTE removing the relative path initial sep
-        return os.path.abspath(os.path.join(self._path, path))
+        return os.path.abspath(os.path.join(self._path, path[1:]))  # NOTE removing the relative path initial sep
 
     def _relpath(self, path):
-        # TODO this just doesn't work...
-
-        path = path[len(self._path):]
-        if sys.platform == WIN32:
-            return path.replace(os.path.sep, SEP)
-        return path
+        if self._path == path[:len(self._path)]: path = path[len(self._path):]
+        return super()._relpath(path)  # NOTE remove path to root of manager from path before
 
     def _basename(self, artefact):
         _, path = self._artefactFormStandardise(artefact)
@@ -65,7 +60,7 @@ class FS(LocalManager):
         path = self._path if prefix is None else self._abspath(prefix)
         files = set()
 
-        for dp, dn, fn in os.walk(path):
+        for dp, _, fn in os.walk(path):
             files.add(self._relpath(os.path.join(dp, self._PLACEHOLDER)))
 
             for f in fn:
@@ -73,7 +68,7 @@ class FS(LocalManager):
 
         return files
 
-    def __repr__(self): return '<Manager(FS): {} - {}>'.format(self.name, self._path)
+    def __repr__(self): return '<Manager(FS): {}>'.format(self._path)
 
     def _get(self, src_remote: str, dest_local: str):
 
@@ -86,44 +81,17 @@ class FS(LocalManager):
         # Download
         method(src_remote, dest_local)
 
-    def _put(self, src_remote: str, dest_local: str):
+    def _put(self, src_local, dest_remote):
 
-        # Convert the relative destination path to an absolute path
-        abspath = self._abspath(dest_local)
-
-        # Get the owning directory of the item - Ensure that the directories exist for the incoming files
-        os.makedirs(os.path.dirname(abspath), exist_ok=True)
-        owning_directory = self._backfillHierarchy(self._dirname(dest_local))
-
-        # Process the uploading item
-        if os.path.isdir(src_remote):
-            # Check that the directory doesn't already exist
-            if dest_local in self._paths:
-                # It exists so remove it and all its children
-                self.rm(dest_local, recursive=True)
-
+        if os.path.isdir(src_local):
             # Copy the directory into place
-            shutil.copytree(src_remote, abspath)
-
-            # Walk the directory
-            art = self.refresh(dest_local)
+            #if os.path.exists(dest_remote): shutil.rmtree(dest_remote)
+            shutil.copytree(src_local, dest_remote)
 
         else:
             # Putting a file
-            shutil.copy(src_remote, abspath)
-
-            art = self._makefile(dest_local)
-
-            if dest_local in self._paths:
-
-                original = self._paths[dest_local]
-                original._update(art)
-                return original
-
-        # Save the new artefact
-        owning_directory._add(art)
-        self._paths[dest_local] = art
-        return art
+            os.makedirs(os.path.dirname(dest_remote), exist_ok=True)
+            shutil.copy(src_local, dest_remote)
 
     def _mv(self, srcObj: Artefact, destPath: str):
 
@@ -131,10 +99,13 @@ class FS(LocalManager):
         os.makedirs(os.path.dirname(absDestination), exist_ok=True)
         os.rename(self._abspath(srcObj.path), absDestination)
 
-    def _rm(self, path: str):
+    def _rm(self, artefact: Artefact, path: str):
+
 
         abspath = self._abspath(path)
-        if os.path.isdir(abspath):
+        if not os.path.exists(abspath): return # NOTE the file has already been deleted - copy directory has this affect
+
+        if isinstance(artefact, Directory):
             shutil.rmtree(abspath)
         else:
             os.remove(abspath)

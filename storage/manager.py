@@ -5,6 +5,7 @@ import shutil
 import tempfile
 import contextlib
 import hashlib
+import re
 
 from . import SEP
 from . import exceptions
@@ -22,6 +23,8 @@ class Manager(ABC):
     _ROOT_PATH = "/"
     _PLACEHOLDER = "placeholder.ignore"
     _READONLYMODES = ["r", "rb"]
+
+    _RELPATH_REGEX = re.compile(r"^([a-zA-Z0-9]+:)?([/\\\w\.!-_*'()]*)$")
 
     def __init__(self):
         self._root = Directory(self, self._ROOT_PATH)
@@ -55,11 +58,41 @@ class Manager(ABC):
         if obj is None or obj.manager is not self:
             raise exceptions.ArtefactNotMember("Provided artefact is not a member of the manager")
 
-        return self._get(path, dest_local)
+        return self._get(obj, dest_local)
 
     @abstractmethod
     def _put(self, source, destination):
         pass
+
+    def __putArtefact(self, src_local, dest_remote):
+
+        # Get the owning directory of the item - Ensure that the directories exist for the incoming files
+        owner = self._backfillHierarchy(self._dirname(dest_remote))
+
+        # Clean up any files that current exist at the location
+        destObj, destPath = self._artefactFormStandardise(dest_remote)
+        if destObj is not None: self._rm(destObj, destPath)
+
+        # Put the local file onto the remote using the manager definition
+        self._put(src_local, self._abspath(destPath))
+
+        # Extract the artefact depending on the type
+        if os.path.isdir(src_local):
+            art = self.refresh(dest_remote)
+
+        else:
+            art = self._makefile(dest_remote)
+
+            if dest_remote in self._paths:
+                # The artefact has overwritten a previous file - update it and return it
+                original = self._paths[dest_remote]
+                original._update(art)
+                return original
+
+        # Save the new artefact
+        owner._add(art)
+        self._paths[dest_remote] = art
+        return art
 
     def put(self, src_local: str, dest_remote: typing.Union[Artefact, str]) -> (str, str):
         """ Put a local artefact onto the remote at the location given.
@@ -80,11 +113,11 @@ class Manager(ABC):
             # Provides was an artefact from a manager that may be remote
 
             with srcObj.manager.localise(srcObj) as srcAbsPath:
-                return self._put(srcAbsPath, destPath)
+                return self.__putArtefact(srcAbsPath, destPath)
 
         else:
             # The source is a local filepath
-            return self._put(srcPath, destPath)
+            return self.__putArtefact(srcPath, destPath)
 
     def ls(self, path: str = '/', recursive: bool = False):
 
@@ -107,7 +140,7 @@ class Manager(ABC):
         destObj, destPath = self._artefactFormStandardise(destination)
 
         # Destination content is being overwritten
-        if destObj: self.rm(destObj)
+        if destObj: self.rm(destObj, recursive=True)
 
         # Call the lower level, content move function on the manager
         self._mv(srcObj, destPath)
@@ -135,7 +168,7 @@ class Manager(ABC):
         srcObj._path = destPath
 
     @abstractmethod
-    def _rm(self, artefactPath: str):
+    def _rm(self, artefact: Artefact, artefactPath: str):
         pass
 
     def rm(self, artefact: typing.Union[Artefact, str], recursive: bool = False) -> None:
@@ -151,7 +184,7 @@ class Manager(ABC):
             )
 
         # Trigger the removal of the underlying object
-        self._rm(obj.path)
+        self._rm(obj, path)
 
         # Inform all objects that they no longer exist
         if isinstance(obj, Directory):
@@ -177,14 +210,28 @@ class Manager(ABC):
 
     @abstractmethod
     def _abspath(self, artefact:  typing.Union[Artefact, str]) -> str:
-        """ Return the absolute file path from a relative path or artefact object. This shall include any prefix
-        associated with the manager for local managers
+        """ Return the most accurate path to an object in the managers vernacular. Opposite of _relpath
+
+        examples:
+            local managers shall convert a relative path to its full absolute os compatible filepath
+            s3 shall convert the relative path to a s3 valid key
+
+        Params:
+            artefact (Artefact/str): The artefact object or it's relative path which is to be converted
         """
         pass
 
-    @abstractmethod
-    def _relpath(self, artefact) -> str:
-        pass
+    @classmethod
+    def _relpath(cls, abspath: str) -> str:
+        """ Converts any path into a manager agnostic path format (/dir/file.txt), opposite of _abspath
+
+        Params:
+            abspath (str): The artefact object or it's absolute path which is to be converted
+        """
+        match = cls._RELPATH_REGEX.match(abspath)
+        if match is None: raise exceptions.InvalidPath("Path not in acceptable form: {}".format(abspath))
+        abspath = '/' + re.sub(r"[\\/]{2,}|[\\]", "/", match.group(2)).strip('/')
+        return abspath
 
     @abstractmethod
     def _dirname(self, path):
@@ -194,11 +241,10 @@ class Manager(ABC):
     def _basename(self, path):
         pass
 
-    def _join(self, head: str, tail: str) -> str:
+    def _join(self, *components) -> str:
         """ Join a relative path with another path for sub and return a manager relative path
         """
-        if tail[0] == self._ROOT_PATH: tail = tail[1:]
-        return os.path.join(head, tail)
+        return self._relpath("/".join(components))
 
     @abstractmethod
     def _makefile(self, path):
@@ -265,16 +311,20 @@ class Manager(ABC):
                 # Object already exists inside the manager and as a result has it's hierarchy defined - update it
 
                 storedObject = self._paths[path]
-                storedObject.update(self._makefile(path))
+                storedObject._update(self._makefile(path))
                 unsupportedObjects.discard(storedObject)
 
                 found = True
 
             # Find the owning directory for the file and ensure that it is supported
             owning_directory = self._backfillHierarchy(self._dirname(path))
-            while owning_directory in unsupportedObjects:
-                unsupportedObjects.discard(owning_directory)
-                owning_directory = self._backfillHierarchy(self._dirname(owning_directory.path))
+            if owning_directory in unsupportedObjects:
+                # The directory wasn't supported before this point - ensure that it was and that all upper directories
+                # are supported also
+                owner = owning_directory
+                while owner in unsupportedObjects:
+                    unsupportedObjects.remove(owner)
+                    owner = self._backfillHierarchy(self._dirname(owner.path))
 
             # The owning directory has been created and supported continue if placeholder file or found previously
             if found or self._basename(path) == self._PLACEHOLDER: continue
@@ -283,6 +333,10 @@ class Manager(ABC):
             file = self._makefile(path)
             owning_directory._add(file)
             self._paths[path] = file
+
+        # Remove unsupported objects
+        for art in unsupportedObjects:
+            self.rm(art, recursive=True)
 
         return self._root if prefix is None else self._paths[prefix]
 
@@ -317,7 +371,7 @@ class Manager(ABC):
             with open(abspath, mode, **kwargs) as handle:
                 yield handle
 
-class LocalManager(Manager):
+class LocalManager(Manager, ABC):
 
     @contextlib.contextmanager
     def localise(self, artefact):
@@ -325,7 +379,7 @@ class LocalManager(Manager):
         yield self._abspath(path)
         object._update(self._makefile(path))
 
-class RemoteManager(Manager):
+class RemoteManager(Manager, ABC):
 
     @contextlib.contextmanager
     def localise(self, artefact):
