@@ -50,6 +50,11 @@ class File(Artefact):
         return '<storage.File: {} modified({}) size({} bytes)>'.format(self._path, self._modified_date, self._size)
 
     @property
+    def content(self) -> bytes:
+        with self.open("rb") as handle:
+            return handle.read()
+
+    @property
     def modifiedTime(self): return self._modified_date
     @modifiedTime.setter
     def modifiedTime(self, time):
