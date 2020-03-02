@@ -24,7 +24,7 @@ class Manager(ABC):
     _PLACEHOLDER = "placeholder.ignore"
     _READONLYMODES = ["r", "rb"]
 
-    _RELPATH_REGEX = re.compile(r"^([a-zA-Z0-9]+:)?([/\\\w\.!-_*'()]*)$")
+    _RELPATH_REGEX = re.compile(r"^([a-zA-Z0-9]+:)?([/\\\w\.!-_*'() ]*)$")
 
     def __init__(self):
         self._root = Directory(self, self._ROOT_PATH)
@@ -38,6 +38,53 @@ class Manager(ABC):
 
     @abstractmethod
     def __repr__(self): pass
+
+
+    @abstractmethod
+    def _abspath(self, artefact:  typing.Union[Artefact, str]) -> str:
+        """ Return the most accurate path to an object in the managers vernacular. Opposite of _relpath
+
+        examples:
+            local managers shall convert a relative path to its full absolute os compatible filepath
+            s3 shall convert the relative path to a s3 valid key
+
+        Params:
+            artefact (Artefact/str): The artefact object or it's relative path which is to be converted
+        """
+        pass
+
+    @classmethod
+    def _relpath(cls, abspath: str) -> str:
+        """ Converts any path into a manager agnostic path format (/dir/file.txt), opposite of _abspath
+
+        Params:
+            abspath (str): The artefact object or it's absolute path which is to be converted
+        """
+        match = cls._RELPATH_REGEX.match(abspath)
+        if match is None: raise exceptions.InvalidPath("Path not in acceptable form: {}".format(abspath))
+        abspath = '/' + re.sub(r"[\\/]{2,}|[\\]", "/", match.group(2)).strip('/')
+        return abspath
+
+    @abstractmethod
+    def _dirname(self, path):
+        pass
+
+    @abstractmethod
+    def _basename(self, path):
+        pass
+
+    def _join(self, *components) -> str:
+        """ Join a relative path with another path for sub and return a manager relative path
+        """
+        return self._relpath("/".join(components))
+
+    def _add(self, path: str, *, owner = None):
+        """ Add an artefact object into the manager data structures """
+        # Create the file and to the store
+        file = self._makefile(path)
+        if owner is None: owner = self._backfillHierarchy(self._dirname(path))
+        owner._add(file)
+        self._paths[path] = file
 
     def paths(self, classtype = None):
         if classtype is None: return self._paths.copy()
@@ -212,44 +259,6 @@ class Manager(ABC):
             return self.put(emptyFile, path)
 
     @abstractmethod
-    def _abspath(self, artefact:  typing.Union[Artefact, str]) -> str:
-        """ Return the most accurate path to an object in the managers vernacular. Opposite of _relpath
-
-        examples:
-            local managers shall convert a relative path to its full absolute os compatible filepath
-            s3 shall convert the relative path to a s3 valid key
-
-        Params:
-            artefact (Artefact/str): The artefact object or it's relative path which is to be converted
-        """
-        pass
-
-    @classmethod
-    def _relpath(cls, abspath: str) -> str:
-        """ Converts any path into a manager agnostic path format (/dir/file.txt), opposite of _abspath
-
-        Params:
-            abspath (str): The artefact object or it's absolute path which is to be converted
-        """
-        match = cls._RELPATH_REGEX.match(abspath)
-        if match is None: raise exceptions.InvalidPath("Path not in acceptable form: {}".format(abspath))
-        abspath = '/' + re.sub(r"[\\/]{2,}|[\\]", "/", match.group(2)).strip('/')
-        return abspath
-
-    @abstractmethod
-    def _dirname(self, path):
-        pass
-
-    @abstractmethod
-    def _basename(self, path):
-        pass
-
-    def _join(self, *components) -> str:
-        """ Join a relative path with another path for sub and return a manager relative path
-        """
-        return self._relpath("/".join(components))
-
-    @abstractmethod
     def _makefile(self, path):
         """ Make a file object from a manager relative path """
         pass
@@ -337,9 +346,19 @@ class Manager(ABC):
             owning_directory._add(file)
             self._paths[path] = file
 
-        # Remove unsupported objects
-        for art in unsupportedObjects:
-            self.rm(art, recursive=True)
+        # Remove unsupported objects - remove highest level items first (order by directory and length)
+        unsupportedObjects = sorted(unsupportedObjects, key=lambda x: (isinstance(x, File), len(x.path)))
+        while unsupportedObjects:
+
+            art = unsupportedObjects.pop(0)
+
+            if isinstance(art, Directory):
+                # Delete and recursively free unsupported objects - (as they shall be deleted via the dir)
+                unsupportedObjects = [obj for obj in unsupportedObjects if obj.path[:len(art.path)] != art.path]
+                self.rm(art, recursive=True)
+
+            else:
+                self.rm(art)
 
         return self._root if prefix is None else self._paths[prefix]
 
@@ -378,15 +397,85 @@ class LocalManager(Manager, ABC):
 
     @contextlib.contextmanager
     def localise(self, artefact):
-        object, path = self._artefactFormStandardise(artefact)
-        yield self._abspath(path)
-        object._update(self._makefile(path))
+        obj, path = self._artefactFormStandardise(artefact)
+
+        abspath = self._abspath(path)
+        os.makedirs(os.path.dirname(abspath), exist_ok=True)
+
+        yield abspath
+
+        if os.path.isdir(abspath):
+            # The localised object has been made to be a directory - object already in position tf just update the manager
+            assert obj is None or isinstance(obj, Directory)
+            self.refresh(path)
+
+        else:
+            # The localised object is
+            if obj is not None: obj._update(self._makefile(path))
+            else:   self._add(path)
 
 class RemoteManager(Manager, ABC):
 
+    @staticmethod
+    def _compare(dict1, dict2, key):
+        # Extract the two sets of keys
+        keys1, keys2 = set(dict1[key].keys()), set(dict2[key].keys())
+        return keys1.difference(keys2), keys1.intersection(keys2), keys2.difference(keys1)
+
+    @classmethod
+    def _parseHierarchy(cls, path, _toplevel=None):
+
+        # Store separately the directories and files of the path
+        directories = {}
+        files = {}
+
+        # For each item process their checksums
+        for item in os.listdir(path):
+
+            # Identify their absolute path and relative manager path from the temporary local files
+            abspath = os.path.join(path, item)
+
+            if os.path.isdir(abspath):
+                directories[abspath] = cls._parseHierarchy(abspath, _toplevel=path)
+
+            else:
+                files[abspath] = cls.md5(abspath)
+
+        return {"directories": directories, "files": files}
+
+    @classmethod
+    def _compareHierarhy(cls, original, new):
+
+        # Data containers for files and directory comparison
+        toPush, toDelete = set(), set()
+
+        # Compare the directories
+        removed, editted, added = cls._compare(original, new, "directories")
+        for directory in editted:
+            put, delete = cls._compareHierarhy(original['directories'][directory], new['directories'][directory])
+
+            # Union the result of the comparison on the sub directory level
+            added |= put
+            removed |= delete
+
+        toPush |= added
+        toDelete |= removed
+
+        # Compare the files
+        removed, editted, added = cls._compare(original, new, "files")
+        for file in editted:
+            if original['files'][file] != new['files'][file]:
+                # The checksum of the files are not the same, therefore, the file has been editted and needs to be pushed
+                added.add(file)
+
+        toPush |= added
+        toDelete |= removed
+
+        return toPush, toDelete
+
     @contextlib.contextmanager
     def localise(self, artefact):
-        object, path = self._artefactFormStandardise(artefact)
+        obj, path = self._artefactFormStandardise(artefact)
 
         with tempfile.TemporaryDirectory() as directory:
 
@@ -394,18 +483,41 @@ class RemoteManager(Manager, ABC):
             local_path = os.path.join(directory, self._basename(path))
 
             # Get the contents and put it into the temporay directory
-            self.get(path, local_path)
+            if obj:
+                self.get(path, local_path)
 
-            # Generate a checksum for the file
-            checksum = self.md5(local_path)
+                if os.path.isdir(local_path):
+                    # To collected item is a directory - walk the directory and record its state
+                    checksum = self._parseHierarchy(local_path)
+
+                else:
+                    # Generate a checksum for the file
+                    checksum = self.md5(local_path)
+
+            else:
+                # No checksum for no file
+                checksum = None
 
             # Return the local path to the object
             yield local_path
 
-            # The user has stopped interacting with the file - upload if the file has been editted
-            if self.md5(local_path) != checksum:
-                # The file has been changed - upload the file's contents
-                self.put(local_path, path)
+            # The user has stopped interacting with the artefact - resovle any differences with manager
+            if checksum:
+                if os.path.isdir(local_path):
+                    # Compare the new hiearchy - update only affected files/directories
+                    put, delete = self._compareHierarhy(checksum, self._parseHierarchy(local_path))
 
-                # update the objects information with the information from that file
-                object._update(self._makefile(path))
+                    # Define the method for converting the abspath back to the manager relative path
+                    contexualise = lambda x: self._join(path, self._relpath(x[len(local_path):]))
+
+                    # Put/delete the affected artefacts
+                    for abspath in put: self.put(abspath, contexualise(abspath))
+                    for abspath in delete: self.rm(contexualise(abspath), recursive=True)
+
+                elif self.md5(local_path) != checksum:
+                    # The file has been changed - upload the file's contents
+                    self.put(local_path, path)
+
+            else:
+                # New item - put the artefact into the manager
+                self.put(local_path, path)

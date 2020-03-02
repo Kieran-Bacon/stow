@@ -57,7 +57,9 @@ class Amazon(RemoteManager):
         else:
             objs = self._bucket.objects.filter(Prefix=self._abspath(prefix))
 
-        return [self._relpath(obj.key) for obj in objs]
+        for obj in objs:
+            if obj.key[-1] == "/": continue
+            yield self._relpath(obj.key)
 
     def _makefile(self, remotePath: str):
         awsObject = self._bucket.Object(self._abspath(remotePath))
@@ -67,11 +69,17 @@ class Amazon(RemoteManager):
 
         if isinstance(src_remote, Directory):
 
-            for object in self._bucket.objects.filter(Prefix=self._abspath(src_remote)):
+            # Identify the prefix for the directory
+            prefix = self._abspath(src_remote)
+
+            for object in self._bucket.objects.filter(Prefix=prefix):
                 # Collect the objects in that directory - downlad each one
 
+                # Write the relative path
+                relative_path = object.key[len(prefix) + 1:]
+
                 # Create object absolute path
-                path = os.path.abspath(os.path.join(dest_local, object.key))
+                path = os.path.abspath(os.path.join(dest_local, relative_path))
 
                 # Ensure the directory for that object
                 os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -87,6 +95,7 @@ class Amazon(RemoteManager):
         if os.path.isdir(src_local):
             # A directory of items is to be uploaded - walk local directory and uploade each file
 
+            isUploaded = False
             for path, _, files in os.walk(src_local):
 
                 # For each file at this point - construct their local absolute path and their relative remote path
@@ -95,6 +104,12 @@ class Amazon(RemoteManager):
                         os.path.join(path, file),
                         self._abspath(self._join(dest_remote, path[len(src_local):], file))
                     )
+                    isUploaded = True
+
+            if not isUploaded:
+                # Make a placeholder file for this directory
+                placeholder_path = self._abspath(self._join(dest_remote, self._PLACEHOLDER))
+                self._bucket.put_object(Key=placeholder_path, Body=b'')
 
         else:
             # Putting a file

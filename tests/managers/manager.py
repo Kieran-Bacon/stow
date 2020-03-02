@@ -59,6 +59,23 @@ class ManagerTests:
             with open(localOutFP, 'r') as fh:
                 self.assertEqual(fh.read(), content)
 
+    def test_puttingAndPullingDirectories(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            inputdir = os.path.join(directory, "input-dir")
+            outputdir = os.path.join(directory, "output-dir")
+
+            os.mkdir(inputdir)
+            with open(os.path.join(inputdir, "file1.txt"), "w") as handle:
+                handle.write("here is some lovely content")
+
+            self.manager.put(inputdir, "/directory")
+            self.manager.get("/directory", outputdir)
+
+            self.assertEqual(set(os.listdir(directory)), {"input-dir", "output-dir"})
+            self.assertEqual(set(os.listdir(outputdir)), {"file1.txt"})
+
     def test_put_and_get_with_artefacts(self):
 
         with tempfile.TemporaryDirectory() as directory:
@@ -323,3 +340,133 @@ class ManagerTests:
 
         with file.open() as handle:
             self.assertEqual(handle.read(), 'some content')
+
+
+    def write_some_files(self):
+
+        with self.manager.open("/directory/subdirectory/file1.txt", "w") as handle:
+            handle.write("Content")
+
+        with self.manager.open("/directory/subdirectory/file2.txt", "w") as handle:
+            handle.write("Content in the same directory")
+
+        with self.manager.open("/directory/anotherdirectory/file2.txt", "w") as handle:
+            handle.write("Content with info")
+
+        with self.manager.open("/directory/anotherdirectorymark2/file42.txt", "w") as handle:
+            handle.write("Content with info")
+
+    def test_manager_localise_files(self):
+        """ Test that the localisation method correctly makes files and directories accessible """
+
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            self.write_some_files()
+
+            # Assert that localising a file can then be accessed by using the os and local functions
+            with self.manager.localise("/directory/subdirectory/file1.txt") as abspath:
+                with open(abspath, "r") as handle:
+                    self.assertEqual(handle.read(), "Content")
+
+            # Assert that changing a localised file is then updated for the manager
+            with self.manager.localise("/directory/subdirectory/file1.txt") as abspath:
+                with open(abspath, "w") as handle:
+                    handle.write("Overwriting the content of the file")
+
+            self.manager.get("/directory/subdirectory/file1.txt", os.path.join(directory, "temp1.txt"))
+            self.manager.get(self.manager["/directory/subdirectory/file1.txt"], os.path.join(directory, "temp2.txt"))
+            self.manager["/directory/subdirectory/file1.txt"].save(os.path.join(directory, "temp3.txt"))
+
+            for i in range(1, 4):
+                with open(os.path.join(directory, "temp{}.txt".format(i)), "r") as handle:
+                    self.assertEqual(handle.read(), "Overwriting the content of the file")
+
+            # Assert that a non existent files can be localised and that they are created
+            with self.manager.localise("/another/file3.txt") as abspath:
+
+                # The file cannot be read as it doesn't exist - the user shall have to create the file
+                with pytest.raises(FileNotFoundError):
+                    with open(abspath, "r") as handle:
+                        pass
+
+                with open(abspath, "w") as handle:
+                    handle.write("Some content")
+
+            file = self.manager['/another/file3.txt']
+            self.assertIsInstance(file, storage.artefacts.File)
+            self.assertEqual(file.path, "/another/file3.txt")
+            with file.open("r") as handle:
+                self.assertEqual(handle.read(), "Some content")
+
+    def test_manager_localise_directories(self):
+
+        # Some files shall be written
+        self.write_some_files()
+
+        # Assert that a directory can be localised
+        with self.manager.localise("/directory") as abspath:
+            self.assertSetEqual(set(os.listdir(abspath)), {"subdirectory", "anotherdirectory", "anotherdirectorymark2"})
+
+            with open(os.path.join(abspath, "subdirectory", "file1.txt"), "r") as handle:
+                self.assertEqual(handle.read(), "Content")
+
+
+        # Assert that changing the localised directory shall change the directory in the manager
+        with self.manager.localise("/directory") as abspath:
+
+            # We want to test the creation of a new file, the fact that an old file is not changed, and the deletion of
+            # a file. Then we want to check the deletion and creation of directories
+
+            # Making a new files at top/lower levels
+            with open(os.path.join(abspath, "file5.txt"), "w") as handle:
+                handle.write("Running out of content to write")
+
+            with open(os.path.join(abspath, "subdirectory", "newfile.txt"), "w") as handle:
+                handle.write("Newly added content with a file")
+
+            # Updating an old file
+            with open(os.path.join(abspath, "subdirectory", "file2.txt"), "w") as handle:
+                handle.write("EDITTED")
+
+            # Deleting an old file
+            os.remove(os.path.join(abspath, "anotherdirectory", "file2.txt"))
+
+            # New empty directory
+            os.mkdir(os.path.join(abspath, "new-empty-directory"))
+
+            # New directory with some new content
+            os.mkdir(os.path.join(abspath, "test-directory"))
+            with open(os.path.join(abspath, "test-directory", "file4.txt"), "w") as handle:
+                handle.write("Some stuff")
+
+            # Delete a directory
+            shutil.rmtree(os.path.join(abspath, "anotherdirectorymark2"))
+
+        # Assert that the directory has 5 items
+        self.assertEqual(
+            len(self.manager['/directory'].ls()),
+            5 # 4 directories and a file
+        )
+
+        self.assertEqual(len(self.manager['/directory/subdirectory']), 3)
+        self.assertEqual(self.manager['/directory/subdirectory/newfile.txt'].content.decode(), "Newly added content with a file")
+        self.assertEqual(self.manager['/directory/subdirectory/file1.txt'].content.decode(), "Content")
+        self.assertEqual(self.manager['/directory/subdirectory/file2.txt'].content.decode(), "EDITTED")
+
+        self.assertEqual(len(self.manager['/directory/anotherdirectory']), 0)
+        self.assertEqual(len(self.manager['/directory/new-empty-directory']), 0)
+
+        self.assertEqual(len(self.manager['/directory/test-directory']), 1)
+        self.assertEqual(self.manager['/directory/test-directory/file4.txt'].content.decode(), "Some stuff")
+
+        self.assertEqual(self.manager['/directory/file5.txt'].content.decode(), "Running out of content to write")
+
+
+        # Assert that you can localise a non existent directory and make it so
+        with self.manager.localise("/nonexistent") as abspath:
+            if not os.path.exists(abspath): os.mkdir(abspath)  # NOTE example of how to write protection around the directory
+
+            self.assertEqual(len(os.listdir(abspath)), 0)
+
+        self.assertIsInstance(self.manager['/nonexistent'], storage.artefacts.Directory)

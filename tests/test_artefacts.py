@@ -70,6 +70,9 @@ class Test_Artefacts(BasicSetup, unittest.TestCase):
 
 class Test_Files(BasicSetup, unittest.TestCase):
 
+    def test_content(self):
+        self.assertEqual(self.manager['/file1'].content.decode(), self.filetext)
+
     def test_size(self):
 
         file = self.manager['/file1']

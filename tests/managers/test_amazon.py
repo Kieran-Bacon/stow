@@ -76,7 +76,6 @@ class Test_Amazon(unittest.TestCase, ManagerTests):
     def tearDown(self):
         self.s3.Bucket(self.bucket_name).objects.delete()
 
-
     def test_abspath(self):
 
         paths = [
