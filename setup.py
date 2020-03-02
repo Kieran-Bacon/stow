@@ -1,12 +1,13 @@
+import os
 from setuptools import setup, find_packages
 
-requires = [
-]
+with open(os.path.join(os.path.dirname(__file__), 'requirements.txt')) as fh:
+    requires = fh.read().splitlines()
 
 setup(
     name='storage',
     install_requires=requires,
-    version="0.0.1",
+    version="0.0.2",
     description="",
 
     author="Kieran Bacon",
@@ -15,10 +16,15 @@ setup(
     packages=find_packages(),
 
     entry_points={
+        'console_scripts': [
+            'backup = storage.backup:BackupManager.main',
+        ],
         'storage_managers': [
             'FS=storage.managers:FS',
             'LFS=storage.managers:FS',
-            'Locals=storage.managers:Locals'
+            'Locals=storage.managers:Locals',
+            'AWS=storage.managers:Amazon',
+            'S3=storage.managers:Amazon'
         ]
     }
 )

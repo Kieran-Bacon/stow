@@ -1,5 +1,6 @@
-sep = '/'
+SEP = '/'
 
 from .artefacts import File, Directory
-from .utils import connect
+from .utils import find, connect
 from .sync import Sync
+from .backup import Backup
