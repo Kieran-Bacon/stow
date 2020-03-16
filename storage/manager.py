@@ -68,8 +68,8 @@ class Manager(ABC):
     def __repr__(self): pass
 
     @abstractmethod
-    def _abspath(self, artefact:  typing.Union[Artefact, str]) -> str:
-        """ Return the most accurate path to an object in the managers vernacular. Opposite of _relpath
+    def abspath(self, artefact:  typing.Union[Artefact, str]) -> str:
+        """ Return the most accurate path to an object in the managers vernacular. Opposite of relpath
 
         examples:
             local managers shall convert a relative path to its full absolute os compatible filepath
@@ -81,8 +81,8 @@ class Manager(ABC):
         pass
 
     @classmethod
-    def _relpath(cls, abspath: str) -> str:
-        """ Converts any path into a manager agnostic path format (/dir/file.txt), opposite of _abspath
+    def relpath(cls, abspath: str) -> str:
+        """ Converts any path into a manager agnostic path format (/dir/file.txt), opposite of abspath
 
         Params:
             abspath (str): The artefact object or it's absolute path which is to be converted
@@ -93,17 +93,17 @@ class Manager(ABC):
         return abspath
 
     @abstractmethod
-    def _dirname(self, path):
+    def dirname(self, path):
         pass
 
     @abstractmethod
-    def _basename(self, path):
+    def basename(self, path):
         pass
 
-    def _join(self, *components) -> str:
+    def join(self, *components) -> str:
         """ Join a relative path with another path for sub and return a manager relative path
         """
-        return self._relpath("/".join(components))
+        return self.relpath("/".join(components))
 
     def _add(self, art: Artefact, *, owner: Directory = None):
         """ Add an artefact object into the manager data structures
@@ -115,7 +115,7 @@ class Manager(ABC):
                 Can be passed to save from looking it up again if the directory is already known
         """
         assert art.manager is self
-        if owner is None: owner = self._backfillHierarchy(self._dirname(art.path))
+        if owner is None: owner = self._backfillHierarchy(self.dirname(art.path))
         owner._add(art)
         self._paths[art.path] = art
 
@@ -154,7 +154,7 @@ class Manager(ABC):
         if destObj is not None: self._rm(destObj, destPath)
 
         # Put the local file onto the remote using the manager definition
-        self._put(src_local, self._abspath(destPath))
+        self._put(src_local, self.abspath(destPath))
 
         # Extract the artefact depending on the type of input
         if os.path.isdir(src_local):
@@ -190,7 +190,7 @@ class Manager(ABC):
                     self._remove(destObj)
 
             # Get the owning directory of the item - Ensure that the directories exist for the incoming files
-            owner = self._backfillHierarchy(self._dirname(dest_remote))
+            owner = self._backfillHierarchy(self.dirname(dest_remote))
             owner._add(art)
             self._add(art)
             return art
@@ -308,15 +308,15 @@ class Manager(ABC):
                 path = art.path
 
                 # Update the object with it's new path
-                art._path = self._join(destPath, art.path[len(srcPath):])
+                art._path = self.join(destPath, art.path[len(srcPath):])
 
                 # Update its membership
                 del self._paths[path]
                 self._paths[art.path] = art
 
         # Unconnect object with the directories that it exists in and add it to the destination location
-        self[self._dirname(srcPath)]._remove(srcObj)
-        self._backfillHierarchy(self._dirname(destPath))._add(srcObj)
+        self[self.dirname(srcPath)]._remove(srcObj)
+        self._backfillHierarchy(self.dirname(destPath))._add(srcObj)
 
         # Move the file info across
         del self._paths[srcPath]
@@ -336,7 +336,7 @@ class Manager(ABC):
 
         obj._exists = False
 
-        self._paths[self._dirname(obj.path)]._remove(obj)
+        self._paths[self.dirname(obj.path)]._remove(obj)
         del self._paths[obj.path]
 
     def rm(self, artefact: typing.Union[Artefact, str], recursive: bool = False) -> None:
@@ -513,7 +513,7 @@ class LocalManager(Manager, ABC):
     def localise(self, artefact):
         obj, path = self._artefactFormStandardise(artefact)
 
-        abspath = self._abspath(path)
+        abspath = self.abspath(path)
         os.makedirs(os.path.dirname(abspath), exist_ok=True)
 
         yield abspath
@@ -596,7 +596,7 @@ class RemoteManager(Manager, ABC):
         with tempfile.TemporaryDirectory() as directory:
 
             # Generate a temporay path for the file to be downloaded into
-            local_path = os.path.join(directory, self._basename(path))
+            local_path = os.path.join(directory, self.basename(path))
 
             # Get the contents and put it into the temporay directory
             if obj:
@@ -624,7 +624,7 @@ class RemoteManager(Manager, ABC):
                     put, delete = self._compareHierarhy(checksum, self._parseHierarchy(local_path))
 
                     # Define the method for converting the abspath back to the manager relative path
-                    contexualise = lambda x: self._join(path, self._relpath(x[len(local_path):]))
+                    contexualise = lambda x: self.join(path, self.relpath(x[len(local_path):]))
 
                     # Put/delete the affected artefacts
                     for abspath in put: self.put(abspath, contexualise(abspath))

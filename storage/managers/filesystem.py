@@ -24,25 +24,25 @@ class FS(LocalManager):
 
     def __repr__(self): return '<Manager(FS): {}>'.format(self._path)
 
-    def _abspath(self, artefact):
+    def abspath(self, artefact):
         _, path = self._artefactFormStandardise(artefact)
         return os.path.abspath(os.path.join(self._path, path[1:]))  # NOTE removing the relative path initial sep
 
-    def _relpath(self, path):
+    def relpath(self, path):
         if self._path == path[:len(self._path)]: path = path[len(self._path):]
-        return super()._relpath(path)  # NOTE remove path to root of manager from path before
+        return super().relpath(path)  # NOTE remove path to root of manager from path before
 
-    def _basename(self, artefact):
+    def basename(self, artefact):
         _, path = self._artefactFormStandardise(artefact)
         return os.path.basename(path)
 
-    def _dirname(self, artefact):
+    def dirname(self, artefact):
         _, path = self._artefactFormStandardise(artefact)
         return os.path.dirname(path)
 
     def _isdir(self, relpath: str):
 
-        abspath = self._abspath(relpath)
+        abspath = self.abspath(relpath)
 
         if not os.path.exists(abspath):
             raise exceptions.ArtefactNotFound("Could not find an artefact at location: {}".format(relpath))
@@ -51,7 +51,7 @@ class FS(LocalManager):
             return os.path.isdir(abspath)
 
     def _makefile(self, path) -> File:
-        abspath = self._abspath(path)
+        abspath = self.abspath(path)
 
         if not os.path.exists(abspath):
             with open(abspath, "w"):
@@ -68,7 +68,7 @@ class FS(LocalManager):
     def _get(self, src_remote: str, dest_local: str):
 
         # Get the absolute path to the object
-        src_remote = self._abspath(src_remote)
+        src_remote = self.abspath(src_remote)
 
         # Identify download method
         method = shutil.copytree if os.path.isdir(src_remote) else shutil.copy
@@ -90,25 +90,25 @@ class FS(LocalManager):
 
     def _mv(self, srcObj: Artefact, destPath: str):
 
-        absDestination = self._abspath(destPath)
+        absDestination = self.abspath(destPath)
         os.makedirs(os.path.dirname(absDestination), exist_ok=True)
-        os.rename(self._abspath(srcObj.path), absDestination)
+        os.rename(self.abspath(srcObj.path), absDestination)
 
     def _listdir(self, relpath: str):
 
-        abspath = self._abspath(relpath)
+        abspath = self.abspath(relpath)
 
         dirs, files = set(), set()
         for art in os.listdir(abspath):
-            if os.path.isdir(os.path.join(abspath, art)):   dirs.add(self._join(relpath,art))
-            else:                                           files.add(self._join(relpath,art))
+            if os.path.isdir(os.path.join(abspath, art)):   dirs.add(self.join(relpath,art))
+            else:                                           files.add(self.join(relpath,art))
 
         return dirs, files
 
     def _rm(self, artefact: Artefact, path: str):
 
 
-        abspath = self._abspath(path)
+        abspath = self.abspath(path)
         if not os.path.exists(abspath): return # NOTE the file has already been deleted - copy directory has this affect
 
         if isinstance(artefact, Directory):

@@ -45,23 +45,23 @@ class Amazon(RemoteManager):
 
     def __repr__(self): return '<Manager(S3): {}>'.format(self._bucketName)
 
-    def _abspath(self, artefact: str):
+    def abspath(self, artefact: str):
         """ Difference between AWS and manager path is the removal of a leading '/'. As such remove the first character
         """
         _, path = self._artefactFormStandardise(artefact)
-        return self._relpath(path)[1:]
+        return self.relpath(path)[1:]
 
-    def _basename(self, artefact):
+    def basename(self, artefact):
         _, path = self._artefactFormStandardise(artefact)
-        return os.path.basename(self._relpath(path))
+        return os.path.basename(self.relpath(path))
 
-    def _dirname(self, path):
+    def dirname(self, path):
         _, path = self._artefactFormStandardise(path)
-        return "/".join(self._relpath(path).split('/')[:-1]) or '/'
+        return "/".join(self.relpath(path).split('/')[:-1]) or '/'
 
     def _isdir(self, relpath: str):
 
-        abspath = self._abspath(relpath)
+        abspath = self.abspath(relpath)
 
         try:
             self._bucket.Object(abspath + "/").load()
@@ -76,7 +76,7 @@ class Amazon(RemoteManager):
 
     def _makefile(self, remotePath: str):
         try:
-            awsObject = self._bucket.Object(self._abspath(remotePath))
+            awsObject = self._bucket.Object(self.abspath(remotePath))
             awsObject.load()
         except Exception as e:
             raise exceptions.ArtefactNotFound(
@@ -90,7 +90,7 @@ class Amazon(RemoteManager):
         if isinstance(src_remote, Directory):
 
             # Identify the prefix for the directory
-            prefix = self._abspath(src_remote)
+            prefix = self.abspath(src_remote)
 
             for object in self._bucket.objects.filter(Prefix=prefix):
                 # Collect the objects in that directory - downlad each one
@@ -108,7 +108,7 @@ class Amazon(RemoteManager):
                 self._bucket.download_file(object.key, path)
 
         else:
-            self._bucket.download_file(self._abspath(src_remote), dest_local)
+            self._bucket.download_file(self.abspath(src_remote), dest_local)
 
     def _put(self, src_local, dest_remote):
 
@@ -122,13 +122,13 @@ class Amazon(RemoteManager):
                 for file in files:
                     self._bucket.upload_file(
                         os.path.join(path, file),
-                        self._abspath(self._join(dest_remote, path[len(src_local):], file))
+                        self.abspath(self.join(dest_remote, path[len(src_local):], file))
                     )
                     isUploaded = True
 
             if not isUploaded:
                 # Make a placeholder file for this directory
-                placeholder_path = self._abspath(self._join(dest_remote, self._PLACEHOLDER))
+                placeholder_path = self.abspath(self.join(dest_remote, self._PLACEHOLDER))
                 self._bucket.put_object(Key=placeholder_path, Body=b'')
 
         else:
@@ -137,7 +137,7 @@ class Amazon(RemoteManager):
 
     def _rm(self, artefact: Artefact, artefactPath: str):
 
-        key = self._abspath(artefactPath)
+        key = self.abspath(artefactPath)
         if isinstance(artefact, Directory):
             for obj in self._bucket.objects.filter(Prefix=key):
                 obj.delete()
@@ -153,11 +153,11 @@ class Amazon(RemoteManager):
     def _mv(self, srcObj: Artefact, destPath: str):
         """ Move the object to the desintation """
 
-        source_path, dest_path = self._abspath(srcObj.path), self._abspath(destPath)
+        source_path, dest_path = self.abspath(srcObj.path), self.abspath(destPath)
         if isinstance(srcObj, Directory):
             for obj in self._bucket.objects.filter(Prefix=source_path):
                 relative = obj.key[len(source_path):]
-                self._mvFile(obj.key, self._abspath(self._join(dest_path, relative)))
+                self._mvFile(obj.key, self.abspath(self.join(dest_path, relative)))
 
         else:
             self._mvFile(source_path, dest_path)
@@ -165,7 +165,7 @@ class Amazon(RemoteManager):
     def _listdir(self, relpath: str):
 
         obj = self._paths[relpath]
-        abspath = self._abspath(relpath)
+        abspath = self.abspath(relpath)
         if abspath and isinstance(obj, Directory): abspath += '/'
 
         # Extract the relevent objects from s3
@@ -173,8 +173,8 @@ class Amazon(RemoteManager):
         files = self._bucket.objects.filter(Prefix=abspath, Delimiter='/')
 
         # Expand and convert s3 objects
-        dirs = {self._relpath(p.get("Prefix")) for p in dirs.search("CommonPrefixes") if p is not None}
-        files = {self._relpath(obj.key) for obj in files if obj.key != abspath and obj.key.split('/')[-1] != self._PLACEHOLDER}
+        dirs = {self.relpath(p.get("Prefix")) for p in dirs.search("CommonPrefixes") if p is not None}
+        files = {self.relpath(obj.key) for obj in files if obj.key != abspath and obj.key.split('/')[-1] != self._PLACEHOLDER}
 
         return dirs, files
 
@@ -183,10 +183,10 @@ class Amazon(RemoteManager):
         with tempfile.TemporaryDirectory() as directory:
             fp = os.path.join(directory, self._PLACEHOLDER)
             open(fp, 'w').close()
-            self._bucket.upload_file(Filename=fp, Key=self._abspath(self._join(path, self._PLACEHOLDER)))
+            self._bucket.upload_file(Filename=fp, Key=self.abspath(self.join(path, self._PLACEHOLDER)))
 
         # Identify the owning directory
-        owning_directory = self._backfillHierarchy(self._dirname(path))
+        owning_directory = self._backfillHierarchy(self.dirname(path))
         art = Directory(self, path)
 
         # Save the new artefact
