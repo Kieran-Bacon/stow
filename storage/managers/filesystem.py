@@ -65,19 +65,6 @@ class FS(LocalManager):
             stats.st_size
         )
 
-    def _walkOrigin(self, prefix=None):
-
-        path = self._path if prefix is None else self._abspath(prefix)
-        files = set()
-
-        for dp, _, fn in os.walk(path):
-            files.add(self._relpath(os.path.join(dp, self._PLACEHOLDER)))
-
-            for f in fn:
-                files.add(self._relpath(os.path.join(dp, f)))
-
-        return files
-
     def _get(self, src_remote: str, dest_local: str):
 
         # Get the absolute path to the object

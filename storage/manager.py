@@ -271,7 +271,18 @@ class Manager(ABC):
             # Signal that the directory contents has been downloaded NOTE not recursive information
             artobj._collected = True
 
-        return self._ls(artobj, recursive=recursive)
+        if recursive:
+
+            # Iterate through contents and recursively add lower level artifacts
+            contents = set()
+            for art in artobj._contents:
+                if isinstance(art, Directory): contents |= self.ls(art, recursive)
+                contents.add(art)
+
+            # Return all child content
+            return contents
+
+        return artobj._contents.copy()
 
     @abstractmethod
     def _mv(self, srcObj: Artefact, destPath: str):
@@ -337,7 +348,7 @@ class Manager(ABC):
             recursive (bool) = False: whether to accept the deletion of a directory which has contents
         """
 
-        obj, path = self._artefactFormStandardise(artefact)
+        obj, path = self._artefactFormStandardise(artefact, require=True)
 
         if obj is None or obj.manager is not self:
             raise exceptions.ArtefactNotMember("Artefact ({}) is not a member of the manager".format(artefact))

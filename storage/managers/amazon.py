@@ -22,15 +22,24 @@ class Amazon(RemoteManager):
         self._aws_secret_access_key = aws_secret_access_key
         self._region_name = region_name
 
-        self._s3 = boto3.resource(
+        self._s3Client = boto3.client(
+            "s3",
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            region_name=region_name
+        )
+        self._s3Resource = boto3.resource(
             's3',
             aws_access_key_id=aws_access_key_id,
             aws_secret_access_key=aws_secret_access_key,
             region_name=region_name
         )
 
+        # Create a paginator object for iterating through remote objects
+        self._clientPaginator = self._s3Client.get_paginator('list_objects')
+
         # Create a reference to the AWS bucket - create a Directory to represent it
-        self._bucket = self._s3.Bucket(name=bucket) # pylint: disable=no-member
+        self._bucket = self._s3Resource.Bucket(name=bucket) # pylint: disable=no-member
 
         super().__init__()
 
@@ -50,19 +59,30 @@ class Amazon(RemoteManager):
         _, path = self._artefactFormStandardise(path)
         return "/".join(self._relpath(path).split('/')[:-1]) or '/'
 
-    def _walkOrigin(self, prefix = None):
+    def _isdir(self, relpath: str):
 
-        if prefix is None:
-            objs = self._bucket.objects.all()
-        else:
-            objs = self._bucket.objects.filter(Prefix=self._abspath(prefix))
+        abspath = self._abspath(relpath)
 
-        for obj in objs:
-            if obj.key[-1] == "/": continue
-            yield self._relpath(obj.key)
+        try:
+            self._bucket.Object(abspath + "/").load()
+            return True
+        except:
+            try:
+                self._bucket.Object(abspath).load()
+                return False
+
+            except:
+                raise exceptions.ArtefactNotFound("Couldn't find artefact with relpath: {}".format(relpath))
 
     def _makefile(self, remotePath: str):
-        awsObject = self._bucket.Object(self._abspath(remotePath))
+        try:
+            awsObject = self._bucket.Object(self._abspath(remotePath))
+            awsObject.load()
+        except Exception as e:
+            raise exceptions.ArtefactNotFound(
+                "Couldn't create file at {} as it doesn't exist".format(remotePath)
+            ) from e
+
         return File(self, remotePath, awsObject.last_modified, awsObject.content_length)
 
     def _get(self, src_remote, dest_local):
@@ -141,6 +161,22 @@ class Amazon(RemoteManager):
 
         else:
             self._mvFile(source_path, dest_path)
+
+    def _listdir(self, relpath: str):
+
+        obj = self._paths[relpath]
+        abspath = self._abspath(relpath)
+        if abspath and isinstance(obj, Directory): abspath += '/'
+
+        # Extract the relevent objects from s3
+        dirs = self._clientPaginator.paginate(Bucket=self._bucketName, Prefix=abspath, Delimiter='/')
+        files = self._bucket.objects.filter(Prefix=abspath, Delimiter='/')
+
+        # Expand and convert s3 objects
+        dirs = {self._relpath(p.get("Prefix")) for p in dirs.search("CommonPrefixes") if p is not None}
+        files = {self._relpath(obj.key) for obj in files if obj.key != abspath and obj.key.split('/')[-1] != self._PLACEHOLDER}
+
+        return dirs, files
 
     def mkdir(self, path):
 
