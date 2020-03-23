@@ -100,7 +100,7 @@ class Directory(Artefact):
     def _add(self, artefact: Artefact) -> None: self._contents.add(artefact)
     def _remove(self, artefact: Artefact) -> None: self._contents.remove(artefact)
 
-    def mkdir(self, path: str): self._container.mkdir(self.manager._join(self._path, path))
-    def touch(self, path: str): self._container.touch(self.manager._join(self._path, path))
-    def rm(self, path, recursive: bool = False): return self.manager.rm(self.manager._join(self.path, path), recursive)
+    def mkdir(self, path: str): self._container.mkdir(self.manager.join(self._path, path))
+    def touch(self, path: str): self._container.touch(self.manager.join(self._path, path))
+    def rm(self, path, recursive: bool = False): return self.manager.rm(self.manager.join(self.path, path), recursive)
     def ls(self, recursive: bool = False): return self._manager.ls(self, recursive=recursive)
