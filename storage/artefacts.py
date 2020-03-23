@@ -3,6 +3,7 @@ import io
 import datetime
 import tempfile
 import contextlib
+import typing
 
 class Artefact:
     """ Aretefacts are the items that are being stored - it is possible that through another mechanism that these items
@@ -78,37 +79,28 @@ class File(Artefact):
         self._size = other._size
 
 class Directory(Artefact):
-    """ A directory represents an os FS directory """
+    """ A directory represents an os FS directory
 
-    def __init__(self, manager, path: str, contents: set = None):
+    Params:
+        manager (storage.manager.Manager): The manager this directory object belongs to
+        path (str): the manager relative path for the object
+        contents (set): collection of artefacts which reside within this directoy
+        *,
+        collected (bool): Toggle as to whether the directory contents has been collected (false when JIT Loading)
+    """
+
+    def __init__(self, manager, path: str, contents: set = None, *, collected: bool = False):
         super().__init__(manager, path)
         self._contents = set(contents) if contents else set()
+        self._collected = collected
 
-    def __len__(self): return len(self._contents)
+    def __len__(self): return len(self.ls())
     def __iter__(self): return iter(self._contents)
     def __repr__(self): return '<storage.Directory({})>'.format(self._path)
     def _add(self, artefact: Artefact) -> None: self._contents.add(artefact)
     def _remove(self, artefact: Artefact) -> None: self._contents.remove(artefact)
 
-    def mkdir(self, path: str): self._container.mkdir(self.manager._join(self._path, path))
-    def touch(self, path: str): self._container.touch(self.manager._join(self._path, path))
-    def rm(self, path, recursive: bool = False): return self.manager.rm(self.manager._join(self.path, path), recursive)
-
-    def ls(self, recursive: bool = False):
-
-        if recursive:
-
-            # Iterate through contents and recursively add lower level artifacts
-            contents = set()
-            for art in self._contents:
-                if isinstance(art, Directory):
-                    contents = contents.union(art.ls(recursive))
-
-                contents.add(art)
-
-            # Return all child content
-            return contents
-
-        return self._contents.copy()
-
-
+    def mkdir(self, path: str): self._container.mkdir(self.manager.join(self._path, path))
+    def touch(self, path: str): self._container.touch(self.manager.join(self._path, path))
+    def rm(self, path, recursive: bool = False): return self.manager.rm(self.manager.join(self.path, path), recursive)
+    def ls(self, recursive: bool = False): return self._manager.ls(self, recursive=recursive)

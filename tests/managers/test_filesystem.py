@@ -54,7 +54,7 @@ class Test_Filesystem(unittest.TestCase, ManagerTests):
 
 
         for i, o in paths:
-            self.assertEqual(self.manager._abspath(i), o)
+            self.assertEqual(self.manager.abspath(i), o)
     def test_relPath(self):
 
         paths = [
@@ -68,4 +68,4 @@ class Test_Filesystem(unittest.TestCase, ManagerTests):
 
 
         for i, o in paths:
-            self.assertEqual(self.manager._relpath(i), o)
+            self.assertEqual(self.manager.relpath(i), o)
