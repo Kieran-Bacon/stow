@@ -27,8 +27,6 @@ class BasicSetup:
 
         self.manager = storage.connect(manager='FS', path=self.directory)
 
-        self.assertEqual(self.manager.paths().keys(), {"/", "/file1", "/directory1"})
-
     def tearDown(self):
         shutil.rmtree(self.directory)
 
@@ -87,7 +85,7 @@ class Test_Files(BasicSetup, unittest.TestCase):
         )
 
     def test_opening(self):
-        file = self.manager.ls().pop()
+        file = self.manager['/file1']
 
         with file.open('r') as fh:
             self.assertEqual(fh.read(), self.filetext)

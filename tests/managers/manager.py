@@ -148,7 +148,7 @@ class ManagerTests:
 
             self.assertEqual(len(folder), 1)
 
-            with pytest.raises(KeyError):
+            with pytest.raises(storage.exceptions.ArtefactNotFound):
                 self.manager['/directory/file1.txt']
 
             self.manager['/directory/file2.txt']
@@ -200,10 +200,10 @@ class ManagerTests:
             self.assertTrue(self.manager['/file1.txt'])
             self.assertTrue(self.manager['/file2.txt'])
 
-            with pytest.raises(KeyError):
+            with pytest.raises(storage.exceptions.ArtefactNotFound):
                 self.manager['/file3.txt']
 
-            with pytest.raises(KeyError):
+            with pytest.raises(storage.exceptions.ArtefactNotFound):
                 self.manager['/file4.txt']
 
             # Move the file
@@ -213,8 +213,8 @@ class ManagerTests:
             # Assert that the file exists
             self.assertTrue(self.manager['/file3.txt'])
             self.assertTrue(self.manager['/file4.txt'])
-            with pytest.raises(KeyError): self.manager['/file1.txt']
-            with pytest.raises(KeyError): self.manager['/file2.txt']
+            with pytest.raises(storage.exceptions.ArtefactNotFound): self.manager['/file1.txt']
+            with pytest.raises(storage.exceptions.ArtefactNotFound): self.manager['/file2.txt']
 
             # Open the new file and assert that its content matches
             with self.manager.open('/file3.txt', 'r') as handle:
@@ -267,7 +267,7 @@ class ManagerTests:
             self.manager.rm('/file1.txt')
 
             # Demonstrate that the file has been removed from the manager
-            with pytest.raises(KeyError):
+            with pytest.raises(storage.exceptions.ArtefactNotFound):
                 self.manager['/file1.txt']
 
             self.assertFalse(file._exists)
