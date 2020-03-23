@@ -25,6 +25,7 @@ setup(
             'Locals=storage.managers:Locals',
             'AWS=storage.managers:Amazon',
             'S3=storage.managers:Amazon'
+            's3=storage.managers:Amazon'
         ]
     }
 )

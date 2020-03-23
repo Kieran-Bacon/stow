@@ -40,18 +40,24 @@ class Test_Artefacts(BasicSetup, unittest.TestCase):
 
         file.path = '/directory1/file1'
 
-        self.assertEqual(self.manager.paths().keys(), {"/", "/directory1/file1", "/directory1"})
+        self.assertEqual(
+            {art.path for art in self.manager.ls(recursive=True)},
+            {"/directory1/file1", "/directory1"}
+        )
 
         file.path = '/another_directory/file1'
 
-        self.assertEqual(self.manager.paths().keys(), {"/", "/another_directory/file1", "/directory1", '/another_directory'})
+        self.assertEqual(
+            {art.path for art in self.manager.ls(recursive=True)},
+            {"/another_directory/file1", "/directory1", '/another_directory'}
+        )
 
         file.path = '/directory1/file1'
         self.manager['/directory1'].path = "/another_directory/directory2"
 
         self.assertEqual(
-            self.manager.paths().keys(),
-            {"/", "/another_directory", "/another_directory/directory2", '/another_directory/directory2/file1'}
+            {art.path for art in self.manager.ls(recursive=True)},
+            {"/another_directory", "/another_directory/directory2", '/another_directory/directory2/file1'}
         )
 
     def test_manager(self):

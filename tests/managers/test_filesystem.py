@@ -4,11 +4,11 @@ import os
 import tempfile
 import shutil
 
-from .manager import ManagerTests
+from .manager import ManagerTests, SubManagerTests
 
 import storage
 
-class Test_Filesystem(unittest.TestCase, ManagerTests):
+class Test_Filesystem(unittest.TestCase, ManagerTests, SubManagerTests):
 
     def setUp(self):
         # Make the managers local space to store files
