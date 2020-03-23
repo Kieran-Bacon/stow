@@ -1,4 +1,4 @@
-class ArtefactNotFound(Exception):
+class ArtefactNotFound(FileNotFoundError):
     pass
 
 class ArtefactNotMember(Exception):
