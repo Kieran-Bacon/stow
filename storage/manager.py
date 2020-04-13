@@ -659,6 +659,9 @@ class SubManager(Manager):
         with type(self._owner).localise(self, artefact) as abspath:
             yield abspath
 
+    def submanager(self):
+        raise NotImplementedError("A submanager cannot be created on a submanager")
+
 class LocalManager(Manager, ABC):
 
     @contextlib.contextmanager
