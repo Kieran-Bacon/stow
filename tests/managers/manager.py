@@ -4,6 +4,8 @@ import pytest
 import os
 import tempfile
 import shutil
+import contextlib
+import abc
 
 import storage
 
@@ -11,6 +13,16 @@ class ManagerTests:
 
     def setUp(self):
         self.manager = storage.manager.Manager
+
+    @abc.abstractmethod
+    def setUpWithFiles(self): pass
+
+    def test_initial_files(self):
+
+        self.setUpWithFiles()
+
+        self.assertTrue("/initial_file1.txt" in self.manager)
+        self.assertTrue("/initial_directory/initial_file2.txt" in self.manager)
 
     def test_mkdir(self):
 
@@ -180,7 +192,16 @@ class ManagerTests:
         self.assertEqual(self.manager['/A/C'].ls(), set())
 
         # Assert the recursive function
-        objects = set(self.manager.paths().values()).difference({self.manager['/']})
+        objects = {
+            self.manager[x]
+            for x in [
+                "/A", "/A/c.txt",
+                "/A/B", "/A/B/d.txt",
+                "/A/B/e.txt",
+                "/A/C"
+            ]
+        }
+
         self.assertEqual(self.manager.ls(recursive=True), objects)
         self.assertEqual(self.manager['/'].ls(recursive=True), objects)
 
@@ -188,46 +209,45 @@ class ManagerTests:
 
         content = 'Here is some file content to be verified'
 
-        with tempfile.TemporaryDirectory() as directory:
-            # Create a file on the manager
-            file_one = self.manager.touch('/file1.txt')
-            file_two = self.manager.touch('/file2.txt')
+        # Create a file on the manager
+        file_one = self.manager.touch('/file1.txt')
+        file_two = self.manager.touch('/file2.txt')
 
-            with file_one.open('w') as fh: fh.write(content)
-            with file_two.open('w') as fh: fh.write(content)
+        with file_one.open('w') as fh: fh.write(content)
+        with file_two.open('w') as fh: fh.write(content)
 
-            # Assert that the file exists
-            self.assertTrue(self.manager['/file1.txt'])
-            self.assertTrue(self.manager['/file2.txt'])
+        # Assert that the file exists
+        self.assertTrue(self.manager['/file1.txt'])
+        self.assertTrue(self.manager['/file2.txt'])
 
-            with pytest.raises(storage.exceptions.ArtefactNotFound):
-                self.manager['/file3.txt']
+        with pytest.raises(storage.exceptions.ArtefactNotFound):
+            self.manager['/file3.txt']
 
-            with pytest.raises(storage.exceptions.ArtefactNotFound):
-                self.manager['/file4.txt']
+        with pytest.raises(storage.exceptions.ArtefactNotFound):
+            self.manager['/file4.txt']
 
-            # Move the file
-            self.manager.mv('/file1.txt', '/file3.txt')
-            self.manager.mv(file_two, '/file4.txt')
+        # Move the file
+        self.manager.mv('/file1.txt', '/file3.txt')
+        self.manager.mv(file_two, '/file4.txt')
 
-            # Assert that the file exists
-            self.assertTrue(self.manager['/file3.txt'])
-            self.assertTrue(self.manager['/file4.txt'])
-            with pytest.raises(storage.exceptions.ArtefactNotFound): self.manager['/file1.txt']
-            with pytest.raises(storage.exceptions.ArtefactNotFound): self.manager['/file2.txt']
+        # Assert that the file exists
+        self.assertTrue(self.manager['/file3.txt'])
+        self.assertTrue(self.manager['/file4.txt'])
+        with pytest.raises(storage.exceptions.ArtefactNotFound): self.manager['/file1.txt']
+        with pytest.raises(storage.exceptions.ArtefactNotFound): self.manager['/file2.txt']
 
-            # Open the new file and assert that its content matches
-            with self.manager.open('/file3.txt', 'r') as handle:
-                self.assertEqual(handle.read(), content)
+        # Open the new file and assert that its content matches
+        with self.manager.open('/file3.txt', 'r') as handle:
+            self.assertEqual(handle.read(), content)
 
-            with self.manager.open('/file4.txt', 'r') as handle:
-                self.assertEqual(handle.read(), content)
+        with self.manager.open('/file4.txt', 'r') as handle:
+            self.assertEqual(handle.read(), content)
 
-            self.assertEqual(file_one.path, "/file3.txt")
-            self.assertEqual(file_two.path, "/file4.txt")
+        self.assertEqual(file_one.path, "/file3.txt")
+        self.assertEqual(file_two.path, "/file4.txt")
 
-            self.assertEqual(file_one, self.manager['/file3.txt'])
-            self.assertEqual(file_two, self.manager['/file4.txt'])
+        self.assertEqual(file_one, self.manager['/file3.txt'])
+        self.assertEqual(file_two, self.manager['/file4.txt'])
 
     def test_mv_directory(self):
 
@@ -243,7 +263,7 @@ class ManagerTests:
         self.assertEqual(directory.path, "/another")
         self.assertEqual(file.path, "/another/file1.txt")
 
-        self.assertEqual(self.manager.paths().keys(), {"/", "/another", "/another/file1.txt"})
+        self.assertEqual({art.path for art in self.manager.ls(recursive=True)}, {"/another", "/another/file1.txt"})
 
     def test_rm_file(self):
 
@@ -470,3 +490,162 @@ class ManagerTests:
             self.assertEqual(len(os.listdir(abspath)), 0)
 
         self.assertIsInstance(self.manager['/nonexistent'], storage.artefacts.Directory)
+
+class SubManagerTests:
+
+    @staticmethod
+    @contextlib.contextmanager
+    def get_filepath(content=""):
+
+        directory = tempfile.mkdtemp()
+        filepath = os.path.join(directory, "testing-file.txt")
+        with open(filepath, "w") as handle:
+            handle.write(content)
+
+        yield filepath
+
+        shutil.rmtree(directory)
+
+    @staticmethod
+    @contextlib.contextmanager
+    def get_dirpath(files=["file1.txt", "files2.txt", "files3.txt"]):
+
+        directory = tempfile.mkdtemp()
+
+        for i, f in enumerate(files):
+            with open(os.path.join(directory, f), "w") as handle:
+                handle.write("Content"[:i])
+
+        yield directory
+
+        shutil.rmtree(directory)
+
+    def test_submanager_sub_put_files(self):
+
+        # Create a sub directory at the given location - test putting a file into the
+        subManager = self.manager.submanager("/sub-directory")
+
+        with self.get_filepath("content") as filepath:
+            # Test putting a file into the sub-manager
+            subfile = subManager.put(filepath, "/file1.txt")
+
+        # Get the main file that links to this one
+        mainfile = self.manager['/sub-directory/file1.txt']
+
+        # Assert that they have the same information
+        self.assertEqual(mainfile.modifiedTime, subfile.modifiedTime)
+        self.assertEqual(mainfile.size, subfile.size)
+
+        with self.get_filepath("Some other content") as filepath:
+            subfile2 = subManager.put(filepath, "/file1.txt")
+
+        # Get the main file that links to this one
+        mainfile2 = self.manager['/sub-directory/file1.txt']
+
+        self.assertIs(subfile, subfile2)
+        self.assertIs(mainfile, mainfile2)
+
+        # Assert that they have the same information
+        self.assertEqual(mainfile.modifiedTime, subfile.modifiedTime)
+        self.assertEqual(mainfile.size, subfile.size)
+
+    def test_submanager_main_put_files(self):
+
+        # Create a sub manager
+        subManager = self.manager.submanager("/sub-directory")
+
+        with self.get_filepath("content") as filepath:
+            # Test putting file in the main manager
+            mainfile = self.manager.put(filepath, "/sub-directory/file1.txt")
+
+        # Test
+        subfile = subManager["/file1.txt"]
+
+        self.assertEqual(mainfile.modifiedTime, subfile.modifiedTime)
+        self.assertEqual(mainfile.size, subfile.size)
+
+        with self.get_filepath("content") as filepath:
+            # Test putting file in the main manager
+            mainfile2 = self.manager.put(filepath, "/sub-directory/file1.txt")
+
+        # Get the main file that links to this one
+        subfile2 = subManager['/file1.txt']
+
+        self.assertIs(subfile, subfile2)
+        self.assertIs(mainfile, mainfile2)
+
+        # Assert that they have the same information
+        self.assertEqual(mainfile.modifiedTime, subfile.modifiedTime)
+        self.assertEqual(mainfile.size, subfile.size)
+
+    def test_submanager_sub_put_directories(self):
+
+        subManager = self.manager.submanager("/sub-directory")
+
+        with self.get_dirpath() as directory:
+            subdir = subManager.put(directory, "/directory")
+
+        maindir = self.manager["/sub-directory/directory"]
+
+        # Assert that the directories are consisten with each other
+        self.assertEqual(len(maindir), len(subdir))
+
+        artpath = lambda art: art.path
+        for main, sub in zip(sorted(maindir, key=artpath), sorted(subdir, key=artpath)):
+
+            self.assertEqual(main.modifiedTime, sub.modifiedTime)
+            self.assertEqual(main.size, sub.size)
+
+        # Put and overwrite
+        with self.get_dirpath(['file2.txt', 'file3.txt']) as directory:
+            subdir1 = subManager.put(directory, "/directory")
+
+        maindir1 = self.manager["/sub-directory/directory"]
+
+        self.assertIs(subdir, subdir1)
+        self.assertIs(maindir, maindir1)
+
+        # Assert that the directories are consisten with each other
+        self.assertEqual(len(maindir), len(subdir))
+
+        artpath = lambda art: art.path
+        for main, sub in zip(sorted(maindir, key=artpath), sorted(subdir, key=artpath)):
+
+            self.assertEqual(main.modifiedTime, sub.modifiedTime)
+            self.assertEqual(main.size, sub.size)
+
+    def test_submanager_main_put_directories(self):
+
+        subManager = self.manager.submanager("/sub-directory")
+
+        with self.get_dirpath() as directory:
+            maindir = self.manager.put(directory, "/sub-directory/directory")
+
+        subdir = subManager["/directory"]
+
+        # Assert that the directories are consisten with each other
+        self.assertEqual(len(maindir), len(subdir))
+
+        artpath = lambda art: art.path
+        for main, sub in zip(sorted(maindir, key=artpath), sorted(subdir, key=artpath)):
+
+            self.assertEqual(main.modifiedTime, sub.modifiedTime)
+            self.assertEqual(main.size, sub.size)
+
+        # Put and overwrite
+        with self.get_dirpath(['file2.txt', 'file3.txt']) as directory:
+            maindir1 = self.manager.put(directory, "/sub-directory/directory")
+
+        subdir1 = subManager["/directory"]
+
+        self.assertIs(subdir, subdir1)
+        self.assertIs(maindir, maindir1)
+
+        # Assert that the directories are consisten with each other
+        self.assertEqual(len(maindir), len(subdir))
+
+        artpath = lambda art: art.path
+        for main, sub in zip(sorted(maindir, key=artpath), sorted(subdir, key=artpath)):
+
+            self.assertEqual(main.modifiedTime, sub.modifiedTime)
+            self.assertEqual(main.size, sub.size)

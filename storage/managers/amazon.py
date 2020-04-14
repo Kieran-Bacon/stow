@@ -45,19 +45,10 @@ class Amazon(RemoteManager):
 
     def __repr__(self): return '<Manager(S3): {}>'.format(self._bucketName)
 
-    def abspath(self, artefact: str):
+    def abspath(self, relpath: str):
         """ Difference between AWS and manager path is the removal of a leading '/'. As such remove the first character
         """
-        _, path = self._artefactFormStandardise(artefact)
-        return self.relpath(path)[1:]
-
-    def basename(self, artefact):
-        _, path = self._artefactFormStandardise(artefact)
-        return os.path.basename(self.relpath(path))
-
-    def dirname(self, path):
-        _, path = self._artefactFormStandardise(path)
-        return "/".join(self.relpath(path).split('/')[:-1]) or '/'
+        return self.relpath(relpath)[1:]
 
     def _isdir(self, relpath: str):
 
@@ -85,12 +76,12 @@ class Amazon(RemoteManager):
 
         return File(self, remotePath, awsObject.last_modified, awsObject.content_length)
 
-    def _get(self, src_remote, dest_local):
+    def _get(self, src_remote: Artefact, dest_local: str):
 
         if isinstance(src_remote, Directory):
 
             # Identify the prefix for the directory
-            prefix = self.abspath(src_remote)
+            prefix = self.abspath(src_remote.path)
 
             for object in self._bucket.objects.filter(Prefix=prefix):
                 # Collect the objects in that directory - downlad each one
@@ -108,7 +99,7 @@ class Amazon(RemoteManager):
                 self._bucket.download_file(object.key, path)
 
         else:
-            self._bucket.download_file(self.abspath(src_remote), dest_local)
+            self._bucket.download_file(self.abspath(src_remote.path), dest_local)
 
     def _put(self, src_local, dest_remote):
 
@@ -135,9 +126,9 @@ class Amazon(RemoteManager):
             # Putting a file
             self._bucket.upload_file(src_local, dest_remote)
 
-    def _rm(self, artefact: Artefact, artefactPath: str):
+    def _rm(self, artefact: Artefact):
 
-        key = self.abspath(artefactPath)
+        key = self.abspath(artefact.path)
         if isinstance(artefact, Directory):
             for obj in self._bucket.objects.filter(Prefix=key):
                 obj.delete()

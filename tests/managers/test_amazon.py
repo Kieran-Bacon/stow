@@ -5,9 +5,10 @@ import pyini
 import boto3
 from botocore.exceptions import ClientError
 import uuid
+import tempfile
 
 from .. import ETC_DIR
-from .manager import ManagerTests
+from .manager import ManagerTests, SubManagerTests
 
 import storage
 
@@ -15,7 +16,7 @@ CONFIG_PATH = os.path.join(ETC_DIR, 'aws_credentials.ini')
 BUCKET_NAME_INCLUDE = 'pykb-storage-test-bucket'
 
 @unittest.skipIf(not os.path.exists(CONFIG_PATH), 'No credentials at {} to connect to aws'.format(CONFIG_PATH))
-class Test_Amazon(unittest.TestCase, ManagerTests):
+class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
 
     @classmethod
     def setUpClass(cls):
@@ -71,6 +72,36 @@ class Test_Amazon(unittest.TestCase, ManagerTests):
             aws_access_key_id=self._config['aws_access_key_id'],
             aws_secret_access_key=self._config['aws_secret_access_key'],
             # region_name=self._config['region_name']
+        )
+
+    def setUpWithFiles(self):
+        # Make the managers local space to store files
+        self.directory = tempfile.mkdtemp()
+
+        # Define the manager
+        self.manager = storage.connect(
+            manager='AWS',
+            bucket=self.bucket_name,
+            aws_access_key_id=self._config['aws_access_key_id'],
+            aws_secret_access_key=self._config['aws_secret_access_key'],
+            # region_name=self._config['region_name']
+        )
+
+        with open(os.path.join(self.directory, "initial_file1.txt"), "w") as handle:
+            handle.write("Content")
+
+        self.manager._bucket.upload_file(
+            os.path.join(self.directory, "initial_file1.txt"),
+            "initial_file1.txt"
+        )
+
+        os.mkdir(os.path.join(self.directory, "initial_directory"))
+        with open(os.path.join(self.directory, "initial_directory", "initial_file2.txt"), "w") as handle:
+            handle.write("Content")
+
+        self.manager._bucket.upload_file(
+            os.path.join(self.directory, "initial_directory", "initial_file2.txt"),
+            "initial_directory/initial_file2.txt"
         )
 
     def tearDown(self):
