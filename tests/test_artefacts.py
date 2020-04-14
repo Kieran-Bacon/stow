@@ -40,18 +40,24 @@ class Test_Artefacts(BasicSetup, unittest.TestCase):
 
         file.path = '/directory1/file1'
 
-        self.assertEqual(self.manager.paths().keys(), {"/", "/directory1/file1", "/directory1"})
+        self.assertEqual(
+            {art.path for art in self.manager.ls(recursive=True)},
+            {"/directory1/file1", "/directory1"}
+        )
 
         file.path = '/another_directory/file1'
 
-        self.assertEqual(self.manager.paths().keys(), {"/", "/another_directory/file1", "/directory1", '/another_directory'})
+        self.assertEqual(
+            {art.path for art in self.manager.ls(recursive=True)},
+            {"/another_directory/file1", "/directory1", '/another_directory'}
+        )
 
         file.path = '/directory1/file1'
         self.manager['/directory1'].path = "/another_directory/directory2"
 
         self.assertEqual(
-            self.manager.paths().keys(),
-            {"/", "/another_directory", "/another_directory/directory2", '/another_directory/directory2/file1'}
+            {art.path for art in self.manager.ls(recursive=True)},
+            {"/another_directory", "/another_directory/directory2", '/another_directory/directory2/file1'}
         )
 
     def test_manager(self):
@@ -140,3 +146,34 @@ class Test_Directories(unittest.TestCase):
         self.assertIsInstance(directory, storage.Directory)
 
         directory.rm('/file1')
+
+    def test_mkdir(self):
+
+        self.manager["/dir1"].mkdir("/subdir1")
+        self.manager["/dir1"].mkdir("subdir2")
+
+        self.assertTrue(self.manager["/dir1/subdir1"] is not None)
+        self.assertTrue(self.manager["/dir1/subdir2"] is not None)
+
+        self.assertEqual(len(self.manager.ls(recursive=True)), 4)
+
+    def test_touch(self):
+
+        self.manager["/dir1"].touch("/file1.txt")
+        self.manager["/dir1"].touch("file2.txt")
+
+        self.manager["/dir1"].touch("subdir1/file1.txt")
+
+        self.assertEqual(len(self.manager.ls(recursive=True)), 6)
+
+    def test_open(self):
+
+        with self.manager["/dir1"].open("/file1.txt", "w") as handle:
+            handle.write("Some content")
+
+        self.assertTrue("/dir1/file1.txt" in self.manager)
+        self.assertEqual(len(self.manager["/dir1/file1.txt"]), 12)
+
+        with pytest.raises(FileNotFoundError):
+            with self.manager["/dir1"].open("/file2.txt") as handle:
+                handle.read()

@@ -24,21 +24,12 @@ class FS(LocalManager):
 
     def __repr__(self): return '<Manager(FS): {}>'.format(self._path)
 
-    def abspath(self, artefact):
-        _, path = self._artefactFormStandardise(artefact)
-        return os.path.abspath(os.path.join(self._path, path[1:]))  # NOTE removing the relative path initial sep
+    def abspath(self, relpath):
+        return os.path.abspath(os.path.join(self._path, relpath[1:]))  # NOTE removing the relative path initial sep
 
     def relpath(self, path):
         if self._path == path[:len(self._path)]: path = path[len(self._path):]
         return super().relpath(path)  # NOTE remove path to root of manager from path before
-
-    def basename(self, artefact):
-        _, path = self._artefactFormStandardise(artefact)
-        return os.path.basename(path)
-
-    def dirname(self, artefact):
-        _, path = self._artefactFormStandardise(artefact)
-        return os.path.dirname(path)
 
     def _isdir(self, relpath: str):
 
@@ -65,10 +56,10 @@ class FS(LocalManager):
             stats.st_size
         )
 
-    def _get(self, src_remote: str, dest_local: str):
+    def _get(self, src_remote: Artefact, dest_local: str):
 
         # Get the absolute path to the object
-        src_remote = self.abspath(src_remote)
+        src_remote = self.abspath(src_remote.path)
 
         # Identify download method
         method = shutil.copytree if os.path.isdir(src_remote) else shutil.copy
@@ -105,10 +96,10 @@ class FS(LocalManager):
 
         return dirs, files
 
-    def _rm(self, artefact: Artefact, path: str):
+    def _rm(self, artefact: Artefact):
 
 
-        abspath = self.abspath(path)
+        abspath = self.abspath(artefact.path)
         if not os.path.exists(abspath): return # NOTE the file has already been deleted - copy directory has this affect
 
         if isinstance(artefact, Directory):

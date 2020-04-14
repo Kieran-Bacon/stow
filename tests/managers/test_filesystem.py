@@ -4,15 +4,29 @@ import os
 import tempfile
 import shutil
 
-from .manager import ManagerTests
+from .manager import ManagerTests, SubManagerTests
 
 import storage
 
-class Test_Filesystem(unittest.TestCase, ManagerTests):
+class Test_Filesystem(unittest.TestCase, ManagerTests, SubManagerTests):
 
     def setUp(self):
         # Make the managers local space to store files
         self.directory = tempfile.mkdtemp()
+
+        # Define the manager
+        self.manager = storage.connect(manager='FS', path=self.directory)
+
+    def setUpWithFiles(self):
+        # Make the managers local space to store files
+        self.directory = tempfile.mkdtemp()
+
+        with open(os.path.join(self.directory, "initial_file1.txt"), "w") as handle:
+            handle.write("Content")
+
+        os.mkdir(os.path.join(self.directory, "initial_directory"))
+        with open(os.path.join(self.directory, "initial_directory", "initial_file2.txt"), "w") as handle:
+            handle.write("Content")
 
         # Define the manager
         self.manager = storage.connect(manager='FS', path=self.directory)
@@ -65,7 +79,6 @@ class Test_Filesystem(unittest.TestCase, ManagerTests):
             (r'C:\\what\\the\\hell', '/what/the/hell'),
             ('s3://path/like/this', '/path/like/this')
         ]
-
 
         for i, o in paths:
             self.assertEqual(self.manager.relpath(i), o)
