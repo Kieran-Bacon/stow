@@ -17,6 +17,20 @@ class Test_Filesystem(unittest.TestCase, ManagerTests, SubManagerTests):
         # Define the manager
         self.manager = storage.connect(manager='FS', path=self.directory)
 
+    def setUpWithFiles(self):
+        # Make the managers local space to store files
+        self.directory = tempfile.mkdtemp()
+
+        with open(os.path.join(self.directory, "initial_file1.txt"), "w") as handle:
+            handle.write("Content")
+
+        os.mkdir(os.path.join(self.directory, "initial_directory"))
+        with open(os.path.join(self.directory, "initial_directory", "initial_file2.txt"), "w") as handle:
+            handle.write("Content")
+
+        # Define the manager
+        self.manager = storage.connect(manager='FS', path=self.directory)
+
     def tearDown(self):
 
         # Delete the directory and all it's contents
@@ -65,7 +79,6 @@ class Test_Filesystem(unittest.TestCase, ManagerTests, SubManagerTests):
             (r'C:\\what\\the\\hell', '/what/the/hell'),
             ('s3://path/like/this', '/path/like/this')
         ]
-
 
         for i, o in paths:
             self.assertEqual(self.manager.relpath(i), o)

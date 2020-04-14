@@ -5,6 +5,7 @@ import os
 import tempfile
 import shutil
 import contextlib
+import abc
 
 import storage
 
@@ -12,6 +13,16 @@ class ManagerTests:
 
     def setUp(self):
         self.manager = storage.manager.Manager
+
+    @abc.abstractmethod
+    def setUpWithFiles(self): pass
+
+    def test_initial_files(self):
+
+        self.setUpWithFiles()
+
+        self.assertTrue("/initial_file1.txt" in self.manager)
+        self.assertTrue("/initial_directory/initial_file2.txt" in self.manager)
 
     def test_mkdir(self):
 

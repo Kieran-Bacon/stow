@@ -19,6 +19,23 @@ class Test_SubManager(unittest.TestCase, ManagerTests):
         self.mainManager.mkdir("/demo")
         self.manager = self.mainManager.submanager("/demo")
 
+    def setUpWithFiles(self):
+        # Make the managers local space to store files
+        self.directory = tempfile.mkdtemp()
+
+        os.mkdir(os.path.join(self.directory, "demo"))
+
+        with open(os.path.join(self.directory, "demo", "initial_file1.txt"), "w") as handle:
+            handle.write("Content")
+
+        os.mkdir(os.path.join(self.directory, "demo", "initial_directory"))
+        with open(os.path.join(self.directory, "demo", "initial_directory", "initial_file2.txt"), "w") as handle:
+            handle.write("Content")
+
+        # Define the manager
+        self.mainManager = storage.connect(manager='FS', path=self.directory)
+        self.manager = self.mainManager.submanager("/demo")
+
     def tearDown(self):
 
         # Delete the directory and all it's contents

@@ -146,3 +146,34 @@ class Test_Directories(unittest.TestCase):
         self.assertIsInstance(directory, storage.Directory)
 
         directory.rm('/file1')
+
+    def test_mkdir(self):
+
+        self.manager["/dir1"].mkdir("/subdir1")
+        self.manager["/dir1"].mkdir("subdir2")
+
+        self.assertTrue(self.manager["/dir1/subdir1"] is not None)
+        self.assertTrue(self.manager["/dir1/subdir2"] is not None)
+
+        self.assertEqual(len(self.manager.ls(recursive=True)), 4)
+
+    def test_touch(self):
+
+        self.manager["/dir1"].touch("/file1.txt")
+        self.manager["/dir1"].touch("file2.txt")
+
+        self.manager["/dir1"].touch("subdir1/file1.txt")
+
+        self.assertEqual(len(self.manager.ls(recursive=True)), 6)
+
+    def test_open(self):
+
+        with self.manager["/dir1"].open("/file1.txt", "w") as handle:
+            handle.write("Some content")
+
+        self.assertTrue("/dir1/file1.txt" in self.manager)
+        self.assertEqual(len(self.manager["/dir1/file1.txt"]), 12)
+
+        with pytest.raises(FileNotFoundError):
+            with self.manager["/dir1"].open("/file2.txt") as handle:
+                handle.read()

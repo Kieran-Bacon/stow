@@ -9,7 +9,7 @@ import re
 
 from . import SEP
 from . import exceptions
-from .artefacts import Artefact, File, Directory
+from .artefacts import Artefact, File, Directory, SubFile, SubDirectory
 
 class Manager(ABC):
     """ Manager Abstract base class - expressed the interface of a Manager which governs a storage option and allows
@@ -28,6 +28,7 @@ class Manager(ABC):
     def __init__(self):
         self._root = Directory(self, self._ROOT_PATH)
         self._paths = {self._ROOT_PATH: self._root}
+        self._submanagers = {}
 
     @abstractmethod
     def __repr__(self): pass
@@ -113,7 +114,6 @@ class Manager(ABC):
         else:
             art = self._makefile(relpath)
             self._add(art)
-
         return art
 
     def __contains__(self, artefact: typing.Union[Artefact, str]):
@@ -121,9 +121,8 @@ class Manager(ABC):
         try:
             self[artefact]
             return True
-        except:
+        except exceptions.ArtefactNotFound:
             return False
-        # return artefact in self._paths
 
     def _add(self, art: Artefact):
         """ Add an artefact object into the manager data structures
@@ -135,6 +134,14 @@ class Manager(ABC):
         owner = self._backfillHierarchy(self.dirname(art.path))
         owner._add(art)
         self._paths[art.path] = art
+
+        if self._submanagers:
+            # Ensure that the artefact has been added to any sub managers this artefact resides in
+
+            for uri, manager in self._submanagers.items():
+                if art.path.startswith(uri):
+                    # The artefact exists within the sub manager - pass the parent object
+                    manager._addMain(art)
 
     @abstractmethod
     def _get(self, source: Artefact, destination: str):
@@ -208,9 +215,9 @@ class Manager(ABC):
                 else:
                     self._remove(destObj)
 
-            # Get the owning directory of the item - Ensure that the directories exist for the incoming files
-            self._add(art)
-            return art
+        # Add the new artefact and return it
+        self._add(art)
+        return art
 
     def put(self, src_local: str, dest_remote: typing.Union[Artefact, str]) -> Artefact:
         """ Put a local artefact onto the remote at the location given.
@@ -241,18 +248,7 @@ class Manager(ABC):
     def _mv(self, srcObj: Artefact, destPath: str):
         pass
 
-    def mv(self, source: typing.Union[Artefact, str], destination: typing.Union[Artefact, str]):
-
-        # Understand the objects being moved
-        srcObj, srcPath = self._artefactFormStandardise(source)
-        destObj, destPath = self._artefactFormStandardise(destination)
-
-        # Destination content is being overwritten
-        if destObj: self.rm(destObj, recursive=True)
-
-        # Call the lower level, content move function on the manager
-        self._mv(srcObj, destPath)
-
+    def _move(self, srcObj: Artefact, destPath):
         if isinstance(srcObj, Directory):
 
             for art in self._ls(srcObj, recursive=True):
@@ -261,21 +257,48 @@ class Manager(ABC):
                 path = art.path
 
                 # Update the object with it's new path
-                art._path = self.join(destPath, art.path[len(srcPath):])
+                art._path = self.join(destPath, art.path[len(srcObj.path):])
 
                 # Update its membership
                 del self._paths[path]
                 self._paths[art.path] = art
 
-        if self.dirname(srcPath) != self.dirname(destPath):
+        if self.dirname(srcObj.path) != self.dirname(destPath):
             # Unconnect object with the directories that it exists in and add it to the destination location
-            self[self.dirname(srcPath)]._remove(srcObj)
+            self[self.dirname(srcObj.path)]._remove(srcObj)
             self._backfillHierarchy(self.dirname(destPath))._add(srcObj)
 
         # Move the file info across
-        del self._paths[srcPath]
+        del self._paths[srcObj.path]
         self._paths[destPath] = srcObj
+        source_path = srcObj.path
         srcObj._path = destPath
+
+        if self._submanagers:
+            for uri, manager in self._submanagers.items():
+                if srcObj.path.startswith(uri):
+                    # The originating files have moved within the sub manager
+
+                    if destPath.startswith(uri):
+                        # The destination is within the sub-manager also
+                        manager._moveMain(source_path, destPath)
+
+                    else:
+                        # The destination is outside the sub-manager - the subfiles need to be deleted
+                        manager._removeMain(srcObj)
+
+    def mv(self, source: typing.Union[Artefact, str], destination: typing.Union[Artefact, str]):
+
+        # Understand the objects being moved
+        srcObj, _ = self._artefactFormStandardise(source)
+        destObj, destPath = self._artefactFormStandardise(destination)
+
+        # Destination content is being overwritten
+        if destObj: self.rm(destObj, recursive=True)
+
+        # Call the lower level content move function on the manager and convert all paths on the manager
+        self._mv(srcObj, destPath)
+        self._move(srcObj, destPath)
 
     @abstractmethod
     def _rm(self, artefact: Artefact):
@@ -289,16 +312,23 @@ class Manager(ABC):
         Params:
             artefact (Artefact): Manager artefact that is to be deleted
         """
-        # Inform all objects that they no longer exist
         if isinstance(artefact, Directory):
-            for art in self._ls(artefact, recursive=True):
+            # NOTE we avoid calling this function recursively to avoid issues with of removing directories
+            # and their subelements. Additionally as the directories keep weakreferences to their contents items will
+            # not keep each other alive and shall be removed when the GC deems it apprioprate
+            for art in self._ls(artefact):
                 del self._paths[art.path]
                 art._exists = False
 
+        # Delete references to the object and set it's existence to false
+        self[self.dirname(artefact.path)]._remove(artefact)
+        del self._paths[artefact.path]
         artefact._exists = False
 
-        self._paths[self.dirname(artefact.path)]._remove(artefact)
-        del self._paths[artefact.path]
+        if self._submanagers:
+            for uri, manager in self._submanagers.items():
+                if artefact.path.startswith(uri):
+                    manager._removeMain(artefact)
 
     def rm(self, artefact: typing.Union[Artefact, str], recursive: bool = False) -> None:
         """ Remove an artefact from the manager using the artefact object or its relative path. If its a directory,
@@ -351,7 +381,16 @@ class Manager(ABC):
 
         return artobj._contents.copy()
 
-    def ls(self, art: typing.Union[Directory, str] = '/', recursive: bool = False):
+    def ls(self, art: typing.Union[Directory, str] = '/', recursive: bool = False) -> typing.Set[Artefact]:
+        """ List contents of the directory path/artefact given.
+
+        Params:
+            art (Directory/str): The Directory artefact or the relpath to the directory to be listed
+            recursive (bool) = False: Return subdirectory contents aswell
+
+        Returns:
+            {Artefact}: The artefact objects which are within the directory
+        """
 
         # Convert the incoming artefact reference - requre that the object exist and that it is a directory
         artobj, path = self._artefactFormStandardise(art, require=True)
@@ -385,7 +424,7 @@ class Manager(ABC):
             # Return all child content
             return contents
 
-        return artobj._contents.copy()
+        return set(artobj._contents)
 
     def mkdir(self, path: str):
         with tempfile.TemporaryDirectory() as directory:
@@ -449,6 +488,13 @@ class Manager(ABC):
             else: return None, artObj
 
     def _refresh(self, artobj):
+        """ Perform a update for the manager on the contents of a directory which has been editted on mass and whose
+        content is likely inconsistent with the current state of the manager. Only previously known files are checked as
+        new files are to be loaded JIT and can be added at that stage.
+
+        Params:
+            artobj (Directory): The directory to perform the refresh on
+        """
 
         dirs, files = [], []
         for art in self._ls(artobj, recursive=True):
@@ -536,115 +582,100 @@ class Manager(ABC):
                 yield handle
 
     def submanager(self, uri: str):
+        """ Create a submanager at the given uri which shall behave like a conventional manager, however, its actions
+        shall be relative to the given uri and shall update the main manager.
 
-        # Fetch the object at this location
+        If a manager exists at the uri specified already, then it is returned.
+
+        Params:
+            uri (str): The uri of the target location for the manager to be setup. If the uri does not exist, a
+                directory shall be created. If it exists, the manager shall require it be a Directory object
+
+        Returns:
+            SubManager: A sub manager at the given uri
+
+        Raises:
+            ValueError: Raised if uri is top level directory
+            ArtefactTypeError: if there exists an object at the location which isn't a directory
+        """
+        if uri == "/": raise ValueError("Cannot create a sub-manager at the top level of a manager")
+        if uri in self._submanagers: return self._submanagers[uri]
+
+        # Get or make the uri directory
         try:
             art = self[uri]
         except exceptions.ArtefactNotFound:
             art = self.mkdir(uri)
 
+        # Ensure it is a directory and return + save the manager
         if isinstance(art, Directory):
-            return SubManager(self, uri)
+            manager = SubManager(self, uri)
+            self._submanagers[uri] = manager
+            return manager
         else:
             raise exceptions.ArtefactTypeError("Cannot create a submanager with a file's path")
 
 class SubManager(Manager):
 
     def __init__(self, owner: Manager, uri: str):
-        super().__init__()
+        self._root = SubDirectory(self, self._ROOT_PATH, owner._root)
+        self._paths = {self._ROOT_PATH: self._root}
+        self._submanagers = None
         self._owner = owner
         self._uri = uri
-        self._subToMain = {}  # Map sub artefacts onto the main artefacts
 
     def __repr__(self): return '<SubManager of {} {}>'.format(self._owner, self._uri)
-
-    def abspath(self, relpath: str):
-        return self._owner.abspath(self.join(self._uri, relpath))
-
-    def _isdir(self, relpath: str) -> str:
-        self._owner._isdir(self.join(self._uri, relpath))
-
-    def __getitem__(self, relpath: str):
-
-        # Get previously loaded local artefact
-        if relpath in self._paths: return self._paths[relpath]
-
-        # Couldn't be found ask main to find the artefact
-        mainArt = self._owner[self.join(self._uri, relpath)]
-
-        # Create an
-        if isinstance(mainArt, Directory):
-            art = self._backfillHierarchy(relpath)
-        else:
-            art = self._makefile(relpath)
-            self._add(art)
-
-        return art
-
-    def _rm(self, artefact: Artefact, relpath: str):
-        return self._owner._rm(artefact, relpath)
+    def abspath(self, relpath: str): return self._owner.abspath(self.join(self._uri, relpath))
+    def _subrelpath(self, mainRelpath: str): return mainRelpath[len(self._uri):]
+    def _isdir(self, relpath: str) -> str: return self._owner._isdir(self.join(self._uri, relpath))
 
     def _makefile(self, relpath: str) -> Artefact:
-
         # Given that its a local relative path
         mainArt = self._owner._makefile(self.join(self._uri, relpath))
-        subArt = File(self, relpath, mainArt.modifiedTime, mainArt.size)
+        return SubFile(self, relpath, mainArt)
 
-        subArt._subUpdate = subArt._update
-
-        # Define the new update function for this sub file
-        def _update(other: File):
-            subArt._subUpdate(other)
-            mainArt._update(other)
-
-        subArt._update = _update
-
-        return subArt
+    def _backfillHierarchy(self, relpath: str):
+        # Ask the parent to make the directory object at this location. This shall then be added to this sub manager
+        # by the parent along with any other directories that were created - by the end of this call, a directory
+        # shall exist in this manager for this relpath
+        self._owner._backfillHierarchy(self.join(self._uri, relpath))
+        return self._paths[relpath]
 
     def _add(self, artefact: Artefact):
         # Add the artefact and link it to the main artefact it represents
+        assert isinstance(artefact, (SubFile, SubDirectory))
         super()._add(artefact)
-        self._subToMain[artefact] = self._owner[self.join(self._uri, artefact.path)]
+        self._owner._add(artefact._concrete)
+
+    def _addMain(self, artefact: Artefact):
+        # Add an artefact which has been created in the main manager
+        relpath = artefact.path[len(self._uri):]
+        if relpath in self._paths: return
+
+        if isinstance(artefact, File):
+            subArtefact = SubFile(self, relpath, artefact)
+        else:
+            subArtefact = SubDirectory(self, relpath, artefact)
+
+        super()._add(subArtefact)
 
     def _get(self, source: Artefact, destination: str):
         # Switch artefact to main to download it's contents
-        self._owner._get(self._subToMain[source], destination)
+        self._owner._get(source._concrete, destination)
 
     def _put(self, source_filepath, destination_abspath):
         # Abspath already surpasses this manager - pass args straight on
         self._owner._put(source_filepath, destination_abspath)
 
-    def _mv(self, srcObj: Artefact, destPath: str):
-        # Move the main object to the correct absolute relative path
-        return
-        self._owner._mv(self._subToMain[srcObj], self.join(self._uri, destPath))
+    # NOTE movement of files handled by main manager
+    def _mv(self, srcObj: Artefact, destPath: str): self._owner._mv(srcObj._concrete, self.join(self._uri, destPath))
+    def _move(self, srcObj: Artefact, destPath: str): self._owner._move(srcObj._concrete, self.join(self._uri,destPath))
+    def _moveMain(self, srcPath: str, destPath: str): super()._move(self[self._subrelpath(srcPath)], self._subrelpath(destPath))
 
-    def mv(self, source: typing.Union[Artefact, str], destination: typing.Union[Artefact, str]):
-
-        srcObj, srcPath = self._artefactFormStandardise(source, require=True)
-        _, destPath = self._artefactFormStandardise(destination)
-
-        super().mv(srcPath, destPath)
-        self._owner.mv(self._subToMain[srcObj], self.join(self._uri, destPath))
-
-    def _rm(self, artefact: Artefact):
-        self._owner._rm(self._subToMain[artefact])
-
-    def _remove(self, artefact: Artefact):
-        # Inform all objects that they no longer exist
-        if isinstance(artefact, Directory):
-            for art in self._ls(artefact, recursive=True):
-                del self._paths[art.path]
-                art._exists = False
-
-                self._owner._remove(self._subToMain[art])
-
-        artefact._exists = False
-
-        self._paths[self.dirname(artefact.path)]._remove(artefact)
-        del self._paths[artefact.path]
-
-        self._owner._remove(self._subToMain[artefact])
+    # Main manager handles deleting the underlying objects
+    def _rm(self, artefact: Artefact): self._owner._rm(artefact._concrete)
+    def _remove(self, artefact: Artefact): self._owner._remove(artefact._concrete)
+    def _removeMain(self, artefact: Artefact): super()._remove(self[self._subrelpath(artefact.path)])
 
     def _listdir(self, relpath: str):
         dirs, files = self._owner._listdir(self.join(self._uri, relpath))
