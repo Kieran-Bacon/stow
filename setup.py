@@ -7,7 +7,7 @@ with open(os.path.join(os.path.dirname(__file__), 'requirements.txt')) as fh:
 setup(
     name='storage',
     install_requires=requires,
-    version="0.0.4",
+    version="0.0.5",
     description="",
 
     author="Kieran Bacon",
@@ -20,10 +20,9 @@ setup(
             'backup = storage.backup:BackupManager.main',
         ],
         'storage_managers': [
-            'FS=storage.managers:FS',
-            'LFS=storage.managers:FS',
-            'AWS=storage.managers:Amazon',
-            'S3=storage.managers:Amazon'
+            'fs=storage.managers:FS',
+            'lfs=storage.managers:FS',
+            'aws=storage.managers:Amazon',
             's3=storage.managers:Amazon'
         ]
     }
