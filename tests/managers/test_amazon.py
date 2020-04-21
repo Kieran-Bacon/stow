@@ -7,10 +7,11 @@ from botocore.exceptions import ClientError
 import uuid
 import tempfile
 
+import storage
+from storage.managers import Amazon
+
 from .. import ETC_DIR
 from .manager import ManagerTests, SubManagerTests
-
-import storage
 
 CONFIG_PATH = os.path.join(ETC_DIR, 'aws_credentials.ini')
 BUCKET_NAME_INCLUDE = 'pykb-storage-test-bucket'
@@ -66,8 +67,7 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
     def setUp(self):
 
         # Define the manager
-        self.manager = storage.connect(
-            manager='AWS',
+        self.manager = Amazon(
             bucket=self.bucket_name,
             aws_access_key_id=self._config['aws_access_key_id'],
             aws_secret_access_key=self._config['aws_secret_access_key'],
@@ -79,8 +79,7 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
         self.directory = tempfile.mkdtemp()
 
         # Define the manager
-        self.manager = storage.connect(
-            manager='AWS',
+        self.manager = Amazon(
             bucket=self.bucket_name,
             aws_access_key_id=self._config['aws_access_key_id'],
             aws_secret_access_key=self._config['aws_secret_access_key'],

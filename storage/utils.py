@@ -1,18 +1,21 @@
+import functools
 import pkg_resources
 
 from .manager import Manager
 
 MANAGERS = {}
 
-def find(manager) -> Manager:
+def find(manager: str) -> Manager:
     # Get the manager class for the manager type given - load the manager type if not already loaded
+    lmanager = manager.lower()
+
     if manager in MANAGERS:
-        mClass = MANAGERS[manager]
+        mClass = MANAGERS[lmanager]
 
     else:
         for entry_point in pkg_resources.iter_entry_points('storage_managers'):
-            if entry_point.name == manager:
-                mClass = MANAGERS[manager] = entry_point.load()
+            if entry_point.name == lmanager:
+                mClass = MANAGERS[lmanager] = entry_point.load()
                 break
 
         else:
@@ -20,6 +23,7 @@ def find(manager) -> Manager:
 
     return mClass
 
+@functools.lru_cache(maxsize=None)
 def connect(*, config=None, manager: str = None, **kwargs) -> Manager:
 
     if config is None and manager is None:

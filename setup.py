@@ -20,10 +20,9 @@ setup(
             'backup = storage.backup:BackupManager.main',
         ],
         'storage_managers': [
-            'FS=storage.managers:FS',
-            'LFS=storage.managers:FS',
-            'AWS=storage.managers:Amazon',
-            'S3=storage.managers:Amazon'
+            'fs=storage.managers:FS',
+            'lfs=storage.managers:FS',
+            'aws=storage.managers:Amazon',
             's3=storage.managers:Amazon'
         ]
     }

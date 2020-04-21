@@ -4,9 +4,10 @@ import os
 import tempfile
 import shutil
 
-from .manager import ManagerTests, SubManagerTests
-
 import storage
+from storage.managers import FS
+
+from .manager import ManagerTests, SubManagerTests
 
 class Test_Filesystem(unittest.TestCase, ManagerTests, SubManagerTests):
 
@@ -15,7 +16,7 @@ class Test_Filesystem(unittest.TestCase, ManagerTests, SubManagerTests):
         self.directory = tempfile.mkdtemp()
 
         # Define the manager
-        self.manager = storage.connect(manager='FS', path=self.directory)
+        self.manager = FS(path=self.directory)
 
     def setUpWithFiles(self):
         # Make the managers local space to store files
@@ -29,7 +30,7 @@ class Test_Filesystem(unittest.TestCase, ManagerTests, SubManagerTests):
             handle.write("Content")
 
         # Define the manager
-        self.manager = storage.connect(manager='FS', path=self.directory)
+        self.manager = FS(path=self.directory)
 
     def tearDown(self):
 

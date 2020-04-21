@@ -5,7 +5,6 @@ import shutil
 import tempfile
 import contextlib
 
-from .. import SEP
 from ..artefacts import Artefact, File, Directory
 from ..manager import LocalManager
 from .. import exceptions
