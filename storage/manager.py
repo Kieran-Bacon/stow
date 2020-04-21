@@ -7,7 +7,6 @@ import contextlib
 import hashlib
 import re
 
-from . import SEP
 from . import exceptions
 from .artefacts import Artefact, File, Directory, SubFile, SubDirectory
 
@@ -288,6 +287,13 @@ class Manager(ABC):
                         manager._removeMain(srcObj)
 
     def mv(self, source: typing.Union[Artefact, str], destination: typing.Union[Artefact, str]):
+        """ Move the artefacts at the source location to the provided destination location. Overwriting items at the
+        destination
+
+        Params:
+            artefact (typing.Union[Artefact, str]): source path or artefact
+            recursive (typing.Union[Artefact, str]): destination path or artefact
+        """
 
         # Understand the objects being moved
         srcObj, _ = self._artefactFormStandardise(source)
