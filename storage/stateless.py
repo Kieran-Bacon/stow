@@ -29,7 +29,8 @@ def _getManager(artefact) -> typing.Tuple[Manager, str]:
             relpath = parsedURL.path
 
         relpath = relpath if relpath else "/"
-        return manager, relpath
+
+    return manager, relpath
 
 def artefact(artefact: str):
     """ Fetch an artefact object for the given path
