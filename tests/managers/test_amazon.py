@@ -146,3 +146,18 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
 
         for i, o in paths:
             self.assertEqual(self.manager.basename(i), o)
+
+    def test_connect_submanager(self):
+
+        self.setUpWithFiles()
+
+        sub_manager = storage.connect(
+            "s3",
+            submanager="/initial_directory",
+            bucket=self.bucket_name,
+            aws_access_key_id=self._config['aws_access_key_id'],
+            aws_secret_access_key=self._config['aws_secret_access_key']
+        )
+
+        self.assertIsInstance(sub_manager, storage.manager.SubManager)
+        self.assertEqual(len(sub_manager.ls()), 1)
