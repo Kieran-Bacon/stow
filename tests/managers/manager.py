@@ -205,6 +205,15 @@ class ManagerTests:
         self.assertEqual(self.manager.ls(recursive=True), objects)
         self.assertEqual(self.manager['/'].ls(recursive=True), objects)
 
+    def test_ls_depth(self):
+
+        self.setUpWithFiles()
+
+        content = self.manager.ls("/directory-stack/directory-stack")
+
+        self.assertEqual(len(content), 1)
+        self.assertEqual(content.pop().path, "/directory-stack/directory-stack/initial_file3.txt")
+
     def test_mv_files(self):
 
         content = 'Here is some file content to be verified'

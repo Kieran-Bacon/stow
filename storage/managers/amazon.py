@@ -1,5 +1,6 @@
 import os
 import boto3
+from botocore.exceptions import ClientError
 import tempfile
 import re
 
@@ -52,18 +53,28 @@ class Amazon(RemoteManager):
 
     def _isdir(self, relpath: str):
 
-        abspath = self.abspath(relpath)
-
         try:
-            self._bucket.Object(abspath + "/").load()
-            return True
-        except:
-            try:
-                self._bucket.Object(abspath).load()
-                return False
+            # Try and load the object outright - if successful then file not dir
+            self._bucket.Object(self.abspath(relpath)).load()
+            return False
 
-            except:
-                raise exceptions.ArtefactNotFound("Couldn't find artefact with relpath: {}".format(relpath))
+        except ClientError as e:
+            # No object existed at location - check if a directory exists
+            if e.response["Error"]["Code"] != "404": raise
+
+            # Get all directories for that level
+            dirs = self._clientPaginator.paginate(
+                Bucket=self._bucketName,
+                Prefix=self.abspath(self.dirname(relpath)) + "/",
+                Delimiter='/'
+            )
+
+            # Loop through the returned directires and if any match return True
+            for dirObj in dirs.search("CommonPrefixes"):
+                if dirObj is None: continue
+                if relpath == self.relpath(dirObj.get("Prefix")): return True
+
+            raise exceptions.ArtefactNotFound("Couldn't find artefact with relpath: {}".format(relpath))
 
     def _makefile(self, remotePath: str):
         try:
@@ -155,9 +166,7 @@ class Amazon(RemoteManager):
 
     def _listdir(self, relpath: str):
 
-        obj = self._paths[relpath]
-        abspath = self.abspath(relpath)
-        if abspath and isinstance(obj, Directory): abspath += '/'
+        abspath = self.abspath(relpath) + "/"
 
         # Extract the relevent objects from s3
         dirs = self._clientPaginator.paginate(Bucket=self._bucketName, Prefix=abspath, Delimiter='/')

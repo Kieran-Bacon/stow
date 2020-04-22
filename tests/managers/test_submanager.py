@@ -32,6 +32,11 @@ class Test_SubManager(unittest.TestCase, ManagerTests):
         with open(os.path.join(self.directory, "demo", "initial_directory", "initial_file2.txt"), "w") as handle:
             handle.write("Content")
 
+        os.mkdir(os.path.join(self.directory, "demo", "directory-stack"))
+        os.mkdir(os.path.join(self.directory, "demo", "directory-stack", "directory-stack"))
+        with open(os.path.join(self.directory, "demo", "directory-stack", "directory-stack", "initial_file3.txt"), "w") as handle:
+            handle.write("Content")
+
         # Define the manager
         self.mainManager = storage.connect(manager='FS', path=self.directory)
         self.manager = self.mainManager.submanager("/demo")

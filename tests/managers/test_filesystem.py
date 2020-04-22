@@ -29,6 +29,11 @@ class Test_Filesystem(unittest.TestCase, ManagerTests, SubManagerTests):
         with open(os.path.join(self.directory, "initial_directory", "initial_file2.txt"), "w") as handle:
             handle.write("Content")
 
+        os.mkdir(os.path.join(self.directory, "directory-stack"))
+        os.mkdir(os.path.join(self.directory, "directory-stack", "directory-stack"))
+        with open(os.path.join(self.directory, "directory-stack", "directory-stack", "initial_file3.txt"), "w") as handle:
+            handle.write("Content")
+
         # Define the manager
         self.manager = FS(path=self.directory)
 
