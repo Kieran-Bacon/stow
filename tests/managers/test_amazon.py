@@ -89,19 +89,20 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
         with open(os.path.join(self.directory, "initial_file1.txt"), "w") as handle:
             handle.write("Content")
 
-        self.manager._bucket.upload_file(
-            os.path.join(self.directory, "initial_file1.txt"),
-            "initial_file1.txt"
-        )
-
         os.mkdir(os.path.join(self.directory, "initial_directory"))
         with open(os.path.join(self.directory, "initial_directory", "initial_file2.txt"), "w") as handle:
             handle.write("Content")
 
-        self.manager._bucket.upload_file(
-            os.path.join(self.directory, "initial_directory", "initial_file2.txt"),
-            "initial_directory/initial_file2.txt"
-        )
+        os.mkdir(os.path.join(self.directory, "directory-stack"))
+        os.mkdir(os.path.join(self.directory, "directory-stack", "directory-stack"))
+        with open(os.path.join(self.directory, "directory-stack", "directory-stack", "initial_file3.txt"), "w") as handle:
+            handle.write("Content")
+
+        for root, _, files in os.walk(self.directory):
+            dir_name = root.replace(self.directory, "").replace("\\", "/").strip("/")
+            for file in files:
+                remote_path = "/".join([dir_name, file]) if dir_name else file
+                self.manager._bucket.upload_file(os.path.join(root, file), remote_path)
 
     def tearDown(self):
         self.s3.Bucket(self.bucket_name).objects.delete()
