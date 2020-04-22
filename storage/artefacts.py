@@ -142,6 +142,11 @@ class Directory(Artefact):
     def touch(self, path: str): self.manager.touch(self.manager.join(self._path, path))
 
     @contextlib.contextmanager
+    def localise(self, path: str):
+        with self.manager.localise(self.manager.join(self._path, path)) as abspath:
+            yield abspath
+
+    @contextlib.contextmanager
     def open(self, path: str, mode: str = "r", **kwargs):
         with self.manager.open(self.manager.join(self._path, path), mode, **kwargs) as handle:
             yield handle
