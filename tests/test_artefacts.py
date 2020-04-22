@@ -177,3 +177,43 @@ class Test_Directories(unittest.TestCase):
         with pytest.raises(FileNotFoundError):
             with self.manager["/dir1"].open("/file2.txt") as handle:
                 handle.read()
+
+    def test_membership(self):
+
+        self.assertTrue("file1" in self.manager["/dir1"])
+        self.assertTrue(self.manager["/dir1/file1"] in self.manager["/dir1"])
+        f2 = self.manager.touch("/dir1/file2.txt")
+        self.assertTrue(f2 in self.manager["/dir1"])
+
+        self.assertFalse("file3.txt" in self.manager["/dir1"])
+        f3 = self.manager.touch("/file3.txt")
+        self.assertFalse(f3 in self.manager["/dir1"])
+
+class Test_Subdirectories(unittest.TestCase):
+
+    def setUp(self):
+
+        self.ori = tempfile.mkdtemp()
+        self.directory = os.path.join(self.ori, "demo")
+        os.mkdir(self.directory)
+
+        os.mkdir(os.path.join(self.directory, 'dir1'))
+
+        self.filepath = os.path.join(self.directory, 'dir1', 'file1')
+        self.filetext = 'Another one bits the dust'
+        with open(self.filepath, 'w') as handle:
+            handle.write(self.filetext)
+
+        self.ori = storage.connect(manager='FS', path=self.ori)
+        self.manager = self.ori.submanager("/demo")
+
+    def test_membership(self):
+
+        self.assertTrue("file1" in self.manager["/dir1"])
+        self.assertTrue(self.manager["/dir1/file1"] in self.manager["/dir1"])
+        f2 = self.manager.touch("/dir1/file2.txt")
+        self.assertTrue(f2 in self.manager["/dir1"])
+
+        self.assertFalse("file3.txt" in self.manager["/dir1"])
+        f3 = self.manager.touch("/file3.txt")
+        self.assertFalse(f3 in self.manager["/dir1"])

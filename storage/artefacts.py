@@ -127,6 +127,12 @@ class Directory(Artefact):
     def __len__(self): return len(self.ls())
     def __iter__(self): return iter(self._contents)
     def __repr__(self): return '<storage.Directory: {}>'.format(self._path)
+    def __contains__(self, artefact: typing.Union[Artefact, str]) -> bool:
+        if isinstance(artefact, Artefact):
+            return artefact.manager is self.manager and artefact in self._contents
+        else:
+            return self.manager.join(self._path, artefact) in self.manager
+
     def _add(self, artefact: Artefact) -> None:
         assert isinstance(artefact, (File, Directory)) and not isinstance(artefact, (SubDirectory))
         self._contents.add(artefact)

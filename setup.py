@@ -7,7 +7,7 @@ with open(os.path.join(os.path.dirname(__file__), 'requirements.txt')) as fh:
 setup(
     name='storage',
     install_requires=requires,
-    version="0.0.5.3",
+    version="0.0.6",
     description="",
 
     author="Kieran Bacon",

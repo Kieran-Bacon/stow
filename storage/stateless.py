@@ -41,6 +41,16 @@ def artefact(artefact: str):
     manager, relpath = _getManager(artefact)
     return manager[relpath]
 
+@wraps(Manager.touch)
+def touch(artefact: str):
+    manager, relpath = _getManager(artefact)
+    return manager.touch(relpath)
+
+@wraps(Manager.mkdir)
+def mkdir(artefact: str):
+    manager, relpath = _getManager(artefact)
+    return manager.mkdir(relpath)
+
 @wraps(Manager.localise)
 @contextlib.contextmanager
 def localise(artefact):

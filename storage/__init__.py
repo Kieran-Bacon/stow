@@ -3,6 +3,8 @@ from .utils import find, connect
 
 from .stateless import (
     artefact,
+    touch,
+    mkdir,
     localise,
     open,
     get,
