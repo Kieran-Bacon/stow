@@ -24,15 +24,11 @@ def find(manager: str) -> Manager:
     return mClass
 
 @functools.lru_cache(maxsize=None)
-def connect(*, config=None, manager: str = None, **kwargs) -> Manager:
+def connect(manager: str, *, submanager: str = None, **kwargs) -> Manager:
 
-    if config is None and manager is None:
-        raise ValueError("Need to specify a config or a manager")
-
-    if config is not None:
-        # Load the contents of the config and assign it to a variable
-        manager = config.pop('manager')
-        kwargs = {**config, **kwargs}
+    if submanager is not None:
+        # Create the initial manager and return a sub-manager
+        return connect(manager, **kwargs).submanager(submanager)
 
     # Find the class for the manager
     mClass = find(manager)
