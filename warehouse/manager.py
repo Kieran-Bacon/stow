@@ -11,11 +11,11 @@ from . import exceptions
 from .artefacts import Artefact, File, Directory, SubFile, SubDirectory
 
 class Manager(ABC):
-    """ Manager Abstract base class - expressed the interface of a Manager which governs a storage option and allows
-    extraction and placement of files in that storage container
+    """ Manager Abstract base class - expressed the interface of a Manager which governs a warehouse option and allows
+    extraction and placement of files in that warehouse container
 
     Params:
-        name (str): A human readable name for the storage option
+        name (str): A human readable name for the warehouse option
     """
 
     _ROOT_PATH = "/"
@@ -147,7 +147,7 @@ class Manager(ABC):
         pass
 
     def get(self, src_remote: typing.Union[Artefact, str], dest_local: str) -> Artefact:
-        """ Get a remote artefact from the storage option and write it to the destination path given.
+        """ Get a remote artefact from the warehouse option and write it to the destination path given.
 
         Params:
             src_remote (Artefact/str): The remote's file object or its path

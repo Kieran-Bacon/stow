@@ -1,4 +1,4 @@
-""" Functions for the storage package to provided a stateless method of interacting with various manager artefacts.
+""" Functions for the warehouse package to provided a stateless method of interacting with various manager artefacts.
 """
 
 import os

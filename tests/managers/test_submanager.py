@@ -6,7 +6,7 @@ import shutil
 
 from .manager import ManagerTests
 
-import storage
+import warehouse
 
 class Test_SubManager(unittest.TestCase, ManagerTests):
 
@@ -15,7 +15,7 @@ class Test_SubManager(unittest.TestCase, ManagerTests):
         self.directory = tempfile.mkdtemp()
 
         # Define the manager
-        self.mainManager = storage.connect(manager='FS', path=self.directory)
+        self.mainManager = warehouse.connect(manager='FS', path=self.directory)
         self.mainManager.mkdir("/demo")
         self.manager = self.mainManager.submanager("/demo")
 
@@ -38,7 +38,7 @@ class Test_SubManager(unittest.TestCase, ManagerTests):
             handle.write("Content")
 
         # Define the manager
-        self.mainManager = storage.connect(manager='FS', path=self.directory)
+        self.mainManager = warehouse.connect(manager='FS', path=self.directory)
         self.manager = self.mainManager.submanager("/demo")
 
     def tearDown(self):

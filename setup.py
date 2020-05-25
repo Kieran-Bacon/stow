@@ -5,25 +5,25 @@ with open(os.path.join(os.path.dirname(__file__), 'requirements.txt')) as fh:
     requires = fh.read().splitlines()
 
 setup(
-    name='storage',
+    name='pywarehouse',
     install_requires=requires,
-    version="0.0.7",
+    version="0.0.8",
     description="",
 
     author="Kieran Bacon",
     author_email="kieran.bacon@outlook.com",
 
-    packages=find_packages(),
+    packages=list(filter(lambda x: not x.startswith("tests"), find_packages())),
 
     entry_points={
         'console_scripts': [
-            'backup = storage.backup:BackupManager.main',
+            'backup = warehouse.backup:BackupManager.main',
         ],
-        'storage_managers': [
-            'fs=storage.managers:FS',
-            'lfs=storage.managers:FS',
-            'aws=storage.managers:Amazon',
-            's3=storage.managers:Amazon'
+        'warehouse_managers': [
+            'fs=warehouse.managers:FS',
+            'lfs=warehouse.managers:FS',
+            'aws=warehouse.managers:Amazon',
+            's3=warehouse.managers:Amazon'
         ]
     }
 )

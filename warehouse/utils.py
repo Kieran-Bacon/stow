@@ -13,7 +13,7 @@ def find(manager: str) -> Manager:
         mClass = MANAGERS[lmanager]
 
     else:
-        for entry_point in pkg_resources.iter_entry_points('storage_managers'):
+        for entry_point in pkg_resources.iter_entry_points('warehouse_managers'):
             if entry_point.name == lmanager:
                 mClass = MANAGERS[lmanager] = entry_point.load()
                 break

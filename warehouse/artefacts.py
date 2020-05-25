@@ -49,7 +49,7 @@ class File(Artefact):
 
     def __len__(self): return self._size
     def __repr__(self):
-        return '<storage.File: {} modified({}) size({} bytes)>'.format(self._path, self._modifiedTime, self._size)
+        return '<warehouse.File: {} modified({}) size({} bytes)>'.format(self._path, self._modifiedTime, self._size)
 
     @property
     def content(self) -> bytes:
@@ -85,7 +85,7 @@ class SubFile(File):
         self._concrete = file
 
     def __len__(self): return len(self._concrete)
-    def __repr__(self): return '<storage.SubFile for {}>'.format(self._concrete)
+    def __repr__(self): return '<warehouse.SubFile for {}>'.format(self._concrete)
 
     @property
     def content(self) -> bytes: return self._concrete.content
@@ -112,7 +112,7 @@ class Directory(Artefact):
     """ A directory represents an os FS directory
 
     Params:
-        manager (storage.manager.Manager): The manager this directory object belongs to
+        manager (warehouse.manager.Manager): The manager this directory object belongs to
         path (str): the manager relative path for the object
         contents (set): collection of artefacts which reside within this directoy
         *,
@@ -126,7 +126,7 @@ class Directory(Artefact):
 
     def __len__(self): return len(self.ls())
     def __iter__(self): return iter(self._contents)
-    def __repr__(self): return '<storage.Directory: {}>'.format(self._path)
+    def __repr__(self): return '<warehouse.Directory: {}>'.format(self._path)
     def __contains__(self, artefact: typing.Union[Artefact, str]) -> bool:
         if isinstance(artefact, Artefact):
             return artefact.manager is self.manager and artefact in self._contents
@@ -168,7 +168,7 @@ class SubDirectory(Directory):
 
 
     def __len__(self): return len(self._concrete)
-    def __repr__(self): return '<storage.SubDirectory for {}>'.format(self._concrete)
+    def __repr__(self): return '<warehouse.SubDirectory for {}>'.format(self._concrete)
     def _add(self, artefact: Artefact) -> None:
         assert isinstance(artefact, (SubFile, SubDirectory))
         self._contents.add(artefact)

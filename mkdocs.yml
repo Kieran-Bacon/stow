@@ -1,4 +1,4 @@
-site_name: Storage
+site_name: warehouse
 theme: readthedocs
 markdown_extensions:
     - tables

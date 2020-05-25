@@ -4,8 +4,8 @@ import os
 import tempfile
 import shutil
 
-import storage
-from storage.managers import FS
+import warehouse
+from warehouse.managers import FS
 
 from .manager import ManagerTests, SubManagerTests
 

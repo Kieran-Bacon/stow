@@ -8,7 +8,7 @@ import tempfile
 import datetime
 import shutil
 
-import storage
+import warehouse
 
 class BasicSetup:
 
@@ -25,7 +25,7 @@ class BasicSetup:
         # Make a directory
         os.mkdir(os.path.join(self.directory, 'directory1'))
 
-        self.manager = storage.connect(manager='FS', path=self.directory)
+        self.manager = warehouse.connect(manager='FS', path=self.directory)
 
     def tearDown(self):
         shutil.rmtree(self.directory)
@@ -115,7 +115,7 @@ class Test_Files(BasicSetup, unittest.TestCase):
 
         newTime = (datetime.datetime.now() - datetime.timedelta(seconds=2))
         newSize = 4000
-        newFile = storage.artefacts.File(self.manager, '/file1', newTime, newSize)
+        newFile = warehouse.artefacts.File(self.manager, '/file1', newTime, newSize)
 
         file._update(newFile)
 
@@ -134,7 +134,7 @@ class Test_Directories(unittest.TestCase):
         with open(self.filepath, 'w') as handle:
             handle.write(self.filetext)
 
-        self.manager = storage.connect(manager='FS', path=self.directory)
+        self.manager = warehouse.connect(manager='FS', path=self.directory)
 
     def tearDown(self):
         shutil.rmtree(self.directory)
@@ -143,7 +143,7 @@ class Test_Directories(unittest.TestCase):
 
         directory = self.manager.ls().pop()
 
-        self.assertIsInstance(directory, storage.Directory)
+        self.assertIsInstance(directory, warehouse.Directory)
 
         directory.rm('/file1')
 
@@ -204,7 +204,7 @@ class Test_Subdirectories(unittest.TestCase):
         with open(self.filepath, 'w') as handle:
             handle.write(self.filetext)
 
-        self.ori = storage.connect(manager='FS', path=self.ori)
+        self.ori = warehouse.connect(manager='FS', path=self.ori)
         self.manager = self.ori.submanager("/demo")
 
     def test_membership(self):
