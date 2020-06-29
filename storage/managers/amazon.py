@@ -166,7 +166,8 @@ class Amazon(RemoteManager):
 
     def _listdir(self, relpath: str):
 
-        abspath = self.abspath(relpath) + "/"
+        abspath = self.abspath(relpath)
+        if abspath: abspath += "/"
 
         # Extract the relevent objects from s3
         dirs = self._clientPaginator.paginate(Bucket=self._bucketName, Prefix=abspath, Delimiter='/')

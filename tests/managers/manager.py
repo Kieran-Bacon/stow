@@ -658,3 +658,73 @@ class SubManagerTests:
 
             self.assertEqual(main.modifiedTime, sub.modifiedTime)
             self.assertEqual(main.size, sub.size)
+
+    def test_write_fail_behaviour_for_files(self):
+        """ Test what happens when an error is produced in the writing of a file
+
+        The intended behaviour is that the writes up to the error are pushed to the file
+        """
+
+        try:
+            with self.manager.open("file.txt", "w") as handle:
+                handle.write("line 1")
+                raise ValueError("Error during write")
+                handle.write("line 2")
+
+        except ValueError:
+
+            file = self.manager["file.txt"]
+
+            self.assertEqual(file.size, 6)
+
+            with self.manager.open("file.txt", "r") as handle:
+                self.assertEqual(handle.read(), "line 1")
+
+    def test_write_fail_behaviour_for_files(self):
+        """ Test what happens when an error is produced in the writing of a file that has been localised
+
+        The intended behaviour is that the writes up to the error are pushed to the file
+        """
+
+        try:
+            with self.manager.localise("file.txt") as abspath:
+                with open(abspath, "w") as handle:
+                    handle.write("line 1")
+                raise ValueError("Error during write")
+                with open(abspath, "w") as handle:
+                    handle.write("line 2")
+
+        except ValueError:
+
+            file = self.manager["file.txt"]
+
+            self.assertEqual(file.size, 6)
+
+            with self.manager.open("file.txt", "r") as handle:
+                self.assertEqual(handle.read(), "line 1")
+
+    def test_write_fail_behaviour_for_directories (self):
+        """ Test what happens when an error is produced in the writing of a file
+
+        The intended behaviour is that the writes up to the error are pushed to the file
+        """
+
+
+        try:
+            with self.manager.localise("directory") as abspath:
+                os.mkdir(abspath)
+
+
+                handle.write("line 1")
+                raise ValueError("Error during write")
+                handle.write("line 2")
+
+        except ValueError:
+
+            file = self.manager["file.txt"]
+
+            self.assertEqual(file.size, 6)
+
+            with self.manager.open("file.txt", "r") as handle:
+                self.assertEqual(handle.read(), "line 1")
+

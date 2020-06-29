@@ -704,11 +704,15 @@ class LocalManager(Manager, ABC):
     @contextlib.contextmanager
     def localise(self, artefact):
         obj, path = self._artefactFormStandardise(artefact)
+        exception = None
 
         abspath = self.abspath(path)
         os.makedirs(os.path.dirname(abspath), exist_ok=True)
 
-        yield abspath
+        try:
+            yield abspath
+        except Exception as e:
+            exception = e
 
         if os.path.isdir(abspath):
             # The localised object has been made to be a directory - object already in position tf just update the manager
@@ -721,6 +725,9 @@ class LocalManager(Manager, ABC):
             art = self._makefile(path)
             if obj is not None: obj._update(art)
             else:   self._add(art)
+
+        if exception:
+            raise exception
 
 class RemoteManager(Manager, ABC):
 
@@ -784,6 +791,7 @@ class RemoteManager(Manager, ABC):
     @contextlib.contextmanager
     def localise(self, artefact):
         obj, path = self._artefactFormStandardise(artefact)
+        exception = None
 
         with tempfile.TemporaryDirectory() as directory:
 
@@ -807,7 +815,10 @@ class RemoteManager(Manager, ABC):
                 checksum = None
 
             # Return the local path to the object
-            yield local_path
+            try:
+                yield local_path
+            except Exception as e:
+                exception = e
 
             # The user has stopped interacting with the artefact - resovle any differences with manager
             if checksum:
@@ -829,3 +840,6 @@ class RemoteManager(Manager, ABC):
             else:
                 # New item - put the artefact into the manager
                 self.put(local_path, path)
+
+        if exception:
+            raise exception
