@@ -244,6 +244,29 @@ class Manager(ABC):
             return self.__putArtefact(srcPath, destPath)
 
     @abstractmethod
+    def _cp(self, srcObj: Artefact, destPath: str):
+        pass
+
+    def cp(self, source: typing.Union[Artefact, str], destination: typing.Union[Artefact, str]):
+        """ Move the artefacts at the source location to the provided destination location. Overwriting items at the
+        destination
+
+        Params:
+            source (typing.Union[Artefact, str]): source path or artefact
+            destination (typing.Union[Artefact, str]): destination path or artefact
+        """
+
+        # Understand the objects being moved
+        srcObj, _ = self._artefactFormStandardise(source)
+        destObj, destPath = self._artefactFormStandardise(destination)
+
+        # Destination content is being overwritten
+        if destObj: self._remove(destObj)  # Remove references in the manager and set the objects._exist = False
+
+        # Call the lower level content move function on the manager and convert all paths on the manager
+        self._cp(srcObj, destPath)
+
+    @abstractmethod
     def _mv(self, srcObj: Artefact, destPath: str):
         pass
 
@@ -360,6 +383,16 @@ class Manager(ABC):
         self._remove(obj)  # Remove references in the manager and set the objects._exist = False
 
     @abstractmethod
+    def _collectDirectoryContents(self, directory: Directory) -> None:
+        """ Collect and instatiate the contents of a directory making a directory object _collected = True
+
+        Params:
+            directory (Directory): The directory which is to be checked
+        """
+        pass
+
+
+    @abstractmethod
     def _listdir(self, relpath: str) -> typing.Tuple[typing.Set[str], typing.Set[str]]:
         """ List the underlying objects that are present at the location of the relpath.
 
@@ -404,20 +437,21 @@ class Manager(ABC):
 
         # Perform JIT download of directory contents
         if not artobj._collected:
+            self._collectDirectoryContents(artobj)
 
-            # Identify what has already been downloaded into the directory object
-            ddirs, dfiles = set(), set()
-            for art in artobj._contents:
-                if isinstance(art, Directory): ddirs.add(art.path)
-                else: dfiles.add(art.path)
+            # # Identify what has already been downloaded into the directory object
+            # ddirs, dfiles = set(), set()
+            # for art in artobj._contents:
+            #     if isinstance(art, Directory): ddirs.add(art.path)
+            #     else: dfiles.add(art.path)
 
-            # For all the other objects that have not yet been downloaded for the object - download them
-            dirs, files = self._listdir(path)
-            for directory in dirs.difference(ddirs): self._backfillHierarchy(directory)
-            for file in files.difference(dfiles): self._add(self._makefile(file))
+            # # For all the other objects that have not yet been downloaded for the object - download them
+            # dirs, files = self._listdir(path)
+            # for directory in dirs.difference(ddirs): self._backfillHierarchy(directory)
+            # for file in files.difference(dfiles): self._add(self._makefile(file))
 
-            # Signal that the directory contents has been downloaded NOTE not recursive information
-            artobj._collected = True
+            # # Signal that the directory contents has been downloaded NOTE not recursive information
+            # artobj._collected = True
 
         if recursive:
 
@@ -615,7 +649,7 @@ class Manager(ABC):
 
         # Ensure it is a directory and return + save the manager
         if isinstance(art, Directory):
-            manager = SubManager(self, uri)
+            manager = SubManager(self, uri, art)
             self._submanagers[uri] = manager
             return manager
         else:
@@ -623,8 +657,8 @@ class Manager(ABC):
 
 class SubManager(Manager):
 
-    def __init__(self, owner: Manager, uri: str):
-        self._root = SubDirectory(self, self._ROOT_PATH, owner._root)
+    def __init__(self, owner: Manager, uri: str, rootDirectory: Directory):
+        self._root = SubDirectory(self, self._ROOT_PATH, rootDirectory)
         self._paths = {self._ROOT_PATH: self._root}
         self._submanagers = None
         self._owner = owner
@@ -674,6 +708,7 @@ class SubManager(Manager):
         self._owner._put(source_filepath, destination_abspath)
 
     # NOTE movement of files handled by main manager
+    def _cp(self, srcObj: Artefact, destPath: str): self._owner._cp(srcObj._concrete, self.join(self._uri, destPath))
     def _mv(self, srcObj: Artefact, destPath: str): self._owner._mv(srcObj._concrete, self.join(self._uri, destPath))
     def _move(self, srcObj: Artefact, destPath: str): self._owner._move(srcObj._concrete, self.join(self._uri,destPath))
     def _moveMain(self, srcPath: str, destPath: str): super()._move(self[self._subrelpath(srcPath)], self._subrelpath(destPath))
@@ -682,6 +717,9 @@ class SubManager(Manager):
     def _rm(self, artefact: Artefact): self._owner._rm(artefact._concrete)
     def _remove(self, artefact: Artefact): self._owner._remove(artefact._concrete)
     def _removeMain(self, artefact: Artefact): super()._remove(self[self._subrelpath(artefact.path)])
+
+    def _collectDirectoryContents(self, directory: Directory):
+        self._owner._collectDirectoryContents(directory._concrete)
 
     def _listdir(self, relpath: str):
         dirs, files = self._owner._listdir(self.join(self._uri, relpath))

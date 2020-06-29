@@ -78,11 +78,28 @@ class FS(LocalManager):
             os.makedirs(os.path.dirname(dest_remote), exist_ok=True)
             shutil.copy(src_local, dest_remote)
 
+    def _cp(self, srcObj: Artefact, destPath: str):
+        self._put(self.abspath(srcObj.path), self.abspath(destPath))
+
     def _mv(self, srcObj: Artefact, destPath: str):
 
         absDestination = self.abspath(destPath)
         os.makedirs(os.path.dirname(absDestination), exist_ok=True)
         os.rename(self.abspath(srcObj.path), absDestination)
+
+    def _collectDirectoryContents(self, directory: Directory):
+        abspath = self.abspath(directory.path)
+
+        for art in os.listdir(abspath):
+            relpath = self.join(directory.path, art)
+
+            if os.path.isdir(os.path.join(abspath, art)):
+                self._backfillHierarchy(relpath)
+            else:
+                if relpath not in self._paths:
+                    self._add(self._makefile(relpath))
+
+        directory._collected = True
 
     def _listdir(self, relpath: str):
 

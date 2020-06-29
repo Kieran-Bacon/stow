@@ -7,13 +7,13 @@ with open(os.path.join(os.path.dirname(__file__), 'requirements.txt')) as fh:
 setup(
     name='storage',
     install_requires=requires,
-    version="0.0.7",
+    version="0.0.10",
     description="",
 
     author="Kieran Bacon",
     author_email="kieran.bacon@outlook.com",
 
-    packages=find_packages(),
+    packages=[package for package in find_packages() if not package.startswith("tests")],
 
     entry_points={
         'console_scripts': [

@@ -81,6 +81,13 @@ def put(src, dest):
     dest_manager, dest_relpath = _getManager(dest)
     dest_manager.put(src_manager[src_relpath, dest_relpath])
 
+@wraps(Manager.cp)
+def cp(src, dest):
+    srcM, srcP = _getManager(src)
+    destM, destP = _getManager(dest)
+    assert srcM is destM
+    srcM.cp(srcP, destP)
+
 @wraps(Manager.mv)
 def mv(src, dest):
     srcM, srcP = _getManager(src)

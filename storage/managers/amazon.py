@@ -79,7 +79,6 @@ class Amazon(RemoteManager):
     def _makefile(self, remotePath: str):
         try:
             awsObject = self._bucket.Object(self.abspath(remotePath))
-            awsObject.load()
         except Exception as e:
             raise exceptions.ArtefactNotFound(
                 "Couldn't create file at {} as it doesn't exist".format(remotePath)
@@ -147,9 +146,23 @@ class Amazon(RemoteManager):
         else:
             self._bucket.Object(key).delete()
 
-    def _mvFile(self, source, destination):
-
+    def _cpFile(self, source, destination):
         self._bucket.Object(destination).copy_from(CopySource={'Bucket': self._bucketName, 'Key': source})
+
+    def _cp(self, srcObj: Artefact, destPath: str):
+        """ Move the object to the desintation """
+
+        source_path, dest_path = self.abspath(srcObj.path), self.abspath(destPath)
+        if isinstance(srcObj, Directory):
+            for obj in self._bucket.objects.filter(Prefix=source_path):
+                relative = obj.key[len(source_path):]
+                self._cpFile(obj.key, self.abspath(self.join(dest_path, relative)))
+
+        else:
+            self._cpFile(source_path, dest_path)
+
+    def _mvFile(self, source, destination):
+        self._cpFile(source, destination)
         self._bucket.Object(source).delete()
 
     def _mv(self, srcObj: Artefact, destPath: str):
@@ -163,6 +176,35 @@ class Amazon(RemoteManager):
 
         else:
             self._mvFile(source_path, dest_path)
+
+    def _collectDirectoryContents(self, directory: Directory):
+
+        abspath = self.abspath(directory.path)
+        if abspath: abspath += "/"
+
+        # Extract the relevent objects from s3
+        dirs = self._clientPaginator.paginate(Bucket=self._bucketName, Prefix=abspath, Delimiter='/')
+        for dirRelpath in (self.relpath(p.get("Prefix")) for p in dirs.search("CommonPrefixes") if p is not None):
+            self._backfillHierarchy(dirRelpath)
+
+        # Iterate over the files
+        files = iter(self._bucket.objects.filter(Prefix=abspath, Delimiter='/'))
+        for obj in files:
+            key = obj.key
+            relpath = self.relpath(key)
+
+            if (
+                relpath in self._paths or
+                key == abspath or
+                key.endswith(self._PLACEHOLDER)
+                ):
+                continue
+
+            self._add(
+                File(self, relpath, obj.last_modified, obj.size)
+            )
+
+        directory._collected = True
 
     def _listdir(self, relpath: str):
 
