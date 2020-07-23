@@ -7,12 +7,12 @@ import shutil
 import contextlib
 import abc
 
-import storage
+import stow
 
 class ManagerTests:
 
     def setUp(self):
-        self.manager = storage.manager.Manager
+        self.manager = stow.manager.Manager
 
     @abc.abstractmethod
     def setUpWithFiles(self): pass
@@ -31,7 +31,7 @@ class ManagerTests:
         self.assertEqual(len(self.manager.ls(recursive=True)), 1)
 
         directory = self.manager['/directory']
-        self.assertIsInstance(directory, storage.Directory)
+        self.assertIsInstance(directory, stow.Directory)
         self.assertTrue(len(directory) == 0)
 
     def test_touch(self):
@@ -63,7 +63,7 @@ class ManagerTests:
             file = self.manager.put(localInFP, '/test1.txt')
 
             # Assert that the pushed item is a file
-            self.assertIsInstance(file, storage.artefacts.File)
+            self.assertIsInstance(file, stow.artefacts.File)
 
             # Pull the file down again
             self.manager.get('/test1.txt', localOutFP)
@@ -108,7 +108,7 @@ class ManagerTests:
             file_b = self.manager.put(localInFP, file)
 
             # Assert its a file and that its the same file object as before
-            self.assertIsInstance(file_b, storage.artefacts.File)
+            self.assertIsInstance(file_b, stow.artefacts.File)
             self.assertIs(file, file_b)
 
             # Pull the file down again - using the file object
@@ -139,7 +139,7 @@ class ManagerTests:
 
             art = self.manager.put(d, '/testdir')
 
-            self.assertIsInstance(art, storage.artefacts.Directory)
+            self.assertIsInstance(art, stow.artefacts.Directory)
 
     def test_putting_directories_overwrites(self):
 
@@ -160,7 +160,7 @@ class ManagerTests:
 
             self.assertEqual(len(folder), 1)
 
-            with pytest.raises(storage.exceptions.ArtefactNotFound):
+            with pytest.raises(stow.exceptions.ArtefactNotFound):
                 self.manager['/directory/file1.txt']
 
             self.manager['/directory/file2.txt']
@@ -229,10 +229,10 @@ class ManagerTests:
         self.assertTrue(self.manager['/file1.txt'])
         self.assertTrue(self.manager['/file2.txt'])
 
-        with pytest.raises(storage.exceptions.ArtefactNotFound):
+        with pytest.raises(stow.exceptions.ArtefactNotFound):
             self.manager['/file3.txt']
 
-        with pytest.raises(storage.exceptions.ArtefactNotFound):
+        with pytest.raises(stow.exceptions.ArtefactNotFound):
             self.manager['/file4.txt']
 
         # Move the file
@@ -242,8 +242,8 @@ class ManagerTests:
         # Assert that the file exists
         self.assertTrue(self.manager['/file3.txt'])
         self.assertTrue(self.manager['/file4.txt'])
-        with pytest.raises(storage.exceptions.ArtefactNotFound): self.manager['/file1.txt']
-        with pytest.raises(storage.exceptions.ArtefactNotFound): self.manager['/file2.txt']
+        with pytest.raises(stow.exceptions.ArtefactNotFound): self.manager['/file1.txt']
+        with pytest.raises(stow.exceptions.ArtefactNotFound): self.manager['/file2.txt']
 
         # Open the new file and assert that its content matches
         with self.manager.open('/file3.txt', 'r') as handle:
@@ -296,12 +296,12 @@ class ManagerTests:
             self.manager.rm('/file1.txt')
 
             # Demonstrate that the file has been removed from the manager
-            with pytest.raises(storage.exceptions.ArtefactNotFound):
+            with pytest.raises(stow.exceptions.ArtefactNotFound):
                 self.manager['/file1.txt']
 
             self.assertFalse(file._exists)
 
-            with pytest.raises(storage.exceptions.ArtefactNotMember):
+            with pytest.raises(stow.exceptions.ArtefactNotMember):
                 self.manager.get('/file1.txt', os.path.join(directory, 'temp.txt'))
                 os.stat(os.path.join(directory, 'temp.txt'))
 
@@ -344,7 +344,7 @@ class ManagerTests:
                 self.assertTrue(method(local_path))
 
             # Ensure that one cannot delete the directory while it still has contents
-            with pytest.raises(storage.exceptions.OperationNotPermitted):
+            with pytest.raises(stow.exceptions.OperationNotPermitted):
                 self.manager.rm(folder)
 
             # Remove recursively
@@ -423,7 +423,7 @@ class ManagerTests:
                     handle.write("Some content")
 
             file = self.manager['/another/file3.txt']
-            self.assertIsInstance(file, storage.artefacts.File)
+            self.assertIsInstance(file, stow.artefacts.File)
             self.assertEqual(file.path, "/another/file3.txt")
             with file.open("r") as handle:
                 self.assertEqual(handle.read(), "Some content")
@@ -498,7 +498,7 @@ class ManagerTests:
 
             self.assertEqual(len(os.listdir(abspath)), 0)
 
-        self.assertIsInstance(self.manager['/nonexistent'], storage.artefacts.Directory)
+        self.assertIsInstance(self.manager['/nonexistent'], stow.artefacts.Directory)
 
 class SubManagerTests:
 
@@ -703,28 +703,28 @@ class SubManagerTests:
             with self.manager.open("file.txt", "r") as handle:
                 self.assertEqual(handle.read(), "line 1")
 
-    def test_write_fail_behaviour_for_directories (self):
-        """ Test what happens when an error is produced in the writing of a file
+    # def test_write_fail_behaviour_for_directories (self):
+    #     """ Test what happens when an error is produced in the writing of a file
 
-        The intended behaviour is that the writes up to the error are pushed to the file
-        """
-
-
-        try:
-            with self.manager.localise("directory") as abspath:
-                os.mkdir(abspath)
+    #     The intended behaviour is that the writes up to the error are pushed to the file
+    #     """
 
 
-                handle.write("line 1")
-                raise ValueError("Error during write")
-                handle.write("line 2")
+    #     try:
+    #         with self.manager.localise("directory") as abspath:
+    #             os.mkdir(abspath)
 
-        except ValueError:
 
-            file = self.manager["file.txt"]
+    #             handle.write("line 1")
+    #             raise ValueError("Error during write")
+    #             handle.write("line 2")
 
-            self.assertEqual(file.size, 6)
+    #     except ValueError:
 
-            with self.manager.open("file.txt", "r") as handle:
-                self.assertEqual(handle.read(), "line 1")
+    #         file = self.manager["file.txt"]
+
+    #         self.assertEqual(file.size, 6)
+
+    #         with self.manager.open("file.txt", "r") as handle:
+    #             self.assertEqual(handle.read(), "line 1")
 

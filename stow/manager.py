@@ -14,8 +14,6 @@ class Manager(ABC):
     """ Manager Abstract base class - expressed the interface of a Manager which governs a storage option and allows
     extraction and placement of files in that storage container
 
-    Params:
-        name (str): A human readable name for the storage option
     """
 
     _ROOT_PATH = "/"
@@ -163,62 +161,86 @@ class Manager(ABC):
         return self._get(obj, dest_local)
 
     @abstractmethod
-    def _put(self, source_filepath: str, destination_abspath: str):
+    def _put(self, source_filepath: str, destinationAbsPath: str):
         """ Put the local filesystem object onto the underlying manager implementation using the absolute path given.
 
         Params:
             source_filepath (str): The local filesystem filepath to source object
-            desintation_abspath (str): Remote absolute path
+            destinationAbsPath (str): Remote absolute path
         """
         pass
 
-    def __putArtefact(self, src_local: str, dest_remote: str) -> Artefact:
+    @abstractmethod
+    def _putBytes(self, fileBytes: bytes, destinationAbsPath: str):
+        """ Put the bytes of a file object onto the underlying manager implementation using the absolute path given.
+
+        Params:
+            fileBytes (bytes): files bytes
+            destinationAbsPath (str): Remote absolute path
+        """
+        pass
+
+    def __putArtefact(
+        self,
+        source: typing.Union[str, bytes],
+        destinationArtifact: Artefact,
+        desintationPath: str
+        ) -> Artefact:
 
         # Clean up any files that current exist at the location
-        destObj, destPath = self._artefactFormStandardise(dest_remote)
-        if destObj is not None: self._rm(destObj)
+        if destinationArtifact is not None: self._rm(destinationArtifact)
 
         # Put the local file onto the remote using the manager definition
-        self._put(src_local, self.abspath(destPath))
+        if isinstance(source, str):
+            # The artefact is a local object is persistent storage
+            self._put(source, self.abspath(desintationPath))
 
-        # Extract the artefact depending on the type of input
-        if os.path.isdir(src_local):
-            # Source is a directory
+            # Extract the artefact depending on the type of input
+            if os.path.isdir(source):
+                # Source is a directory
 
-            if destObj is not None:
-                # An object original existed - identify type of object and handle accordingly
+                if destinationArtifact is not None:
+                    # An object original existed - identify type of object and handle accordingly
 
-                if isinstance(destObj, Directory):
-                    # The original object was a directory - compare downloaded objects with objects to remove no longer
-                    # present files and update files to the newly uploaded content
-                    self._refresh(destObj)
-                    return destObj
+                    if isinstance(destinationArtifact, Directory):
+                        # The original object was a directory - compare downloaded objects with objects to remove no longer
+                        # present files and update files to the newly uploaded content
+                        self._refresh(destinationArtifact)
+                        return destinationArtifact
 
-                else:
-                    # File is being replaced with a directory - delete the file and create a new directory object
-                    self._remove(destObj)
+                    else:
+                        # File is being replaced with a directory - delete the file and create a new directory object
+                        self._remove(destinationArtifact)
 
-            return self._backfillHierarchy(dest_remote)
+                return self._backfillHierarchy(desintationPath)
+
+            else:
+                # Source is a file
+                art = self._makefile(desintationPath)
+
+                if destinationArtifact is not None:
+                    if isinstance(destinationArtifact, File):
+                        # The artefact has overwritten a previous file - update it and return it
+                        original = self._paths[desintationPath]
+                        original._update(art)
+                        return original
+
+                    else:
+                        self._remove(destinationArtifact)
+
+            # Add the new artefact and return it
+            self._add(art)
+            return art
 
         else:
-            # Source is a file
-            art = self._makefile(dest_remote)
+            # The artefact is a file binary
+            self._putBytes(source, self.abspath(desintationPath))
 
-            if destObj is not None:
-                if isinstance(destObj, File):
-                    # The artefact has overwritten a previous file - update it and return it
-                    original = self._paths[dest_remote]
-                    original._update(art)
-                    return original
+            art = self._makefile(desintationPath)
+            self._add(art)
+            return art
 
-                else:
-                    self._remove(destObj)
-
-        # Add the new artefact and return it
-        self._add(art)
-        return art
-
-    def put(self, src_local: str, dest_remote: typing.Union[Artefact, str]) -> Artefact:
+    def put(self, source: typing.Union[Artefact, str, bytes], destination: typing.Union[Artefact, str]) -> Artefact:
         """ Put a local artefact onto the remote at the location given.
 
         Params:
@@ -227,21 +249,18 @@ class Manager(ABC):
                 remote
         """
 
-        srcObj, srcPath = self._artefactFormStandardise(src_local)
-        destObj, destPath = self._artefactFormStandardise(dest_remote)
-
-        if destObj is not None and destObj.manager is not self:
+        # Verify that the destination is valid
+        destinationArtifact, destinationPath = self._artefactFormStandardise(destination)
+        if destinationArtifact is not None and destinationArtifact.manager is not self:
                 raise exceptions.ArtefactNotMember("Destination artefact is not a member of the manager")
 
-        if isinstance(srcObj, Artefact):
-            # Provides was an artefact from a manager that may be remote
-
-            with srcObj.manager.localise(srcObj) as srcAbsPath:
-                return self.__putArtefact(srcAbsPath, destPath)
+        if isinstance(source, Artefact):
+            with source.manager.localise(source) as sourceAbsPath:
+                return self.__putArtefact(sourceAbsPath, destinationArtifact, destinationPath)
 
         else:
-            # The source is a local filepath
-            return self.__putArtefact(srcPath, destPath)
+            # The source is a local filepath or byte stream
+            return self.__putArtefact(source, destinationArtifact, destinationPath)
 
     @abstractmethod
     def _cp(self, srcObj: Artefact, destPath: str):
@@ -706,6 +725,9 @@ class SubManager(Manager):
     def _put(self, source_filepath, destination_abspath):
         # Abspath already surpasses this manager - pass args straight on
         self._owner._put(source_filepath, destination_abspath)
+
+    def _putBytes(self, source, destinationAbsPath):
+        self._owner._putBytes(source, destinationAbsPath)
 
     # NOTE movement of files handled by main manager
     def _cp(self, srcObj: Artefact, destPath: str): self._owner._cp(srcObj._concrete, self.join(self._uri, destPath))

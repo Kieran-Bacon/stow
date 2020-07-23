@@ -136,6 +136,9 @@ class Amazon(RemoteManager):
             # Putting a file
             self._bucket.upload_file(src_local, dest_remote)
 
+    def _putBytes(self, source, destinationAbsPath):
+        self._bucket.put_object(Key=destinationAbsPath, Body=source)
+
     def _rm(self, artefact: Artefact):
 
         key = self.abspath(artefact.path)

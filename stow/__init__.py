@@ -3,6 +3,10 @@ from .utils import find, connect
 
 from .stateless import (
     artefact,
+    exists,
+    basename,
+    dirname,
+    join,
     touch,
     mkdir,
     localise,
@@ -10,6 +14,7 @@ from .stateless import (
     get,
     put,
     ls,
+    cp,
     mv,
     rm
 )

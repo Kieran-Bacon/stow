@@ -1,4 +1,5 @@
-site_name: Storage
+site_name: Stow
 theme: readthedocs
 markdown_extensions:
     - tables
+extra_css: [static/css/main.css]

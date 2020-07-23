@@ -7,8 +7,8 @@ from botocore.exceptions import ClientError
 import uuid
 import tempfile
 
-import storage
-from storage.managers import Amazon
+import stow
+from stow.managers import Amazon
 
 from .. import ETC_DIR
 from .manager import ManagerTests, SubManagerTests
@@ -152,7 +152,7 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
 
         self.setUpWithFiles()
 
-        sub_manager = storage.connect(
+        sub_manager = stow.connect(
             "s3",
             submanager="/initial_directory",
             bucket=self.bucket_name,
@@ -160,5 +160,5 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
             aws_secret_access_key=self._config['aws_secret_access_key']
         )
 
-        self.assertIsInstance(sub_manager, storage.manager.SubManager)
+        self.assertIsInstance(sub_manager, stow.manager.SubManager)
         self.assertEqual(len(sub_manager.ls()), 1)

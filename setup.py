@@ -5,9 +5,9 @@ with open(os.path.join(os.path.dirname(__file__), 'requirements.txt')) as fh:
     requires = fh.read().splitlines()
 
 setup(
-    name='storage',
+    name='stow',
     install_requires=requires,
-    version="0.0.10",
+    version="0.0.1",
     description="",
 
     author="Kieran Bacon",
@@ -17,13 +17,13 @@ setup(
 
     entry_points={
         'console_scripts': [
-            'backup = storage.backup:BackupManager.main',
+            'backup = stow.backup:BackupManager.main',
         ],
-        'storage_managers': [
-            'fs=storage.managers:FS',
-            'lfs=storage.managers:FS',
-            'aws=storage.managers:Amazon',
-            's3=storage.managers:Amazon'
+        'stow_managers': [
+            'fs=stow.managers:FS',
+            'lfs=stow.managers:FS',
+            'aws=stow.managers:Amazon',
+            's3=stow.managers:Amazon'
         ]
     }
 )

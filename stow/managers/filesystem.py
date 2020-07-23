@@ -78,6 +78,15 @@ class FS(LocalManager):
             os.makedirs(os.path.dirname(dest_remote), exist_ok=True)
             shutil.copy(src_local, dest_remote)
 
+    def _putBytes(self, source, destinationAbsPath):
+
+        # Makesure the destination exists
+        os.makedirs(os.path.dirname(destinationAbsPath), exist_ok=True)
+
+        # Write the byte file
+        with open(destinationAbsPath, "wb") as handle:
+            handle.write(source)
+
     def _cp(self, srcObj: Artefact, destPath: str):
         self._put(self.abspath(srcObj.path), self.abspath(destPath))
 

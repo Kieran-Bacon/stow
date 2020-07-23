@@ -1,4 +1,4 @@
-""" Functions for the storage package to provided a stateless method of interacting with various manager artefacts.
+""" Functions for the stow package to provided a stateless method of interacting with various manager artefacts.
 """
 
 import os
@@ -32,7 +32,7 @@ def _getManager(artefact) -> typing.Tuple[Manager, str]:
 
     return manager, relpath
 
-def artefact(artefact: str):
+def artefact(artefact: str) -> Artefact:
     """ Fetch an artefact object for the given path
 
     Params:
@@ -40,6 +40,40 @@ def artefact(artefact: str):
     """
     manager, relpath = _getManager(artefact)
     return manager[relpath]
+
+def exists(path: str) -> bool:
+    """ Check if the path points at a valid artefact
+
+    Params:
+        path (str): the path to check if it exists
+
+    Returns:
+        bool: True if an artefact is found at the location
+    """
+    manger, relpath = _getManager(path)
+    return relpath in manger
+
+@wraps(Manager.dirname)
+def dirname(artefact: typing.Union[Artefact, str]):
+    manager, relpath = _getManager(artefact)
+    return manager.dirname(relpath)
+
+@wraps(Manager.basename)
+def basename(artefact: typing.Union[Artefact, str]):
+    manager, relpath = _getManager(artefact)
+    return manager.basename(relpath)
+
+@wraps(Manager.join)
+def join(*artefacts: typing.Iterable[typing.Union[Artefact, str]]):
+    base = artefacts[0]
+    parsedURL = urlparse(base)
+    manager, _ = _getManager(base)
+
+    path = manager.join(*artefacts)
+    if parsedURL.scheme:
+        path = parsedURL.scheme + ":/" + path
+
+    return path
 
 @wraps(Manager.touch)
 def touch(artefact: str):
@@ -77,9 +111,13 @@ def get(src_remote, dest_local):
 
 @wraps(Manager.put)
 def put(src, dest):
-    src_manager, src_relpath = _getManager(src)
     dest_manager, dest_relpath = _getManager(dest)
-    dest_manager.put(src_manager[src_relpath, dest_relpath])
+
+    if isinstance(src, str):
+        src_manager, src_relpath = _getManager(src)
+        dest_manager.put(src_manager[src_relpath], dest_relpath)
+    else:
+        dest_manager.put(src, dest_relpath)
 
 @wraps(Manager.cp)
 def cp(src, dest):
@@ -96,6 +134,6 @@ def mv(src, dest):
     srcM.mv(srcP, destP)
 
 @wraps(Manager.rm)
-def rm(self, artefact, *args, **kwargs):
+def rm(artefact, *args, **kwargs):
     manger, relpath = _getManager(artefact)
     manger.rm(relpath, *args, **kwargs)
