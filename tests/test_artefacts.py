@@ -60,6 +60,77 @@ class Test_Artefacts(BasicSetup, unittest.TestCase):
             {"/another_directory", "/another_directory/directory2", '/another_directory/directory2/file1'}
         )
 
+    def test_basename(self):
+
+        file = self.manager["/file1"]
+        self.assertEqual(file.basename, "file1")
+
+        file.basename = 'file1.txt'
+
+        self.assertEqual(
+            {art.path for art in self.manager.ls(recursive=True)},
+            {"/directory1", "/file1.txt"}
+        )
+
+        file.basename = '/another_directory/file1.txt'
+
+        self.assertEqual(
+            {art.path for art in self.manager.ls(recursive=True)},
+            {"/directory1", "/another_directory/file1.txt", '/another_directory'}
+        )
+
+        # Directory changes
+
+        directory = self.manager["/another_directory"]
+
+        self.assertEqual(directory.basename, "another_directory")
+
+        directory.basename = "something_else"
+
+        self.assertEqual(
+            {art.path for art in self.manager.ls(recursive=True)},
+            {"/directory1", "/something_else/file1.txt", '/something_else'}
+        )
+
+        directory.basename = "something_else_again/with_level"
+
+        self.assertEqual(
+            {art.path for art in self.manager.ls(recursive=True)},
+            {"/directory1", "/something_else_again/with_level/file1.txt", '/something_else_again', "/something_else_again/with_level"}
+        )
+
+    def test_name(self):
+        file = self.manager["/file1"]
+        file.basename = 'file1.txt'
+
+        file.name = 'file1-changed'
+
+        self.assertEqual(
+            {art.path for art in self.manager.ls(recursive=True)},
+            {"/directory1", "/file1-changed.txt"}
+        )
+
+        # Directory changes
+
+        directory = self.manager.mkdir("/another_directory")
+
+        self.assertEqual(directory.basename, "another_directory")
+
+        directory.name = "something_else"
+
+        self.assertEqual(
+            {art.path for art in self.manager.ls(recursive=True)},
+            {"/directory1", "/file1-changed.txt", '/something_else'}
+        )
+
+        directory.name = "something_else_again/with_level"
+
+        self.assertEqual(
+            {art.path for art in self.manager.ls(recursive=True)},
+            {"/directory1", "/file1-changed.txt", '/something_else_again', "/something_else_again/with_level"}
+        )
+
+
     def test_manager(self):
 
         file = self.manager['/file1']
@@ -74,8 +145,32 @@ class Test_Artefacts(BasicSetup, unittest.TestCase):
 
 class Test_Files(BasicSetup, unittest.TestCase):
 
+    def test_extension(self):
+        file = self.manager["/file1"]
+
+        with pytest.raises(stow.exceptions.InvalidPath):
+            self.assertEqual(file.extension, None)
+
+        file.basename = "file1.txt"
+
+        self.assertEqual(file.extension, "txt")
+
+        file.basename = "file1.tar.gz"
+
+        self.assertEqual(file.extension, "gz")
+
+
     def test_content(self):
-        self.assertEqual(self.manager['/file1'].content.decode(), self.filetext)
+
+        file = self.manager['/file1']
+
+        self.assertEqual(file.content.decode(), self.filetext)
+
+        newContent = "this is new content for the file"
+
+        file.content = bytes(newContent, encoding="utf-8")
+
+        self.assertEqual(file.content.decode(), newContent)
 
     def test_size(self):
 

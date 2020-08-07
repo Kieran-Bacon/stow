@@ -1,4 +1,5 @@
 from .artefacts import File, Directory
+from .manager import Manager
 from .utils import find, connect
 
 from .stateless import (

@@ -6,6 +6,8 @@ import contextlib
 import typing
 import weakref
 
+from . import exceptions
+
 class Artefact:
     """ Aretefacts are the items that are being stored - it is possible that through another mechanism that these items
     are deleted and they are no longer able to work
@@ -35,6 +37,24 @@ class Artefact:
         """ Move the file on the target (perform the rename) - if it fails do not change the local file name """
         self._manager.mv(self, path)
 
+    @property
+    def basename(self):
+        return self._manager.basename(self.path)
+
+    @basename.setter
+    def basename(self, basename: str):
+        """ Rename the object """
+        self.manager.mv(self, self._manager.join(self._manager.dirname(self.path), basename))
+
+    @property
+    def name(self):
+        """ Get the name of the object """
+        return self.basename
+
+    @name.setter
+    def name(self, name: str):
+        self.basename = name
+
     def save(self, path: str):
         self._manager.get(self, path)
 
@@ -52,9 +72,34 @@ class File(Artefact):
         return '<stow.File: {} modified({}) size({} bytes)>'.format(self._path, self._modifiedTime, self._size)
 
     @property
+    def name(self):
+        return self.basename[:self.basename.rindex(".")]
+
+    @name.setter
+    def name(self, name: str):
+        self.basename = ".".join([name, self.extension])
+
+    @property
+    def extension(self):
+        if "." not in self.path:
+            raise exceptions.InvalidPath("File does not have an extension to return - {}".format(self))
+        return self.path[self.path.rindex(".")+1:]
+    @extension.setter
+    def extension(self, ext: str):
+        self.basename = ".".join([self.name, ext])
+
+    @property
     def content(self) -> bytes:
         with self.open("rb") as handle:
             return handle.read()
+
+    @content.setter
+    def content(self, cont: bytes):
+        if not isinstance(cont, bytes):
+            raise ValueError("Cannot set the content of the file to non bytes type - {} given".format(type(cont)))
+
+        with self.open("wb") as handle:
+            handle.write(cont)
 
     @property
     def modifiedTime(self): return self._modifiedTime
