@@ -70,7 +70,9 @@ class FS(LocalManager):
 
         if os.path.isdir(src_local):
             # Copy the directory into place
-            #if os.path.exists(dest_remote): shutil.rmtree(dest_remote)
+
+
+
             shutil.copytree(src_local, dest_remote)
 
         else:

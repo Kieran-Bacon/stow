@@ -184,16 +184,39 @@ class Manager(ABC):
         self,
         source: typing.Union[str, bytes],
         destinationArtifact: Artefact,
-        desintationPath: str
+        destinationPath: str,
+        *,
+        overwrite: bool = False,
+        merge: bool = False
         ) -> Artefact:
 
-        # Clean up any files that current exist at the location
-        if destinationArtifact is not None: self._rm(destinationArtifact)
+        # Clean up any files that currently exist at the location
+
+
+
+        if destinationArtifact is not None:
+
+            if isinstance(destinationArtifact, File):
+                self._rm(destinationArtifact)
+
+            else:
+                if overwrite and merge:
+                    raise exceptions.OperationNotPermitted(
+                        "Multiple strategies given for put - overwrite=True, merge=True"
+                    )
+
+                if not (overwrite or merge):
+                    raise exceptions.OperationNotPermitted(
+                        "Cannot put object as destination is a directory and a strategy hasn't been chosen"
+                    )
+
+                if overwrite:
+                    self._rm(destinationArtifact)
 
         # Put the local file onto the remote using the manager definition
         if isinstance(source, str):
             # The artefact is a local object is persistent storage
-            self._put(source, self.abspath(desintationPath))
+            self._put(source, self.abspath(destinationPath))
 
             # Extract the artefact depending on the type of input
             if os.path.isdir(source):
@@ -212,16 +235,16 @@ class Manager(ABC):
                         # File is being replaced with a directory - delete the file and create a new directory object
                         self._remove(destinationArtifact)
 
-                return self._backfillHierarchy(desintationPath)
+                return self._backfillHierarchy(destinationPath)
 
             else:
                 # Source is a file
-                art = self._makefile(desintationPath)
+                art = self._makefile(destinationPath)
 
                 if destinationArtifact is not None:
                     if isinstance(destinationArtifact, File):
                         # The artefact has overwritten a previous file - update it and return it
-                        original = self._paths[desintationPath]
+                        original = self._paths[destinationPath]
                         original._update(art)
                         return original
 
@@ -234,33 +257,45 @@ class Manager(ABC):
 
         else:
             # The artefact is a file binary
-            self._putBytes(source, self.abspath(desintationPath))
+            self._putBytes(source, self.abspath(destinationPath))
 
-            art = self._makefile(desintationPath)
+            art = self._makefile(destinationPath)
             self._add(art)
             return art
 
-    def put(self, source: typing.Union[Artefact, str, bytes], destination: typing.Union[Artefact, str]) -> Artefact:
+    def put(
+        self,
+        source: typing.Union[Artefact, str, bytes],
+        destination: typing.Union[Artefact, str],
+        *,
+        overwrite: bool = False,
+        merge: bool = False
+        ) -> Artefact:
         """ Put a local artefact onto the remote at the location given.
 
         Params:
             src_local (str): The path to the local artefact that is to be put on the remote
             dest_remote (Artefact/str): A file object to overwrite or the relative path to a destination on the
                 remote
+            *
+            overwrite (bool) = False: Whether to accept the overwriting of a target destination when it is a directory
+            merge (bool) = False: Whether to accept put of directory onto an existing directory - and strategy for put
         """
 
         # Verify that the destination is valid
         destinationArtifact, destinationPath = self._artefactFormStandardise(destination)
-        if destinationArtifact is not None and destinationArtifact.manager is not self:
+        if destinationArtifact is not None:
+            # The destination isn't within the manager
+            if destinationArtifact.manager is not self:
                 raise exceptions.ArtefactNotMember("Destination artefact is not a member of the manager")
 
         if isinstance(source, Artefact):
             with source.manager.localise(source) as sourceAbsPath:
-                return self.__putArtefact(sourceAbsPath, destinationArtifact, destinationPath)
+                return self.__putArtefact(sourceAbsPath, destinationArtifact, destinationPath, overwrite=overwrite, merge=merge)
 
         else:
             # The source is a local filepath or byte stream
-            return self.__putArtefact(source, destinationArtifact, destinationPath)
+            return self.__putArtefact(source, destinationArtifact, destinationPath, overwrite=overwrite, merge=merge)
 
     @abstractmethod
     def _cp(self, srcObj: Artefact, destPath: str):
