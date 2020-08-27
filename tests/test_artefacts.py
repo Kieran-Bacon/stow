@@ -101,6 +101,8 @@ class Test_Artefacts(BasicSetup, unittest.TestCase):
 
     def test_name(self):
         file = self.manager["/file1"]
+        self.assertEqual(file.name, "file1")
+
         file.basename = 'file1.txt'
 
         file.name = 'file1-changed'
@@ -131,6 +133,7 @@ class Test_Artefacts(BasicSetup, unittest.TestCase):
         )
 
 
+
     def test_manager(self):
 
         file = self.manager['/file1']
@@ -147,9 +150,7 @@ class Test_Files(BasicSetup, unittest.TestCase):
 
     def test_extension(self):
         file = self.manager["/file1"]
-
-        with pytest.raises(stow.exceptions.InvalidPath):
-            self.assertEqual(file.extension, None)
+        self.assertEqual(file.extension, "")
 
         file.basename = "file1.txt"
 
