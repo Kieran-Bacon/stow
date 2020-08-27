@@ -154,7 +154,7 @@ class ManagerTests:
             open(os.path.join(path, 'file2.txt'), 'w').close()
 
             # Put the local directory into the machine, ensure that its overwritten
-            self.manager.put(path, '/directory')
+            self.manager.put(path, '/directory', overwrite=True)
 
             folder = self.manager['/directory']
 
@@ -164,6 +164,73 @@ class ManagerTests:
                 self.manager['/directory/file1.txt']
 
             self.manager['/directory/file2.txt']
+
+    def test_putting_directories_overwrite_throws_error(self):
+        """ Test that when putting a directory onto another that the system throws an error warning about the possible
+        loss of data
+        """
+
+        # Create a file
+        self.manager.touch("/directory/file1.txt")
+
+        # Create and try and put a directory
+        with tempfile.TemporaryDirectory() as directory:
+
+            # Create a file in the directory
+            open(os.path.join(directory, "file2.txt"), "w").close()
+
+            with pytest.raises(stow.exceptions.OperationNotPermitted):
+                self.manager.put(directory, "/directory")
+
+            with pytest.raises(stow.exceptions.OperationNotPermitted):
+                self.manager.put(directory, "/directory", overwrite=True, merge=True)
+
+    def test_putting_directories_strategy_overwrite(self):
+        """ Test that when putting a directory onto another that the system throws an error warning about the possible
+        loss of data
+        """
+
+        # Create a file
+        self.manager.touch("/directory/file1.txt")
+
+        # Create and try and put a directory
+        with tempfile.TemporaryDirectory() as directory:
+
+            # Create a file in the directory
+            open(os.path.join(directory, "file2.txt"), "w").close()
+
+            # Signal that it is okay to overwrite the directory
+            self.manager.put(directory, "/directory", overwrite=True)
+
+        # Get the directory
+        remoteDirectory = self.manager["/directory"]
+
+        # Assert that the directory object only has the uploaded file in it
+        self.assertEqual({a.basename for a in remoteDirectory.ls()}, {"file2.txt"})
+
+    def test_putting_directories_strategy_merge(self):
+        """ Test that when putting a directory onto another that the system throws an error warning about the possible
+        loss of data
+        """
+
+        # Create a file
+        self.manager.touch("/directory/file1.txt")
+
+        # Create and try and put a directory
+        with tempfile.TemporaryDirectory() as directory:
+
+            # Create a file in the directory
+            open(os.path.join(directory, "file2.txt"), "w").close()
+
+            # Signal that it is okay to overwrite the directory
+            self.manager.put(directory, "/directory", merge=True)
+
+        # Get the directory
+        remoteDirectory = self.manager["/directory"]
+
+        # Assert that the directory object only has the uploaded file in it
+        self.assertEqual({a.basename for a in remoteDirectory.ls()}, {"file1.txt", "file2.txt"})
+
 
     def test_ls(self):
         """ Create a hierarchy of files and show that listing the
@@ -301,9 +368,8 @@ class ManagerTests:
 
             self.assertFalse(file._exists)
 
-            with pytest.raises(stow.exceptions.ArtefactNotMember):
+            with pytest.raises(stow.exceptions.ArtefactNotFound):
                 self.manager.get('/file1.txt', os.path.join(directory, 'temp.txt'))
-                os.stat(os.path.join(directory, 'temp.txt'))
 
 
     def test_rm_empty_directory(self):
@@ -500,6 +566,68 @@ class ManagerTests:
 
         self.assertIsInstance(self.manager['/nonexistent'], stow.artefacts.Directory)
 
+    def test_put_bytest(self):
+        """ Put files with bytes
+        """
+
+        content = "Hello there"
+
+        self.manager.put(bytes(content, "utf8"), "/file1.txt")
+
+        self.assertEqual(self.manager["/file1.txt"].content.decode(), content)
+
+    def test_put_bytes_overwrite(self):
+        """ Put bytes overwriting a file that previously existed there
+        """
+
+        with self.manager.open("/file1.txt", "w") as handle:
+            handle.write("0123456789")
+
+        file = self.manager["/file1.txt"]
+        size = file.size
+
+        file = self.manager.put(bytes("hello world", "utf8"), "/file1.txt")
+
+        self.assertNotEqual(file.size, size)
+
+    def test_put_files_in_directories_with_backslash(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            for i in range(5):
+                path = os.path.join(directory, "file{}.txt".format(i))
+
+                with open(path, "w") as handle:
+                    handle.write(str(i))
+
+                self.manager.put(path, "/")
+                self.manager.put(path, "/directory/")
+
+            self.assertEqual(
+                {art.path for art in self.manager.ls(recursive=True)},
+                {
+                    "/file0.txt",
+                    "/file1.txt",
+                    "/file2.txt",
+                    "/file3.txt",
+                    "/file4.txt",
+                    "/directory",
+                    "/directory/file0.txt",
+                    "/directory/file1.txt",
+                    "/directory/file2.txt",
+                    "/directory/file3.txt",
+                    "/directory/file4.txt",
+                }
+            )
+
+    def test_put_non_existent_file(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            with pytest.raises(FileNotFoundError):
+                file = self.manager.put(os.path.join(directory, "file1.txt"), "/file1.txt")
+
+
 class SubManagerTests:
 
     @staticmethod
@@ -587,7 +715,7 @@ class SubManagerTests:
         self.assertEqual(mainfile.modifiedTime, subfile.modifiedTime)
         self.assertEqual(mainfile.size, subfile.size)
 
-    def test_submanager_sub_put_directories(self):
+    def test_submanager_sub_put_directories_overwrite(self):
 
         subManager = self.manager.submanager("/sub-directory")
 
@@ -607,7 +735,11 @@ class SubManagerTests:
 
         # Put and overwrite
         with self.get_dirpath(['file2.txt', 'file3.txt']) as directory:
-            subdir1 = subManager.put(directory, "/directory")
+
+            with pytest.raises(stow.exceptions.OperationNotPermitted):
+                subdir1 = subManager.put(directory, "/directory")
+
+            subdir1 = subManager.put(directory, "/directory", overwrite=True)
 
         maindir1 = self.manager["/sub-directory/directory"]
 
@@ -623,7 +755,47 @@ class SubManagerTests:
             self.assertEqual(main.modifiedTime, sub.modifiedTime)
             self.assertEqual(main.size, sub.size)
 
-    def test_submanager_main_put_directories(self):
+    def test_submanager_sub_put_directories_merge(self):
+
+        subManager = self.manager.submanager("/sub-directory")
+
+        with self.get_dirpath() as directory:
+            subdir = subManager.put(directory, "/directory")
+
+        maindir = self.manager["/sub-directory/directory"]
+
+        # Assert that the directories are consisten with each other
+        self.assertEqual(len(maindir), len(subdir))
+
+        artpath = lambda art: art.path
+        for main, sub in zip(sorted(maindir, key=artpath), sorted(subdir, key=artpath)):
+
+            self.assertEqual(main.modifiedTime, sub.modifiedTime)
+            self.assertEqual(main.size, sub.size)
+
+        # Put and overwrite
+        with self.get_dirpath(['file2.txt', 'file3.txt']) as directory:
+
+            with pytest.raises(stow.exceptions.OperationNotPermitted):
+                subdir1 = subManager.put(directory, "/directory")
+
+            subdir1 = subManager.put(directory, "/directory", merge=True)
+
+        maindir1 = self.manager["/sub-directory/directory"]
+
+        self.assertIs(subdir, subdir1)
+        self.assertIs(maindir, maindir1)
+
+        # Assert that the directories are consisten with each other
+        self.assertEqual(len(maindir), len(subdir))
+
+        artpath = lambda art: art.path
+        for main, sub in zip(sorted(maindir, key=artpath), sorted(subdir, key=artpath)):
+
+            self.assertEqual(main.modifiedTime, sub.modifiedTime)
+            self.assertEqual(main.size, sub.size)
+
+    def test_submanager_main_put_directories_overwrite(self):
 
         subManager = self.manager.submanager("/sub-directory")
 
@@ -643,7 +815,51 @@ class SubManagerTests:
 
         # Put and overwrite
         with self.get_dirpath(['file2.txt', 'file3.txt']) as directory:
-            maindir1 = self.manager.put(directory, "/sub-directory/directory")
+
+            with pytest.raises(stow.exceptions.OperationNotPermitted):
+                maindir1 = self.manager.put(directory, "/sub-directory/directory")
+
+            maindir1 = self.manager.put(directory, "/sub-directory/directory", overwrite=True)
+
+        subdir1 = subManager["/directory"]
+
+        self.assertIs(subdir, subdir1)
+        self.assertIs(maindir, maindir1)
+
+        # Assert that the directories are consisten with each other
+        self.assertEqual(len(maindir), len(subdir))
+
+        artpath = lambda art: art.path
+        for main, sub in zip(sorted(maindir, key=artpath), sorted(subdir, key=artpath)):
+
+            self.assertEqual(main.modifiedTime, sub.modifiedTime)
+            self.assertEqual(main.size, sub.size)
+
+    def test_submanager_main_put_directories_merge(self):
+
+        subManager = self.manager.submanager("/sub-directory")
+
+        with self.get_dirpath() as directory:
+            maindir = self.manager.put(directory, "/sub-directory/directory")
+
+        subdir = subManager["/directory"]
+
+        # Assert that the directories are consisten with each other
+        self.assertEqual(len(maindir), len(subdir))
+
+        artpath = lambda art: art.path
+        for main, sub in zip(sorted(maindir, key=artpath), sorted(subdir, key=artpath)):
+
+            self.assertEqual(main.modifiedTime, sub.modifiedTime)
+            self.assertEqual(main.size, sub.size)
+
+        # Put and overwrite
+        with self.get_dirpath(['file2.txt', 'file3.txt']) as directory:
+
+            with pytest.raises(stow.exceptions.OperationNotPermitted):
+                maindir1 = self.manager.put(directory, "/sub-directory/directory")
+
+            maindir1 = self.manager.put(directory, "/sub-directory/directory", merge=True)
 
         subdir1 = subManager["/directory"]
 

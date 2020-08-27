@@ -20,6 +20,7 @@ class Manager(ABC):
     _PLACEHOLDER = "placeholder.ignore"
     _READONLYMODES = ["r", "rb"]
 
+    _MULTI_SEP_REGEX = re.compile(r"(\\{2,})|(\/{2,})")
     _RELPATH_REGEX = re.compile(r"^([a-zA-Z0-9]+:)?([/\\\w\.!-_*'() ]*)$")
 
     def __init__(self):
@@ -29,6 +30,24 @@ class Manager(ABC):
 
     @abstractmethod
     def __repr__(self): pass
+
+    @abstractmethod
+    def isabs(self, path: str) -> bool:
+        """ Check if the provided path is an absolute path for the manager
+
+        Params:
+            path (str): Path to check
+
+        Returns:
+            bool: True if the path given is absolute
+        """
+        pass
+
+    def commonprefix(self, paths: typing.Iterable[str]) -> typing.Iterable[str]:
+        return os.path.commonprefix(paths)
+
+    def commonpath(self, paths: typing.Iterable[str]) -> typing.Iterable[str]:
+        return os.path.commonpath(paths)
 
     @abstractmethod
     def abspath(self, relpath: str) -> str:
@@ -63,7 +82,7 @@ class Manager(ABC):
             artefact (Artefact/str): the artefact to have it's name extracted
 
         Returns:
-            str: the base name of the arteface
+            str: the base name of the artefact
         """
         return os.path.basename(self.relpath(relpath))
 
@@ -82,7 +101,18 @@ class Manager(ABC):
     def join(self, *components) -> str:
         """ Join a relative path with another path for sub and return a manager relative path
         """
-        return self.relpath("/".join(components))
+        cleaned = [components[0]]
+        for part in components[1:]:
+            if part and part[0] == os.sep:
+                cleaned.append(part[1:])
+            else:
+                cleaned.append(part)
+
+        return self._MULTI_SEP_REGEX.sub("/", "/".join(cleaned))
+
+        # return "/".join(components).replace("//", "/")
+        # return self.relpath("/".join(components))
+        # return self.relpath("/".join([self.abspath(components[0]), *components[1:]]))
 
     @abstractmethod
     def _isdir(self, relpath: str) -> bool:
@@ -152,21 +182,28 @@ class Manager(ABC):
             dest_local (str): The local path for the artefact to be written to
         """
 
-        obj, _ = self._artefactFormStandardise(src_remote)
+        obj, _ = self._artefactFormStandardise(src_remote, require=True)
 
-        # Identify the path to be loaded
-        if obj is None or obj.manager is not self:
+        # Ensure that the artefact to get is from this manager
+        if obj.manager is not self:
             raise exceptions.ArtefactNotMember("Provided artefact is not a member of the manager")
 
         return self._get(obj, dest_local)
 
     @abstractmethod
-    def _put(self, source_filepath: str, destinationAbsPath: str):
-        """ Put the local filesystem object onto the underlying manager implementation using the absolute path given.
+    def _put(self, source_filepath: str, destinationAbsPath: str, merge: bool):
+        """ Put the local filesystem object onto the underlying manager implementation using the absolute paths given.
+
+        Files on the manager are always overwritten but this method when targeted - there is no alternate strategy
+
+        Directories aren't allowed to be overwritten without the user explicitly requesting that. If a user is putting a
+        directory onto a directory then they can choose to explicitly merge the directories as opposed to overwriting it
 
         Params:
             source_filepath (str): The local filesystem filepath to source object
             destinationAbsPath (str): Remote absolute path
+            merge (bool) = False: Strategy for put when moving a directory onto another directory. When true, there may
+                be either a directory or nothing at the destination. When False, there is nothing at the destination
         """
         pass
 
@@ -184,16 +221,36 @@ class Manager(ABC):
         self,
         source: typing.Union[str, bytes],
         destinationArtifact: Artefact,
-        desintationPath: str
+        destinationPath: str,
+        *,
+        overwrite: bool = False,
+        merge: bool = False
         ) -> Artefact:
 
-        # Clean up any files that current exist at the location
-        if destinationArtifact is not None: self._rm(destinationArtifact)
+        # Clean up any files that currently exist at the location
+        if destinationArtifact is not None:
 
-        # Put the local file onto the remote using the manager definition
+            if isinstance(destinationArtifact, File):
+                self._rm(destinationArtifact)
+
+            else:
+                if overwrite and merge:
+                    raise exceptions.OperationNotPermitted(
+                        "Multiple strategies given for put - overwrite=True, merge=True"
+                    )
+
+                if not (overwrite or merge):
+                    raise exceptions.OperationNotPermitted(
+                        "Cannot put object as destination is a directory and a strategy hasn't been chosen"
+                    )
+
+                if overwrite:
+                    self._rm(destinationArtifact)
+
+        # Put the local artefact onto the remote using the manager definition
         if isinstance(source, str):
             # The artefact is a local object is persistent storage
-            self._put(source, self.abspath(desintationPath))
+            self._put(source, self.abspath(destinationPath), merge=merge)
 
             # Extract the artefact depending on the type of input
             if os.path.isdir(source):
@@ -212,55 +269,82 @@ class Manager(ABC):
                         # File is being replaced with a directory - delete the file and create a new directory object
                         self._remove(destinationArtifact)
 
-                return self._backfillHierarchy(desintationPath)
-
-            else:
-                # Source is a file
-                art = self._makefile(desintationPath)
-
-                if destinationArtifact is not None:
-                    if isinstance(destinationArtifact, File):
-                        # The artefact has overwritten a previous file - update it and return it
-                        original = self._paths[desintationPath]
-                        original._update(art)
-                        return original
-
-                    else:
-                        self._remove(destinationArtifact)
-
-            # Add the new artefact and return it
-            self._add(art)
-            return art
+                return self._backfillHierarchy(destinationPath)
 
         else:
             # The artefact is a file binary
-            self._putBytes(source, self.abspath(desintationPath))
+            self._putBytes(source, self.abspath(destinationPath))
 
-            art = self._makefile(desintationPath)
-            self._add(art)
-            return art
+        # File has been put onto the remote - get remote and update the state of the manager accordingly
+        art = self._makefile(destinationPath)
 
-    def put(self, source: typing.Union[Artefact, str, bytes], destination: typing.Union[Artefact, str]) -> Artefact:
+        # Update any artefacts that were previously at the location
+        if destinationArtifact is not None:
+            if isinstance(destinationArtifact, File):
+                # The artefact has overwritten a previous file - update it and return it
+                original = self._paths[destinationPath]
+                original._update(art)
+                return original
+
+            else:
+                # The artefact has overwritten a directory - all artefacts below this root have been deleted
+                self._remove(destinationArtifact)
+
+        # Add the new artefact and return it
+        self._add(art)
+        return art
+
+
+    def put(
+        self,
+        source: typing.Union[Artefact, str, bytes],
+        destination: typing.Union[Artefact, str],
+        *,
+        overwrite: bool = False,
+        merge: bool = False
+        ) -> Artefact:
         """ Put a local artefact onto the remote at the location given.
 
         Params:
             src_local (str): The path to the local artefact that is to be put on the remote
             dest_remote (Artefact/str): A file object to overwrite or the relative path to a destination on the
                 remote
+            *
+            overwrite (bool) = False: Whether to accept the overwriting of a target destination when it is a directory
+            merge (bool) = False: Whether to accept put of directory onto an existing directory - and strategy for put
         """
 
         # Verify that the destination is valid
-        destinationArtifact, destinationPath = self._artefactFormStandardise(destination)
-        if destinationArtifact is not None and destinationArtifact.manager is not self:
+        if isinstance(destination, Artefact):
+            destinationArtifact, destinationPath = destination, destination.path
+
+            # The destination isn't within the manager
+            if destinationArtifact.manager is not self:
                 raise exceptions.ArtefactNotMember("Destination artefact is not a member of the manager")
 
+        else:
+            # Destination is a path
+            if destination[-1] == "/":
+
+                # Destination is inside the directory string passed
+                destinationArtifact, _ = self._artefactFormStandardise(destination[:-1])
+                destination = self.join(destination, os.path.basename(source))
+
+                # If the object turns out to be a file then we can't place the object beneath it
+                if destinationArtifact is not None and isinstance(destinationArtifact, File):
+                    raise exceptions.InvalidPath("File object cannot act as directory for object being put")
+
+            # Get the destination Artefact and rel path
+            destinationArtifact, destinationPath = self._artefactFormStandardise(destination)
+
+        # Ensure the source artefact - get a local path to the source for putting into this manager
         if isinstance(source, Artefact):
             with source.manager.localise(source) as sourceAbsPath:
-                return self.__putArtefact(sourceAbsPath, destinationArtifact, destinationPath)
+                return self.__putArtefact(sourceAbsPath, destinationArtifact, destinationPath, overwrite=overwrite, merge=merge)
 
         else:
             # The source is a local filepath or byte stream
-            return self.__putArtefact(source, destinationArtifact, destinationPath)
+            return self.__putArtefact(source, destinationArtifact, destinationPath, overwrite=overwrite, merge=merge)
 
     @abstractmethod
     def _cp(self, srcObj: Artefact, destPath: str):
@@ -305,7 +389,7 @@ class Manager(ABC):
                 self._paths[art.path] = art
 
         if self.dirname(srcObj.path) != self.dirname(destPath):
-            # Unconnect object with the directories that it exists in and add it to the destination location
+            # Disconnect object with the directories that it exists in and add it to the destination location
             self[self.dirname(srcObj.path)]._remove(srcObj)
             self._backfillHierarchy(self.dirname(destPath))._add(srcObj)
 
@@ -354,7 +438,7 @@ class Manager(ABC):
 
     def _remove(self, artefact: Artefact):
         """ Remove an artefact from the manager but do not check against/remove objects from the underlying
-        implementation. This is to be used in conjuction with `_rm()` or to clean up artefacts that could have been
+        implementation. This is to be used in conjunction with `_rm()` or to clean up artefacts that could have been
         affected as a side effect
 
         Params:
@@ -387,7 +471,7 @@ class Manager(ABC):
             recursive (bool) = False: whether to accept the deletion of a directory which has contents
         """
 
-        obj, path = self._artefactFormStandardise(artefact, require=True)
+        obj, _ = self._artefactFormStandardise(artefact, require=True)
 
         if obj is None or obj.manager is not self:
             raise exceptions.ArtefactNotMember("Artefact ({}) is not a member of the manager".format(artefact))
@@ -403,7 +487,7 @@ class Manager(ABC):
 
     @abstractmethod
     def _collectDirectoryContents(self, directory: Directory) -> None:
-        """ Collect and instatiate the contents of a directory making a directory object _collected = True
+        """ Collect and instantiate the contents of a directory making a directory object _collected = True
 
         Params:
             directory (Directory): The directory which is to be checked
@@ -450,27 +534,14 @@ class Manager(ABC):
             {Artefact}: The artefact objects which are within the directory
         """
 
-        # Convert the incoming artefact reference - requre that the object exist and that it is a directory
-        artobj, path = self._artefactFormStandardise(art, require=True)
-        if not isinstance(artobj, Directory): raise TypeError("Cannot perform ls action on File artefact: {}".format(artobj))
+        # Convert the incoming artefact reference - require that the object exist and that it is a directory
+        artobj, _ = self._artefactFormStandardise(art, require=True)
+        if not isinstance(artobj, Directory):
+            raise TypeError("Cannot perform ls action on File artefact: {}".format(artobj))
 
         # Perform JIT download of directory contents
         if not artobj._collected:
             self._collectDirectoryContents(artobj)
-
-            # # Identify what has already been downloaded into the directory object
-            # ddirs, dfiles = set(), set()
-            # for art in artobj._contents:
-            #     if isinstance(art, Directory): ddirs.add(art.path)
-            #     else: dfiles.add(art.path)
-
-            # # For all the other objects that have not yet been downloaded for the object - download them
-            # dirs, files = self._listdir(path)
-            # for directory in dirs.difference(ddirs): self._backfillHierarchy(directory)
-            # for file in files.difference(dfiles): self._add(self._makefile(file))
-
-            # # Signal that the directory contents has been downloaded NOTE not recursive information
-            # artobj._collected = True
 
         if recursive:
 
@@ -522,6 +593,10 @@ class Manager(ABC):
             directory = self._paths[path]
             if isinstance(directory, File): raise ValueError("Invalid path given. Path points to a file.")
             return directory
+
+        if not path:
+            # No path given - root is being asked for
+            return self._root
 
         # Create a directory at this location, add it to the data store and return it
         art = Directory(self, path)
@@ -684,6 +759,7 @@ class SubManager(Manager):
         self._uri = uri
 
     def __repr__(self): return '<SubManager of {} {}>'.format(self._owner, self._uri)
+    def isabs(self, path: str): return self._owner.isabs(path)
     def abspath(self, relpath: str): return self._owner.abspath(self.join(self._uri, relpath))
     def _subrelpath(self, mainRelpath: str): return mainRelpath[len(self._uri):]
     def _isdir(self, relpath: str) -> str: return self._owner._isdir(self.join(self._uri, relpath))
@@ -698,6 +774,8 @@ class SubManager(Manager):
         # by the parent along with any other directories that were created - by the end of this call, a directory
         # shall exist in this manager for this relpath
         self._owner._backfillHierarchy(self.join(self._uri, relpath))
+        if not relpath:
+            return self._root
         return self._paths[relpath]
 
     def _add(self, artefact: Artefact):
@@ -722,9 +800,9 @@ class SubManager(Manager):
         # Switch artefact to main to download it's contents
         self._owner._get(source._concrete, destination)
 
-    def _put(self, source_filepath, destination_abspath):
+    def _put(self, source_filepath, destination_abspath, merge: bool):
         # Abspath already surpasses this manager - pass args straight on
-        self._owner._put(source_filepath, destination_abspath)
+        self._owner._put(source_filepath, destination_abspath, merge=merge)
 
     def _putBytes(self, source, destinationAbsPath):
         self._owner._putBytes(source, destinationAbsPath)
@@ -871,7 +949,7 @@ class RemoteManager(Manager, ABC):
                     checksum = self.md5(local_path)
 
             else:
-                # No checksum for no file
+                # No checksum for no object
                 checksum = None
 
             # Return the local path to the object
@@ -880,7 +958,7 @@ class RemoteManager(Manager, ABC):
             except Exception as e:
                 exception = e
 
-            # The user has stopped interacting with the artefact - resovle any differences with manager
+            # The user has stopped interacting with the artefact - resolve any differences with manager
             if checksum:
                 if os.path.isdir(local_path):
                     # Compare the new hiearchy - update only affected files/directories

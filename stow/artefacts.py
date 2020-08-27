@@ -73,16 +73,23 @@ class File(Artefact):
 
     @property
     def name(self):
+        if "." not in self.basename:
+            return self.basename
         return self.basename[:self.basename.rindex(".")]
 
     @name.setter
     def name(self, name: str):
-        self.basename = ".".join([name, self.extension])
+        ext = self.extension
+        if ext:
+            self.basename = "{}.{}".format(name, ext)
+
+        else:
+            self.basename = name
 
     @property
     def extension(self):
         if "." not in self.path:
-            raise exceptions.InvalidPath("File does not have an extension to return - {}".format(self))
+            return ""
         return self.path[self.path.rindex(".")+1:]
     @extension.setter
     def extension(self, ext: str):
@@ -198,6 +205,14 @@ class Directory(Artefact):
 
     def rm(self, path, recursive: bool = False): return self.manager.rm(self.manager.join(self.path, path), recursive)
     def ls(self, recursive: bool = False): return self._manager.ls(self, recursive=recursive)
+    def isEmpty(self) -> bool:
+        """ Check whether the directory is contents or not - doesn't perform a lookup for all files in the event that
+        files have already been identified
+
+        Returns:
+            bool: True when there is at least one item in the directory False when the directory is empty
+        """
+        return not (bool(self._contents) or bool(len(self)))
 
 class SubDirectory(Directory):
     """ Create a directory """

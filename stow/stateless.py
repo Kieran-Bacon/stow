@@ -11,6 +11,9 @@ from urllib.parse import urlparse
 from .artefacts import Artefact
 from .manager import Manager
 from .utils import connect
+from .managers import FS
+
+from . import exceptions
 
 def _getManager(artefact) -> typing.Tuple[Manager, str]:
     if isinstance(artefact, Artefact):
@@ -27,6 +30,10 @@ def _getManager(artefact) -> typing.Tuple[Manager, str]:
         elif parsedURL.scheme == "s3":
             manager = connect(manager="S3", bucket=parsedURL.netloc)
             relpath = parsedURL.path
+
+        else:
+            # Unsupported / invalid path
+            raise exceptions.InvalidPath("Couldn't find manager to handle path: {}".format(artefact))
 
         relpath = relpath if relpath else "/"
 
@@ -52,6 +59,54 @@ def exists(path: str) -> bool:
     """
     manger, relpath = _getManager(path)
     return relpath in manger
+
+
+@wraps(Manager.isabs)
+def isabs(path: str):
+    manager, _ = _getManager(path)
+
+    if isinstance(manager, FS):
+        return manager.isabs(path)
+
+    else:
+        # For the path to identify a different/valid manager then it must be an absolute path
+        return True
+
+@wraps(Manager.abspath)
+def abspath(path: str) -> str:
+    manager, relpath = _getManager(path)
+    return manager.abspath(relpath)
+
+@wraps(Manager.abspath)
+def relpath(path: str) -> str:
+    return Manager.relpath(path)
+
+@wraps(Manager.commonprefix)
+def commonprefix(artefacts: typing.Iterable[typing.Union[Artefact, str]]):
+
+    paths = []
+    for art in artefacts:
+        if isinstance(art, Artefact):
+            paths.append(art.path)
+
+        else:
+            paths.append(art)
+
+    return os.path.commonprefix(paths)
+
+
+@wraps(Manager.commonpath)
+def commonpath(artefacts: typing.Iterable[typing.Union[Artefact, str]]):
+
+    paths = []
+    for art in artefacts:
+        if isinstance(art, Artefact):
+            paths.append(art.path)
+
+        else:
+            paths.append(art)
+
+    return os.path.commonpath(paths)
 
 @wraps(Manager.dirname)
 def dirname(artefact: typing.Union[Artefact, str]):
@@ -110,14 +165,10 @@ def get(src_remote, dest_local):
     manager.get(relpath, dest_local)
 
 @wraps(Manager.put)
-def put(src, dest):
+def put(src, dest, *, overwrite=False, merge=False):
+    src_manager, src_relpath = _getManager(src)
     dest_manager, dest_relpath = _getManager(dest)
-
-    if isinstance(src, str):
-        src_manager, src_relpath = _getManager(src)
-        dest_manager.put(src_manager[src_relpath], dest_relpath)
-    else:
-        dest_manager.put(src, dest_relpath)
+    return dest_manager.put(src_manager[src_relpath], dest_relpath, overwrite=overwrite, merge=merge)
 
 @wraps(Manager.cp)
 def cp(src, dest):
