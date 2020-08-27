@@ -10,6 +10,9 @@ from .. import exceptions
 
 class Amazon(RemoteManager):
 
+    # Define regex for the object key
+    _S3_OBJECT_KEY = re.compile(r"^[a-zA-Z0-9!_.*'()-]+(/[a-zA-Z0-9!_.*'()-]+)*$")
+
     def __init__(
         self,
         bucket: str,
@@ -45,6 +48,9 @@ class Amazon(RemoteManager):
         super().__init__()
 
     def __repr__(self): return '<Manager(S3): {}>'.format(self._bucketName)
+
+    def isabs(self, path: str) -> bool:
+        return self._S3_OBJECT_KEY.match(path) is not None
 
     def abspath(self, relpath: str):
         """ Difference between AWS and manager path is the removal of a leading '/'. As such remove the first character

@@ -368,9 +368,8 @@ class ManagerTests:
 
             self.assertFalse(file._exists)
 
-            with pytest.raises(stow.exceptions.ArtefactNotMember):
+            with pytest.raises(stow.exceptions.ArtefactNotFound):
                 self.manager.get('/file1.txt', os.path.join(directory, 'temp.txt'))
-                os.stat(os.path.join(directory, 'temp.txt'))
 
 
     def test_rm_empty_directory(self):
@@ -620,6 +619,13 @@ class ManagerTests:
                     "/directory/file4.txt",
                 }
             )
+
+    def test_put_non_existent_file(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            with pytest.raises(FileNotFoundError):
+                file = self.manager.put(os.path.join(directory, "file1.txt"), "/file1.txt")
 
 
 class SubManagerTests:

@@ -20,6 +20,7 @@ class Manager(ABC):
     _PLACEHOLDER = "placeholder.ignore"
     _READONLYMODES = ["r", "rb"]
 
+    _MULTI_SEP_REGEX = re.compile(r"(\\{2,})|(\/{2,})")
     _RELPATH_REGEX = re.compile(r"^([a-zA-Z0-9]+:)?([/\\\w\.!-_*'() ]*)$")
 
     def __init__(self):
@@ -29,6 +30,24 @@ class Manager(ABC):
 
     @abstractmethod
     def __repr__(self): pass
+
+    @abstractmethod
+    def isabs(self, path: str) -> bool:
+        """ Check if the provided path is an absolute path for the manager
+
+        Params:
+            path (str): Path to check
+
+        Returns:
+            bool: True if the path given is absolute
+        """
+        pass
+
+    def commonprefix(self, paths: typing.Iterable[str]) -> typing.Iterable[str]:
+        return os.path.commonprefix(paths)
+
+    def commonpath(self, paths: typing.Iterable[str]) -> typing.Iterable[str]:
+        return os.path.commonpath(paths)
 
     @abstractmethod
     def abspath(self, relpath: str) -> str:
@@ -63,7 +82,7 @@ class Manager(ABC):
             artefact (Artefact/str): the artefact to have it's name extracted
 
         Returns:
-            str: the base name of the arteface
+            str: the base name of the artefact
         """
         return os.path.basename(self.relpath(relpath))
 
@@ -82,7 +101,18 @@ class Manager(ABC):
     def join(self, *components) -> str:
         """ Join a relative path with another path for sub and return a manager relative path
         """
-        return self.relpath("/".join(components))
+        cleaned = [components[0]]
+        for part in components[1:]:
+            if part and part[0] == os.sep:
+                cleaned.append(part[1:])
+            else:
+                cleaned.append(part)
+
+        return self._MULTI_SEP_REGEX.sub("/", "/".join(cleaned))
+
+        # return "/".join(components).replace("//", "/")
+        # return self.relpath("/".join(components))
+        # return self.relpath("/".join([self.abspath(components[0]), *components[1:]]))
 
     @abstractmethod
     def _isdir(self, relpath: str) -> bool:
@@ -152,10 +182,10 @@ class Manager(ABC):
             dest_local (str): The local path for the artefact to be written to
         """
 
-        obj, _ = self._artefactFormStandardise(src_remote)
+        obj, _ = self._artefactFormStandardise(src_remote, require=True)
 
-        # Identify the path to be loaded
-        if obj is None or obj.manager is not self:
+        # Ensure that the artefact to get is from this manager
+        if obj.manager is not self:
             raise exceptions.ArtefactNotMember("Provided artefact is not a member of the manager")
 
         return self._get(obj, dest_local)
@@ -729,6 +759,7 @@ class SubManager(Manager):
         self._uri = uri
 
     def __repr__(self): return '<SubManager of {} {}>'.format(self._owner, self._uri)
+    def isabs(self, path: str): return self._owner.isabs(path)
     def abspath(self, relpath: str): return self._owner.abspath(self.join(self._uri, relpath))
     def _subrelpath(self, mainRelpath: str): return mainRelpath[len(self._uri):]
     def _isdir(self, relpath: str) -> str: return self._owner._isdir(self.join(self._uri, relpath))

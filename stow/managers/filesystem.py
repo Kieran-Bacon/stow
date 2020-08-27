@@ -23,8 +23,12 @@ class FS(LocalManager):
 
     def __repr__(self): return '<Manager(FS): {}>'.format(self._path)
 
+    def isabs(self, path: str):
+        return os.path.isabs(path)
+
     def abspath(self, relpath):
-        return os.path.abspath(os.path.join(self._path, relpath[1:]))  # NOTE removing the relative path initial sep
+        if relpath and relpath[0] == os.sep: relpath = relpath[1:] # NOTE removing the relative path initial sep
+        return os.path.abspath(os.path.join(self._path, relpath))
 
     def relpath(self, path):
         if self._path == path[:len(self._path)]: path = path[len(self._path):]

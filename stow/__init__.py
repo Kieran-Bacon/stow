@@ -5,6 +5,11 @@ from .utils import find, connect
 from .stateless import (
     artefact,
     exists,
+    isabs,
+    abspath,
+    relpath,
+    commonprefix,
+    commonpath,
     basename,
     dirname,
     join,
