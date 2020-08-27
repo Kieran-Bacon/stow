@@ -198,6 +198,14 @@ class Directory(Artefact):
 
     def rm(self, path, recursive: bool = False): return self.manager.rm(self.manager.join(self.path, path), recursive)
     def ls(self, recursive: bool = False): return self._manager.ls(self, recursive=recursive)
+    def isEmpty(self) -> bool:
+        """ Check whether the directory is contents or not - doesn't perform a lookup for all files in the event that
+        files have already been identified
+
+        Returns:
+            bool: True when there is at least one item in the directory False when the directory is empty
+        """
+        return not (bool(self._contents) or bool(len(self)))
 
 class SubDirectory(Directory):
     """ Create a directory """

@@ -81,3 +81,9 @@ class Test_SubManager(unittest.TestCase, ManagerTests):
 
                 self.assertEqual(main.modifiedTime, sub.modifiedTime)
                 self.assertEqual(main.size, sub.size)
+
+
+    def test_making_artefacts(self):
+
+        self.assertIsInstance(self.manager.touch("/subfile.txt"), stow.artefacts.SubFile)
+        self.assertIsInstance(self.manager.mkdir("/subdir"), stow.artefacts.SubDirectory)

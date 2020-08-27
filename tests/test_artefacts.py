@@ -284,7 +284,16 @@ class Test_Directories(unittest.TestCase):
         f3 = self.manager.touch("/file3.txt")
         self.assertFalse(f3 in self.manager["/dir1"])
 
-class Test_Subdirectories(unittest.TestCase):
+    def test_isEmpty(self):
+
+        # Assert on directory that it does have contents
+        self.assertFalse(self.manager["/dir1"].isEmpty())
+
+        _dir = self.manager.mkdir("/empty_dir")
+
+        self.assertTrue(_dir.isEmpty())
+
+class Test_Subdirectories(Test_Directories):
 
     def setUp(self):
 
@@ -301,14 +310,3 @@ class Test_Subdirectories(unittest.TestCase):
 
         self.ori = stow.connect(manager='FS', path=self.ori)
         self.manager = self.ori.submanager("/demo")
-
-    def test_membership(self):
-
-        self.assertTrue("file1" in self.manager["/dir1"])
-        self.assertTrue(self.manager["/dir1/file1"] in self.manager["/dir1"])
-        f2 = self.manager.touch("/dir1/file2.txt")
-        self.assertTrue(f2 in self.manager["/dir1"])
-
-        self.assertFalse("file3.txt" in self.manager["/dir1"])
-        f3 = self.manager.touch("/file3.txt")
-        self.assertFalse(f3 in self.manager["/dir1"])
