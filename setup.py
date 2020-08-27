@@ -7,7 +7,7 @@ with open(os.path.join(os.path.dirname(__file__), 'requirements.txt')) as fh:
 setup(
     name='stow',
     install_requires=requires,
-    version="0.0.3",
+    version="0.1.0",
     description="",
 
     author="Kieran Bacon",
@@ -16,9 +16,6 @@ setup(
     packages=[package for package in find_packages() if not package.startswith("tests")],
 
     entry_points={
-        'console_scripts': [
-            'backup = stow.backup:BackupManager.main',
-        ],
         'stow_managers': [
             'fs=stow.managers:FS',
             'lfs=stow.managers:FS',
