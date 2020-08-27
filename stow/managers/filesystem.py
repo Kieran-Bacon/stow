@@ -66,14 +66,29 @@ class FS(LocalManager):
         # Download
         method(src_remote, dest_local)
 
-    def _put(self, src_local, dest_remote):
+    def _put(self, src_local, dest_remote, merge: bool = False):
 
         if os.path.isdir(src_local):
             # Copy the directory into place
 
+            if merge:
+                # when merge is true there is a possibility that a directory exists are the target location
+                for root, dirs, files in os.walk(src_local, topdown=True):
 
+                    # Get the destination root
+                    dRoot = os.path.join(dest_remote, root[len(src_local):])
 
-            shutil.copytree(src_local, dest_remote)
+                    # Ensure all directories that we are merging into the directory
+                    for d in dirs:
+                        os.makedirs(os.path.join(dRoot, d), exist_ok=True)
+
+                    # Copy and overwrite the file
+                    for f in files:
+                        shutil.copy(os.path.join(root, f), os.path.join(dRoot, f))
+
+            else:
+                # Merge is False so there will be no object at location
+                shutil.copytree(src_local, dest_remote)
 
         else:
             # Putting a file

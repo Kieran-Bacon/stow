@@ -53,9 +53,15 @@ class Amazon(RemoteManager):
 
     def _isdir(self, relpath: str):
 
+        # Get manager specific path
+        abspath = self.abspath(relpath)
+        if not abspath:
+            # Referencing bucket
+            return True
+
         try:
             # Try and load the object outright - if successful then file not dir
-            self._bucket.Object(self.abspath(relpath)).load()
+            self._bucket.Object(abspath).load()
             return False
 
         except ClientError as e:
@@ -111,26 +117,31 @@ class Amazon(RemoteManager):
         else:
             self._bucket.download_file(self.abspath(src_remote.path), dest_local)
 
-    def _put(self, src_local, dest_remote):
+    def _put(self, src_local, dest_remote, merge: bool = False):
 
         if os.path.isdir(src_local):
-            # A directory of items is to be uploaded - walk local directory and uploade each file
+            # A directory of items is to be uploaded - walk local directory and uploaded each file
 
-            isUploaded = False
-            for path, _, files in os.walk(src_local):
+            for root, dirs, files in os.walk(src_local):
+                dRoot = self.join(dest_remote, root[len(src_local):])
+
+                if not (dirs or files):
+                    # There are no sub-directories or files to be uploaded
+
+                    if merge and dRoot in self and not self[dRoot].isEmpty():
+                        # We are merging a directory that has contents so no activity to take
+                        continue
+
+                    placeholder_path = self.abspath(self.join(dRoot, self._PLACEHOLDER))
+                    self._bucket.put_object(Key=placeholder_path, Body=b'')
+                    continue
 
                 # For each file at this point - construct their local absolute path and their relative remote path
                 for file in files:
                     self._bucket.upload_file(
-                        os.path.join(path, file),
-                        self.abspath(self.join(dest_remote, path[len(src_local):], file))
+                        os.path.join(root, file),
+                        self.abspath(self.join(dRoot, file))
                     )
-                    isUploaded = True
-
-            if not isUploaded:
-                # Make a placeholder file for this directory
-                placeholder_path = self.abspath(self.join(dest_remote, self._PLACEHOLDER))
-                self._bucket.put_object(Key=placeholder_path, Body=b'')
 
         else:
             # Putting a file
