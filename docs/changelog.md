@@ -1,3 +1,12 @@
+## [0.1.1] - 2020-08-30
+
+### Changed
+    - __contains__ logic changed to check against manager so that if edits have happened behind the scenes that they are
+    updated in the manager
+
+### Fixes
+    - amazon isdir couldn't verify to level directories due to a naming issue which has been resolved
+
 ## [0.1.0] -  2020-08-28
 
 Added to the stateless interface and corrected issues with artefact interface + manager interface
