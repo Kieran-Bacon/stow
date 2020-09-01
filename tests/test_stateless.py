@@ -103,6 +103,13 @@ class Test_Stateless(unittest.TestCase):
         self.assertEqual(stow.join("example", "there"), "example/there")
         self.assertEqual(stow.join("example", "/there"), "example/there")
 
+    def test_join_with_protocol(self):
+
+        self.assertEqual(
+            stow.join("s3://example-location/directory", "filename.txt"),
+            "s3://example-location/directory/filename.txt"
+        )
+
 
 
 
