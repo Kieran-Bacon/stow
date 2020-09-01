@@ -7,7 +7,7 @@ with open(os.path.join(os.path.dirname(__file__), 'requirements.txt')) as fh:
 setup(
     name='stow',
     install_requires=requires,
-    version="0.1.1",
+    version="0.1.2",
     description="",
 
     author="Kieran Bacon",

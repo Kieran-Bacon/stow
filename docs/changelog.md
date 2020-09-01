@@ -1,3 +1,12 @@
+## [0.1.1] - 2020-09-01
+
+### Fixed
+    - stateless join function which was enforcing its own protocol handle. This has been passed to the manager
+    - s3 manager now correctly handles s3 protocols when joining paths
+
+### Added
+    - tests for the stateless and manager join functions
+
 ## [0.1.1] - 2020-08-30
 
 ### Changed
