@@ -3,6 +3,7 @@ import boto3
 from botocore.exceptions import ClientError
 import tempfile
 import re
+import urllib.parse
 
 from ..artefacts import Artefact, File, Directory
 from ..manager import RemoteManager
@@ -11,6 +12,7 @@ from .. import exceptions
 class Amazon(RemoteManager):
 
     # Define regex for the object key
+    _LINE_SEP = "/"
     _S3_OBJECT_KEY = re.compile(r"^[a-zA-Z0-9!_.*'()-]+(/[a-zA-Z0-9!_.*'()-]+)*$")
 
     def __init__(
@@ -56,6 +58,30 @@ class Amazon(RemoteManager):
         """ Difference between AWS and manager path is the removal of a leading '/'. As such remove the first character
         """
         return self.relpath(relpath)[1:]
+
+    @classmethod
+    def join(cls, *components) -> str:
+        """ Join a series of amazon s3 paths """
+        """ Join a relative path with another path for sub and return a manager relative path
+        """
+
+        # Check if the string has a protocol
+        url = urllib.parse.urlparse(components[0])
+        bucket = None
+        if url.scheme != "":
+            if url.scheme != "s3":
+                raise ValueError("{} manager cannot join paths of non compatible paths: {}".format(cls), components)
+
+            components = list(components)
+            bucket = url.netloc
+            components[0] = url.path
+
+        path = cls._MULTI_SEP_REGEX.sub("/", cls._LINE_SEP.join(components))
+
+        if bucket:
+            path = "s3://{}{}".format(bucket, path)
+
+        return path
 
     def _isdir(self, relpath: str):
 

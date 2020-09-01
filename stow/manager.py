@@ -98,7 +98,8 @@ class Manager(ABC):
         """
         return "/".join(relpath.split('/')[:-1]) or '/'
 
-    def join(self, *components) -> str:
+    @classmethod
+    def join(cls, *components) -> str:
         """ Join a relative path with another path for sub and return a manager relative path
         """
         cleaned = [components[0]]
@@ -108,11 +109,7 @@ class Manager(ABC):
             else:
                 cleaned.append(part)
 
-        return self._MULTI_SEP_REGEX.sub("/", "/".join(cleaned))
-
-        # return "/".join(components).replace("//", "/")
-        # return self.relpath("/".join(components))
-        # return self.relpath("/".join([self.abspath(components[0]), *components[1:]]))
+        return cls._MULTI_SEP_REGEX.sub("/", "/".join(cleaned))
 
     @abstractmethod
     def _isdir(self, relpath: str) -> bool:

@@ -123,12 +123,7 @@ def join(*artefacts: typing.Iterable[typing.Union[Artefact, str]]):
     base = artefacts[0]
     parsedURL = urlparse(base)
     manager, _ = _getManager(base)
-
-    path = manager.join(*artefacts)
-    if parsedURL.scheme:
-        path = parsedURL.scheme + ":/" + path
-
-    return path
+    return manager.join(*artefacts)
 
 @wraps(Manager.touch)
 def touch(artefact: str):

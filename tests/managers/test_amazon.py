@@ -162,3 +162,10 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
 
         self.assertIsInstance(sub_manager, stow.manager.SubManager)
         self.assertEqual(len(sub_manager.ls()), 1)
+
+    def test_join_with_protocol(self):
+
+        self.assertEqual(
+            self.manager.join("s3://example-location/directory", "filename.txt"),
+            "s3://example-location/directory/filename.txt"
+        )
