@@ -22,5 +22,6 @@ from .stateless import (
     ls,
     cp,
     mv,
+    sync,
     rm
 )

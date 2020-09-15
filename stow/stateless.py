@@ -20,7 +20,7 @@ def _getManager(artefact) -> typing.Tuple[Manager, str]:
         manager = artefact.manager
         relpath = artefact.path
 
-    else:
+    elif isinstance(artefact, str):
         parsedURL = urlparse(artefact)
 
         if not parsedURL.scheme:
@@ -36,6 +36,9 @@ def _getManager(artefact) -> typing.Tuple[Manager, str]:
             raise exceptions.InvalidPath("Couldn't find manager to handle path: {}".format(artefact))
 
         relpath = relpath if relpath else "/"
+
+    else:
+        raise TypeError("Artefact reference must be either `stow.Artefact` or string not type {}".format(type(artefact)))
 
     return manager, relpath
 
@@ -131,9 +134,9 @@ def touch(artefact: str):
     return manager.touch(relpath)
 
 @wraps(Manager.mkdir)
-def mkdir(artefact: str):
+def mkdir(artefact: str, ignoreExists: bool = True, overwrite: bool = False):
     manager, relpath = _getManager(artefact)
-    return manager.mkdir(relpath)
+    return manager.mkdir(relpath, ignoreExists, overwrite)
 
 @wraps(Manager.localise)
 @contextlib.contextmanager
@@ -161,9 +164,16 @@ def get(src_remote, dest_local):
 
 @wraps(Manager.put)
 def put(src, dest, *, overwrite=False, merge=False):
-    src_manager, src_relpath = _getManager(src)
+
+    # Get the destination manager for the artifact
     dest_manager, dest_relpath = _getManager(dest)
-    return dest_manager.put(src_manager[src_relpath], dest_relpath, overwrite=overwrite, merge=merge)
+
+    if isinstance(src, bytes):
+        return dest_manager.put(src, dest_relpath, overwrite=overwrite, merge=merge)
+
+    else:
+        src_manager, src_relpath = _getManager(src)
+        return dest_manager.put(src_manager[src_relpath], dest_relpath, overwrite=overwrite, merge=merge)
 
 @wraps(Manager.cp)
 def cp(src, dest):
@@ -178,6 +188,14 @@ def mv(src, dest):
     destM, destP = _getManager(dest)
     assert srcM is destM
     srcM.mv(srcP, destP)
+
+@wraps(Manager.sync)
+def sync(src, dest):
+    srcM, srcP = _getManager(src)
+    destM, destP = _getManager(dest)
+
+    # Call sync on the destination manager
+    destM.sync(srcM[srcP], destM[destP])
 
 @wraps(Manager.rm)
 def rm(artefact, *args, **kwargs):

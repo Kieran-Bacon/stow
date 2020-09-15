@@ -6,6 +6,7 @@ import pytest
 import os
 import tempfile
 import datetime
+import time
 import shutil
 
 import stow
@@ -182,8 +183,10 @@ class Test_Files(BasicSetup, unittest.TestCase):
 
         file = self.manager['/file1']
         self.assertTrue(
-            (datetime.datetime.now() - datetime.timedelta(seconds=2)) < file.modifiedTime and
-            (datetime.datetime.now()) > file.modifiedTime
+            (datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc) - datetime.timedelta(seconds=2)) < file.modifiedTime
+        )
+        self.assertTrue(
+            (datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc)) > file.modifiedTime
         )
 
     def test_opening(self):

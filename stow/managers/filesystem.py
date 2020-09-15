@@ -4,6 +4,7 @@ import datetime
 import shutil
 import tempfile
 import contextlib
+import pytz
 
 from ..artefacts import Artefact, File, Directory
 from ..manager import LocalManager
@@ -52,10 +53,15 @@ class FS(LocalManager):
                 pass
 
         stats = os.stat(abspath)
+
+        # Calculate file datetime and timezone
+        modifiedTime = datetime.datetime.utcfromtimestamp(stats.st_mtime)
+        modifiedTime = pytz.UTC.localize(modifiedTime)
+
         return File(
             self,
             path,
-            datetime.datetime.fromtimestamp(stats.st_mtime),
+            modifiedTime,
             stats.st_size
         )
 

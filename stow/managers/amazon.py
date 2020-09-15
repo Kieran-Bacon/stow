@@ -267,22 +267,6 @@ class Amazon(RemoteManager):
 
         return dirs, files
 
-    def mkdir(self, path):
-
-        with tempfile.TemporaryDirectory() as directory:
-            fp = os.path.join(directory, self._PLACEHOLDER)
-            open(fp, 'w').close()
-            self._bucket.upload_file(Filename=fp, Key=self.abspath(self.join(path, self._PLACEHOLDER)))
-
-        # Identify the owning directory
-        owning_directory = self._backfillHierarchy(self.dirname(path))
-        art = Directory(self, path)
-
-        # Save the new artefact
-        owning_directory._add(art)
-        self._paths[path] = art
-        return art
-
     def toConfig(self):
         return {
             'manager': 'AWS',
