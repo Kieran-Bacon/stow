@@ -1,3 +1,5 @@
+__version__ = "0.2.0"
+
 from .artefacts import File, Directory
 from .manager import Manager
 from .utils import find, connect

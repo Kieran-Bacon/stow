@@ -1,3 +1,17 @@
+# Changelog
+
+## [0.2.0] - 2020-9-15
+
+### Added
+    - `Manager.sync` added which pushes files in the source directory to the target if and only if they are more recently edited than the artefacts on the remote
+
+### Changes
+    - `Manager.mkdir` has been extended with two defaulted arguments for ignoreExists and overwrite. Ignore exists allows multiple calls to mkdir on the same directory do nothing and not affect contents of the target. OVerwrite allows the multiple calls to take place but for the content to be removed (makes an empty directory)
+    - Added `__version__` to the init of stow and made setup reference this version
+
+### Fixes
+    - Files created by the local filesystem didn't include their timezone which meant comparison with s3 files not possible. They have been set aware and time is in UTC.
+
 ## [0.1.2] - 2020-09-01
 
 ### Fixed
