@@ -169,3 +169,44 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
             self.manager.join("s3://example-location/directory", "filename.txt"),
             "s3://example-location/directory/filename.txt"
         )
+
+
+    def test_stateless_put_file_with_manager(self):
+        # Test that when putting with the stateless interface that put actually works
+
+        os.environ["AWS_ACCESS_KEY_ID"] = self._config['aws_access_key_id']
+        os.environ["AWS_SECRET_ACCESS_KEY"] = self._config['aws_secret_access_key']
+
+        path = "s3://{}/{}".format(self.bucket_name, "file_put.txt")
+
+        with tempfile.TemporaryDirectory() as directory:
+            with open(os.path.join(directory, "file.txt"), "w") as handle:
+                handle.write("hello")
+
+            stow.put(
+                os.path.join(directory, "file.txt"),
+                path
+            )
+
+        self.assertEqual(
+            self.manager["file_put.txt"].content.decode(), "hello"
+        )
+
+
+    def test_stateless_put_bytes_with_manager(self):
+        # Test that when putting with the stateless interface that put actually works
+
+        os.environ["AWS_ACCESS_KEY_ID"] = self._config['aws_access_key_id']
+        os.environ["AWS_SECRET_ACCESS_KEY"] = self._config['aws_secret_access_key']
+
+        path = "s3://{}/{}".format(self.bucket_name, "bytes_put.txt")
+
+        stow.put(
+            b"hello",
+            path
+        )
+
+        self.assertEqual(
+            self.manager["bytes_put.txt"].content.decode(), "hello"
+        )
+

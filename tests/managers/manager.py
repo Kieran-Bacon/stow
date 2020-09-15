@@ -6,6 +6,7 @@ import tempfile
 import shutil
 import contextlib
 import abc
+import time
 
 import stow
 
@@ -33,6 +34,39 @@ class ManagerTests:
         directory = self.manager['/directory']
         self.assertIsInstance(directory, stow.Directory)
         self.assertTrue(len(directory) == 0)
+
+    def test_mkdir_ignore_exists(self):
+
+        self.manager.mkdir("/directory")
+
+        # Does not through error
+        self.manager.mkdir("/directory")
+
+        self.manager.touch("/directory/file1.txt")
+
+        # Again doesn't through error
+        self.manager.mkdir("/directory")
+
+        self.assertEqual(
+            {art.path for art in self.manager.ls(recursive=True)},
+            {"/directory", "/directory/file1.txt"}
+        )
+
+        with pytest.raises(stow.exceptions.OperationNotPermitted):
+            self.manager.mkdir("/directory", ignoreExists=False)
+
+    def test_mkdir_overwrite(self):
+
+
+        self.manager.touch("/directory/file1.txt")
+
+        # Again doesn't through error
+        self.manager.mkdir("/directory", overwrite=True)
+
+        self.assertEqual(
+            {art.path for art in self.manager.ls(recursive=True)},
+            {"/directory"}
+        )
 
     def test_touch(self):
 
@@ -626,6 +660,70 @@ class ManagerTests:
 
             with pytest.raises(FileNotFoundError):
                 file = self.manager.put(os.path.join(directory, "file1.txt"), "/file1.txt")
+
+
+    def test_sync_empty(self):
+        """ Test that syncing a directory with an empty location puts the directory """
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            # Create a local fs manager
+            fsManager = stow.connect(manager="FS", path=directory)
+
+            fsManager.touch("/file1.txt")
+            fsManager.touch("/nested/file2.txt")
+
+            folder = self.manager.mkdir("/sync_folder")
+            self.manager.sync(fsManager["/"], folder)
+
+            self.assertEqual(
+                {art.path for art in self.manager.ls(recursive=True)},
+                {"/sync_folder/file1.txt", "/sync_folder/nested", "/sync_folder/nested/file2.txt", "/sync_folder"}
+            )
+
+    def test_sync_update(self):
+        """ Test that syncing a directory with an empty location puts the directory """
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            # Create a local fs manager
+            fsManager = stow.connect(manager="FS", path=directory)
+
+            fsManager.touch("/file1.txt")
+            f2 = fsManager.touch("/file2.txt")
+            fsManager.touch("/nested/file3.txt")
+            f4 = fsManager.touch("/nested/file4.txt")
+
+            folder = self.manager.mkdir("/sync_folder")
+            self.manager.sync(fsManager["/"], folder)
+
+            # Have a calculate-able difference in time
+            time.sleep(1)
+
+            # Update the files at source
+            with fsManager.open(f2, "w") as handle:
+                handle.write("This file has been updated at source")
+
+            with fsManager.open(f4, "w") as handle:
+                handle.write("This file has been updated at source")
+
+            # Update the files at destination
+            with self.manager.open("/sync_folder/file1.txt", "w") as handle:
+                handle.write("This file has been updated at destination")
+
+            with self.manager.open("/sync_folder/nested/file3.txt", "w") as handle:
+                handle.write("This file has been updated at destination")
+
+            self.manager.sync(fsManager["/"], folder)
+
+            self.assertEqual(
+                {art.path for art in self.manager.ls(recursive=True)},
+                {"/sync_folder/file1.txt", "/sync_folder/file2.txt", "/sync_folder/nested", "/sync_folder/nested/file3.txt", "/sync_folder/nested/file4.txt", "/sync_folder"}
+            )
+
+            self.assertEqual(self.manager["/sync_folder/file1.txt"].content.decode(), "This file has been updated at destination")
+            self.assertEqual(self.manager["/sync_folder/file2.txt"].content.decode(), "This file has been updated at source")
+
 
 
 class SubManagerTests:

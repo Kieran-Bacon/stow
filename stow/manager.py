@@ -553,15 +553,68 @@ class Manager(ABC):
 
         return set(artobj._contents)
 
-    def mkdir(self, path: str):
+    def mkdir(self, path: str, ignoreExists: bool = True, overwrite: bool = False):
+        """ Make a directory at the location of the path provided. By default - do nothing in the event that the
+        location is already a directory object.
+
+        Params:
+            path (str): Relpath to the location where a directory is to be created
+            ignoreExists (bool) = True: Whether to do nothing if a directory already exists
+            overwrite (bool) = False: Whether to overwrite the directory with an empty directory
+        """
+
+        if path in self:
+            if isinstance(self[path], File):
+                raise exceptions.OperationNotPermitted("Cannot make a directory as location {} is a file object".format(path))
+
+            if ignoreExists and not overwrite:
+                return
+
         with tempfile.TemporaryDirectory() as directory:
-            return self.put(directory, path)
+            return self.put(directory, path, overwrite=overwrite)
 
     def touch(self, relpath: str) -> Artefact:
         with tempfile.TemporaryDirectory() as directory:
             emptyFile = os.path.join(directory, 'empty_file')
             open(emptyFile, 'w').close()
             return self.put(emptyFile, relpath)
+
+    def sync(self, source: Directory, destination: Directory) -> None:
+        """ Put artefacts in the source location into the destination location if they have more recently been editted
+
+        Params:
+            source (Directory): source directory artefact
+            destination (Directory): destination directory artefact on the manager
+        """
+
+        if not (isinstance(source, Directory) and isinstance(destination, Directory)):
+            raise ValueError("Cannot Synchronise non directory objects {} -> {} - must sync directories".format(source, destination))
+
+        # Map artefact names to objects
+        destinationMapper = {art.basename: art for art in destination.ls()}
+
+        # Loop through objects in the source and update the target when appropriate
+        for sourceArtefact in source.ls():
+            targetObj = destinationMapper.get(sourceArtefact.basename)
+
+            # There is no target to compare against - push the artefact
+            if targetObj is None:
+                self.put(sourceArtefact, self.join(destination.path, sourceArtefact.basename))
+
+            else:
+                if not (
+                    (isinstance(sourceArtefact, File) and isinstance(targetObj, File)) or
+                    (isinstance(sourceArtefact, Directory) and isinstance(targetObj, Directory))
+                    ):
+                    raise ValueError("Cannot sync artefacts of different types with the same name {} -> {}".format(sourceArtefact, targetObj))
+
+                # Check file dates
+                if isinstance(sourceArtefact, File):
+                    if sourceArtefact.modifiedTime > targetObj.modifiedTime:
+                        self.put(sourceArtefact, targetObj)
+
+                else:
+                    self.sync(sourceArtefact, targetObj)
 
     @abstractmethod
     def _makefile(self, relpath: str) -> Artefact:
