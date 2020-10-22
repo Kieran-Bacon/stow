@@ -1,0 +1,32 @@
+# ![mkapi](stow)
+
+## Modules
+### ![mkapi](stow.artefacts|plain|apilink)
+### ![mkapi](stow.manager|plain|apilink)
+### ![mkapi](stow.exceptions|plain|apilink)
+
+
+## Functions
+### ![mkapi](stow.find|apilink)
+### ![mkapi](stow.connect|apilink)
+### ![mkapi](stow.artefact|apilink)
+### ![mkapi](stow.exists|apilink)
+### ![mkapi](stow.isabs|apilink)
+### ![mkapi](stow.abspath|apilink)
+### ![mkapi](stow.relpath|apilink)
+### ![mkapi](stow.commonprefix|apilink)
+### ![mkapi](stow.commonpath|apilink)
+### ![mkapi](stow.basename|apilink)
+### ![mkapi](stow.dirname|apilink)
+### ![mkapi](stow.join|apilink)
+### ![mkapi](stow.touch|apilink)
+### ![mkapi](stow.mkdir|apilink)
+### ![mkapi](stow.localise|apilink)
+### ![mkapi](stow.open|apilink)
+### ![mkapi](stow.get|apilink)
+### ![mkapi](stow.put|apilink)
+### ![mkapi](stow.ls|apilink)
+### ![mkapi](stow.cp|apilink)
+### ![mkapi](stow.mv|apilink)
+### ![mkapi](stow.sync|apilink)
+### ![mkapi](stow.rm|apilink)

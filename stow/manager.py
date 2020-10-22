@@ -6,6 +6,7 @@ import tempfile
 import contextlib
 import hashlib
 import re
+import io
 
 from . import exceptions
 from .artefacts import Artefact, File, Directory, SubFile, SubDirectory
@@ -463,7 +464,7 @@ class Manager(ABC):
         """ Remove an artefact from the manager using the artefact object or its relative path. If its a directory,
         remove it if it is empty, or all of its contents if recursive has been set to true.
 
-        Params:
+        Args:
             artefact (typing.Union[Artefact, str]): the object which is to be deleted
             recursive (bool) = False: whether to accept the deletion of a directory which has contents
         """
@@ -749,7 +750,17 @@ class Manager(ABC):
         return hash_md5.hexdigest()
 
     @contextlib.contextmanager
-    def open(self, artefact, mode, **kwargs):
+    def open(self, artefact: typing.Union[File, str], mode: str, **kwargs) -> io.IOBase:
+        """ Open a file and create a stream to that file. Expose interface of `open`
+
+        Args:
+            artefact: The object that represents the file (or path to the file) to be openned by this manager
+            mode: The open method
+            kwargs: kwargs to be passed to the interface of open
+
+        Yields:
+            io.IOBase: An IO object depending on the mode for interacting with the file
+        """
 
         art, path = self._artefactFormStandardise(artefact)
 
@@ -800,6 +811,10 @@ class Manager(ABC):
             raise exceptions.ArtefactTypeError("Cannot create a submanager with a file's path")
 
 class SubManager(Manager):
+    """ Created by a `Manager` instance to manage a section of the filesystem as if it were a fully fledged manager. The
+    interface passes through to owning manager who executes the actions asked to the Sub Manager. Not to be instantiated
+    directly or extended.
+    """
 
     def __init__(self, owner: Manager, uri: str, rootDirectory: Directory):
         self._root = SubDirectory(self, self._ROOT_PATH, rootDirectory)
@@ -888,6 +903,8 @@ class SubManager(Manager):
         raise NotImplementedError("A submanager cannot be created on a submanager")
 
 class LocalManager(Manager, ABC):
+    """ Abstract Base Class for managers that will be working with local artefacts.
+    """
 
     @contextlib.contextmanager
     def localise(self, artefact):
@@ -918,6 +935,9 @@ class LocalManager(Manager, ABC):
             raise exception
 
 class RemoteManager(Manager, ABC):
+    """ Abstract Base Class for managers that will be working with remote artefacts so efficiency with fetching and
+    pushing files is important for time and bandwidth
+    """
 
     @staticmethod
     def _compare(dict1, dict2, key):

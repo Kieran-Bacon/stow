@@ -97,19 +97,13 @@ for i in range(10):
 
 s3.put(local, "destination/path")
 ```
----
-**NOTE** - `os` was not imported
 
-For constructing files with depth `stow.join()` or a manager's `.join()` can be used to construct the manager relative path.
+!!! Note
+    `os` was not imported. For constructing files with depth `stow.join()` or a manager's `.join()` can be used to construct the manager relative path.
 
----
 
----
-**NOTE** - AWS credentials are setup for the user
-
-In the example above - stow is able to communicate with s3 because user credentials have already been configured on the machine. Otherwise, the keys are required to be passed to the manager.
-
----
+!!! Note
+    AWS credentials were setup for the user via one of the methods that can be read about <a href="https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-quickstart.html" target="_blank">__*here*__</a>. This allows `stow` to able to communicate with s3 simply be using the qualified url for the artefacts. Otherwise, the IAM secret keys are required to be passed to the manager as keyword arguments which can be looked at in [managers](managers).
 
 This works well but it means that you've now got files locally and remotely, and there wasn't any interaction with files that might have already been on the target.
 

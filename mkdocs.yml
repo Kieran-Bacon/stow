@@ -3,3 +3,17 @@ theme: readthedocs
 markdown_extensions:
     - tables
 extra_css: [static/css/main.css]
+nav:
+    - Purpose: index.md
+    - Managers: managers.md
+    - Extending: extending.md
+    - Changelog: changelog.md
+    - put.md
+    - Reference:
+        - stow: reference/stow.md
+        - stow.artefacts: reference/stow.artefacts.md
+        - stow.manager: reference/stow.manager.md
+        - stow.exceptions: reference/stow.exceptions.md
+plugins:
+    - search # necessary for search to work
+    - mkapi
