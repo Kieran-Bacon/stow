@@ -36,7 +36,7 @@ class Manager(ABC):
     def isabs(self, path: str) -> bool:
         """ Check if the provided path is an absolute path for the manager
 
-        Params:
+        Args:
             path (str): Path to check
 
         Returns:
@@ -58,7 +58,7 @@ class Manager(ABC):
             local managers shall convert a relative path to its full absolute os compatible filepath
             s3 shall convert the relative path to a s3 valid key
 
-        Params:
+        Args:
             artefact (str): The artefact object or it's relative path which is to be converted
         """
         pass
@@ -67,7 +67,7 @@ class Manager(ABC):
     def relpath(cls, abspath: str) -> str:
         """ Converts any path into a manager agnostic path format (/dir/file.txt), opposite of abspath
 
-        Params:
+        Args:
             abspath (str): The artefact object or it's absolute path which is to be converted
         """
         match = cls._RELPATH_REGEX.match(abspath)
@@ -79,7 +79,7 @@ class Manager(ABC):
         """ Return the basename of the provided artefact/relative path. The base name of a filepath is the name of the
         file/folder at the end of the hierarchy.
 
-        Params:
+        Args:
             artefact (Artefact/str): the artefact to have it's name extracted
 
         Returns:
@@ -91,7 +91,7 @@ class Manager(ABC):
         """ Return the dirname of the provided artefact/relative path. The base name string representation of the
         hierarchy of a file/folder. Returns is the path of the owning directory for the provided object
 
-        Params:
+        Args:
             artefact (Artefact/str): the artefact to have it's dirname extracted
 
         Returns:
@@ -116,7 +116,7 @@ class Manager(ABC):
     def _isdir(self, relpath: str) -> bool:
         """ Given a relative path, return a bool which is true if the target item is a directory
 
-        Params:
+        Args:
             relpath (str): relative path to the item
 
         Returns:
@@ -175,7 +175,7 @@ class Manager(ABC):
     def get(self, src_remote: typing.Union[Artefact, str], dest_local: str) -> Artefact:
         """ Get a remote artefact from the storage option and write it to the destination path given.
 
-        Params:
+        Args:
             src_remote (Artefact/str): The remote's file object or its path
             dest_local (str): The local path for the artefact to be written to
         """
@@ -197,7 +197,7 @@ class Manager(ABC):
         Directories aren't allowed to be overwritten without the user explicitly requesting that. If a user is putting a
         directory onto a directory then they can choose to explicitly merge the directories as opposed to overwriting it
 
-        Params:
+        Args:
             source_filepath (str): The local filesystem filepath to source object
             destinationAbsPath (str): Remote absolute path
             merge (bool) = False: Strategy for put when moving a directory onto another directory. When true, there may
@@ -209,7 +209,7 @@ class Manager(ABC):
     def _putBytes(self, fileBytes: bytes, destinationAbsPath: str):
         """ Put the bytes of a file object onto the underlying manager implementation using the absolute path given.
 
-        Params:
+        Args:
             fileBytes (bytes): files bytes
             destinationAbsPath (str): Remote absolute path
         """
@@ -303,7 +303,7 @@ class Manager(ABC):
         ) -> Artefact:
         """ Put a local artefact onto the remote at the location given.
 
-        Params:
+        Args:
             src_local (str): The path to the local artefact that is to be put on the remote
             dest_remote (Artefact/str): A file object to overwrite or the relative path to a destination on the
                 remote
@@ -352,7 +352,7 @@ class Manager(ABC):
         """ Move the artefacts at the source location to the provided destination location. Overwriting items at the
         destination
 
-        Params:
+        Args:
             source (typing.Union[Artefact, str]): source path or artefact
             destination (typing.Union[Artefact, str]): destination path or artefact
         """
@@ -414,7 +414,7 @@ class Manager(ABC):
         """ Move the artefacts at the source location to the provided destination location. Overwriting items at the
         destination
 
-        Params:
+        Args:
             artefact (typing.Union[Artefact, str]): source path or artefact
             recursive (typing.Union[Artefact, str]): destination path or artefact
         """
@@ -439,7 +439,7 @@ class Manager(ABC):
         implementation. This is to be used in conjunction with `_rm()` or to clean up artefacts that could have been
         affected as a side effect
 
-        Params:
+        Args:
             artefact (Artefact): Manager artefact that is to be deleted
         """
         if isinstance(artefact, Directory):
@@ -487,7 +487,7 @@ class Manager(ABC):
     def _collectDirectoryContents(self, directory: Directory) -> None:
         """ Collect and instantiate the contents of a directory making a directory object _collected = True
 
-        Params:
+        Args:
             directory (Directory): The directory which is to be checked
         """
         pass
@@ -497,7 +497,7 @@ class Manager(ABC):
     def _listdir(self, relpath: str) -> typing.Tuple[typing.Set[str], typing.Set[str]]:
         """ List the underlying objects that are present at the location of the relpath.
 
-        Params:
+        Args:
             relpath (str): Relative path to the directory to be checked
 
         Returns:
@@ -524,7 +524,7 @@ class Manager(ABC):
     def ls(self, art: typing.Union[Directory, str] = '/', recursive: bool = False) -> typing.Set[Artefact]:
         """ List contents of the directory path/artefact given.
 
-        Params:
+        Args:
             art (Directory/str): The Directory artefact or the relpath to the directory to be listed
             recursive (bool) = False: Return subdirectory contents aswell
 
@@ -558,7 +558,7 @@ class Manager(ABC):
         """ Make a directory at the location of the path provided. By default - do nothing in the event that the
         location is already a directory object.
 
-        Params:
+        Args:
             path (str): Relpath to the location where a directory is to be created
             ignoreExists (bool) = True: Whether to do nothing if a directory already exists
             overwrite (bool) = False: Whether to overwrite the directory with an empty directory
@@ -583,7 +583,7 @@ class Manager(ABC):
     def sync(self, source: Directory, destination: Directory) -> None:
         """ Put artefacts in the source location into the destination location if they have more recently been editted
 
-        Params:
+        Args:
             source (Directory): source directory artefact
             destination (Directory): destination directory artefact on the manager
         """
@@ -621,7 +621,7 @@ class Manager(ABC):
     def _makefile(self, relpath: str) -> Artefact:
         """ Make a file object using the underlying implementation objects from a manager relative path
 
-        Params:
+        Args:
             relpath (str): Relative manager file position
         """
         pass
@@ -632,7 +632,7 @@ class Manager(ABC):
         function is to traverse up the hierarchy and ensure all the directory objects exist, and when they do quickly
         return the container they are in
 
-        Params:
+        Args:
             path (str): The manager relative path for an `Artefact`
 
         Returns:
@@ -658,7 +658,7 @@ class Manager(ABC):
         """ Convert the incoming object which could be either an artefact or relative path into a standardised form for
         both such that functions can be easily convert and use what they require
 
-        Params:
+        Args:
             artObj (typing.Union[Artefact, str]): Either the artefact object or it's relative path to be standardised
             require (str): Require that the object exists. when false return None for yet to be created objects but
 
@@ -677,7 +677,7 @@ class Manager(ABC):
         content is likely inconsistent with the current state of the manager. Only previously known files are checked as
         new files are to be loaded JIT and can be added at that stage.
 
-        Params:
+        Args:
             artobj (Directory): The directory to perform the refresh on
         """
 
@@ -782,7 +782,7 @@ class Manager(ABC):
 
         If a manager exists at the uri specified already, then it is returned.
 
-        Params:
+        Args:
             uri (str): The uri of the target location for the manager to be setup. If the uri does not exist, a
                 directory shall be created. If it exists, the manager shall require it be a Directory object
 

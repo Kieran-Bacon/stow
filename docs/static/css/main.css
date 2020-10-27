@@ -2,3 +2,21 @@ table {
     width: 100%;
     text-align: center;
 }
+
+p[role="code-header"] {
+    margin-bottom: -15px;
+}
+
+p[role="list-header"] {
+    margin-bottom: 0;
+}
+div[role="main"] ol {
+    padding-left: 3%;
+}
+div[role="main"] ol li {
+    padding-left: 10px;
+    padding-bottom: 5px;
+}
+div[role="main"] li::marker {
+    font-size: large;
+}

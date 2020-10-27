@@ -1,39 +1,56 @@
 # Designing your own manager
 
-If you'd like to entend the package, please feel free to make a pull request the projects github ()
+If you'd like to extend the functionality of the package, please feel free to make a pull request on the project's [github](https://github.com/Kieran-Bacon/stow){target=_blank}.
 
-However, for when you'd like to make a private manager for personal or professional reasons. Extending the functionality of the system is rather simple
+To extend the functionality by supporting another storage medium, you can inherit from the `Manager` abstract base class and implement the abstract methods it declares. You can then incorporate the manager by exposing your new `Manager` via the python entry point system.
+
+!!! Important
+    **`stow` uses the entry point _`stow_managers`_ to find managers**
+
 
 ## Base classes
 
-Managers are implemented as either a `LocalManager` or `RemoteManager`
+Managers should be implemented as either a `LocalManager` or `RemoteManager`
 
 ```python
 from stow.manager import LocalManager, RemoteManager
 ```
 
-The main difference between the managers is that a `RemoteManager` may require that the files/directories be downloaded for some operations (namely localise and open). The `RemoteManager` is responsible for keeping track of these files, and deciding when to communicate changes back to the remote. The `LocalManager` doesn't need to __download__ the files and can access them directly.
+The main functions on `Manager` use a method `localise` to get an absolute path to the artefacts they want to interact with. This method is responsible for ensuring the artefacts availability for the other methods and it is the key difference between the `LocalManager` and `RemoteManager`.
 
-As such, for managers that can directly access the files (like on a networked drive), and there isn't a concern about making partial changes, then the `LocalManager` is likely the correct base class
+**A `LocalManager` can access their artefacts directly and a `RemoteManager` must retrieve their artefacts before they can work with them.**
+
+Each `Manager` implements a localise function for these situations respectively. The `RemoteManager` object's localise function is a lot more involved to avoid pulling and pushing information anymore more than it needs to.
+
+`localise` makes use of your abstract methods defined below to uphold the interface of `Manager` and does not need to be re-implemented.
+
+!!! Note
+    You may inherit from the `Manager` base class directly if you wish but you will have to implement the localise method in addition to the other abstract methods. I'd only suggest doing this if you have very special behaviour you want to express.
+
+    If you do find yourself in this situation, please consider adding this special behaviour as it's own abstract base class back to the original project to help others.
+
+### Abstract methods
+
+#### ![mkapi](stow.manager.Manager._isdir)
+
+## Extending example
 
 ```python
+import typing
 
-with local.open("file.txt", "w") as handle:
-    handle.write("line")  # Written to file
-    raise ValueError("Simulated Error")
-    handle.write("line")  # Not written to file
+import stow
+from stow.manager import RemoteManager
 
-with remote.open("file.txt", "w" as handle:
-    handle.write("line")  # Not written to file
-    raise ValueError("Simulated Error")
-    handle.write("line")  # Not written to file
+class SSH(stow.manager):
 
-# Errors means that file is not updated on the remote machine
+    def __init__(self):
+        pass
+
+    def _isdir(self, path: typing.Union[str, stow.Artefact]) -> bool:
+        pass
+
+
+
+
 
 ```
-
-### Local Managers
-
-The LocalManager is meant to be the base class for managers that use the native filesystem or a networked storage device that already appears as part of the filesystem. These managers access the files/directories directory and don't have to setup any temporay files or spaces for file manipulation.
-
-Most usecases can be handled by `stow.managers.FS(path="/path/to/directory")`

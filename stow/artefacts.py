@@ -1,7 +1,5 @@
-import os
 import io
 import datetime
-import tempfile
 import contextlib
 import typing
 import weakref
@@ -9,8 +7,12 @@ import weakref
 from . import exceptions
 
 class Artefact:
-    """ Aretefacts are the items that are being stored - it is possible that through another mechanism that these items
+    """ Artefacts are the items that are being stored - it is possible that through another mechanism that these items
     are deleted and they are no longer able to work
+
+    Args:
+        manager: The submanager this file belongs to
+        path: The file's relative path
     """
 
     def __init__(self, manager, path: str):
@@ -22,16 +24,20 @@ class Artefact:
         if self.__getattribute__('_exists'):
             return self.__getattribute__(attr)
         else:
-            raise FileNotFoundError(f"{self} no longer exists")
+            raise exceptions.ArtefactNoLongerExists(f"{self} no longer exists")
 
     def __hash__(self): return hash(id(self))
     def __eq__(self, other): return hash(self) == hash(other)
 
     @property
-    def manager(self): return self._manager
+    def manager(self):
+        """ Return the manager object this Artefact belongs to """
+        return self._manager
 
     @property
-    def path(self): return self._path
+    def path(self):
+        """ Return the manager relative path to this Artefact """
+        return self._path
     @path.setter
     def path(self, path: str):
         """ Move the file on the target (perform the rename) - if it fails do not change the local file name """
@@ -39,27 +45,41 @@ class Artefact:
 
     @property
     def basename(self):
+        """ Basename of the artefact - holding directory path removed leaving filename and extension """
         return self._manager.basename(self.path)
-
     @basename.setter
     def basename(self, basename: str):
-        """ Rename the object """
         self.manager.mv(self, self._manager.join(self._manager.dirname(self.path), basename))
 
     @property
     def name(self):
-        """ Get the name of the object """
+        """ Name of artefact - for `File` this is without extension """
         return self.basename
-
     @name.setter
     def name(self, name: str):
         self.basename = name
 
-    def save(self, path: str):
+    def save(self, path: str, force: bool = False):
+        """ Save the artefact to a local location
+
+        Args:
+            path: A local path where the Artefact is to be saved
+            force: Ignore artefacts at the destination location
+
+        Raises:
+            OperationNotPermitted: If the location given is a Directory and the get is not enforced
+        """
         self._manager.get(self, path)
 
 class File(Artefact):
-    """ File stuff """
+    """ A filesystem file object - a container of bytes representing some data
+
+    Args:
+        manager: The submanager this file belongs to
+        path: The file's relative path
+        modifiedTime: The time the file was last modified via a write/append operation
+        size: The size in bytes of the file content
+    """
 
     def __init__(self, manager, path: str, modifiedTime: datetime.datetime, size: float):
         super().__init__(manager, path)
@@ -88,6 +108,7 @@ class File(Artefact):
 
     @property
     def extension(self):
+        """ File extension string - extention indicates file purpose and associated applications """
         if "." not in self.path:
             return ""
         return self.path[self.path.rindex(".")+1:]
@@ -97,6 +118,7 @@ class File(Artefact):
 
     @property
     def content(self) -> bytes:
+        """ file content as bytes """
         with self.open("rb") as handle:
             return handle.read()
 
@@ -109,13 +131,17 @@ class File(Artefact):
             handle.write(cont)
 
     @property
-    def modifiedTime(self): return self._modifiedTime
+    def modifiedTime(self):
+        """ UTC localised datetime of time file last modified by a write/append method """
+        return self._modifiedTime
     @modifiedTime.setter
     def modifiedTime(self, time):
         self._modifiedTime = time
 
     @property
-    def size(self): return self._size
+    def size(self):
+        """ Size of file content in bytes """
+        return self._size
     @size.setter
     def size(self, newSize):
         self._size = newSize
@@ -131,6 +157,13 @@ class File(Artefact):
         self._size = other.size
 
 class SubFile(File):
+    """ A file object of a submanager. Wrapper for a complete Manager File
+
+    Args:
+        manager: The submanager this file belongs to
+        path: The file's relative path
+        file: The concrete file object this subfile wraps
+    """
 
     def __init__(self, manager, path: str, file: File):
         Artefact.__init__(self, manager, path)
@@ -161,12 +194,13 @@ class SubFile(File):
     def _update(self, other: Artefact): self._concrete._update(other)
 
 class Directory(Artefact):
-    """ A directory represents an os FS directory
+    """ A directory represents an local filesystems directory or folder. Directories hold references to other
+    directories or files
 
-    Params:
+    Args:
         manager (stow.Manager): The manager this directory object belongs to
         path (str): the manager relative path for the object
-        contents (set): collection of artefacts which reside within this directoy
+        contents (set): collection of artefacts which reside within this directory
         *,
         collected (bool): Toggle as to whether the directory contents has been collected (false when JIT Loading)
     """
@@ -190,24 +224,81 @@ class Directory(Artefact):
         self._contents.add(artefact)
     def _remove(self, artefact: Artefact) -> None: self._contents.remove(artefact)
 
-    def mkdir(self, path: str): self.manager.mkdir(self.manager.join(self._path, path))
-    def touch(self, path: str): self.manager.touch(self.manager.join(self._path, path))
+    def mkdir(self, path: str):
+        """ Create a directory nested inside this `Directory` with the relative path given
+
+        Args:
+            path: Relative path to directory, path to new directory location
+
+        Returns:
+            Directory: The newly created directory object
+        """
+        return self.manager.mkdir(self.manager.join(self._path, path))
+
+    def touch(self, path: str) -> File:
+        """ Touch a file at given location relative to this Directory
+
+        Args:
+            path: The relative path to directory to touch new file
+
+        Returns:
+            File: The newly created file object
+        """
+        return self.manager.touch(self.manager.join(self._path, path))
 
     @contextlib.contextmanager
-    def localise(self, path: str):
+    def localise(self, path: str) -> str:
+        """ Localise an artefact of the directory.
+
+        Args:
+            path: Path of localisation
+
+        Returns:
+            str: the absolute local path to the manager path
+        """
         with self.manager.localise(self.manager.join(self._path, path)) as abspath:
             yield abspath
 
     @contextlib.contextmanager
-    def open(self, path: str, mode: str = "r", **kwargs):
+    def open(self, path: str, mode: str = "r", **kwargs) -> io.IOBase:
+        """ Open a file and create a stream to that file. Expose interface of `open`
+
+        Args:
+            path: Path to directory object
+            mode: The open method
+            kwargs: kwargs to be passed to the interface of open
+
+        Yields:
+            io.IOBase: An IO object depending on the mode for interacting with the file
+        """
         with self.manager.open(self.manager.join(self._path, path), mode, **kwargs) as handle:
             yield handle
 
-    def rm(self, path, recursive: bool = False): return self.manager.rm(self.manager.join(self.path, path), recursive)
-    def ls(self, recursive: bool = False): return self._manager.ls(self, recursive=recursive)
+    def rm(self, path, recursive: bool = False):
+        """ Remove an artefact at the given location
+
+        Args:
+            recursive: If the target is a directory, whether to delete recursively the directories contents
+
+        Raises:
+            OperationNotPermitted: In the even the target is a directory and recursive has not been toggled
+        """
+        return self.manager.rm(self.manager.join(self.path, path), recursive)
+
+    def ls(self, path: str = "", recursive: bool = False) -> typing.Set[Artefact]:
+        """ List the contents of this directory, or directory's directories.
+
+        Args:
+            path: The path to sub directory whose contents is to be returned
+            recursive: Whether to recursively fetch all child contents for child directories
+
+        Returns:
+            typing.Set[Artefact]: The collection of objects within the targeted directory
+        """
+        return self._manager.ls(self, self.manager.join(self.path, path), recursive=recursive)
+
     def isEmpty(self) -> bool:
-        """ Check whether the directory is contents or not - doesn't perform a lookup for all files in the event that
-        files have already been identified
+        """ Check whether the directory has contents
 
         Returns:
             bool: True when there is at least one item in the directory False when the directory is empty
@@ -215,7 +306,7 @@ class Directory(Artefact):
         return not (bool(self._contents) or bool(len(self)))
 
 class SubDirectory(Directory):
-    """ Create a directory """
+    """ A directory object of a submanager. Wrapper for a complete Manager directory """
 
     def __init__(self, manager, path: str, directory: Directory):
         super().__init__(manager, path)

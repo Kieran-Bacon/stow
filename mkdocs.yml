@@ -2,13 +2,13 @@ site_name: Stow
 theme: readthedocs
 markdown_extensions:
     - tables
+    - attr_list
 extra_css: [static/css/main.css]
 nav:
-    - Purpose: index.md
+    - Home: index.md
     - Managers: managers.md
     - Extending: extending.md
     - Changelog: changelog.md
-    - put.md
     - Reference:
         - stow: reference/stow.md
         - stow.artefacts: reference/stow.artefacts.md
