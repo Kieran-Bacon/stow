@@ -42,6 +42,10 @@ def _getManager(artefact) -> typing.Tuple[Manager, str]:
 
     return manager, relpath
 
+def manager(artefact: str) -> Manager:
+    """ Fetch the manager object for the given URL """
+    pass
+
 def artefact(artefact: str) -> Artefact:
     """ Fetch an artefact object for the given path
 

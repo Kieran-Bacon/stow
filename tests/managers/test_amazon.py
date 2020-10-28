@@ -16,7 +16,7 @@ from .manager import ManagerTests, SubManagerTests
 CONFIG_PATH = os.path.join(ETC_DIR, 'aws_credentials.ini')
 BUCKET_NAME_INCLUDE = 'pykb-storage-test-bucket'
 
-@unittest.skipIf(not os.path.exists(CONFIG_PATH), 'No credentials at {} to connect to aws'.format(CONFIG_PATH))
+@unittest.skipIf(True or not os.path.exists(CONFIG_PATH), 'No credentials at {} to connect to aws'.format(CONFIG_PATH))
 class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
 
     @classmethod

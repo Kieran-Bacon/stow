@@ -17,6 +17,14 @@ class Manager(ABC):
 
     """
 
+    def _makeFile(): pass
+    def _makeDirectory(): pass
+    def _getBytes(): pass
+    def _ls(): pass
+    def _loadFromProtocol(): pass
+    def _abspath(): pass
+    def toConfig(): pass
+
     _ROOT_PATH = "/"
     _PLACEHOLDER = "placeholder.ignore"
     _READONLYMODES = ["r", "rb"]
@@ -105,7 +113,9 @@ class Manager(ABC):
         """
         cleaned = [components[0]]
         for part in components[1:]:
-            if part and part[0] == os.sep:
+            if not part:continue
+
+            if part[0] == os.sep:
                 cleaned.append(part[1:])
             else:
                 cleaned.append(part)

@@ -285,7 +285,7 @@ class Directory(Artefact):
         """
         return self.manager.rm(self.manager.join(self.path, path), recursive)
 
-    def ls(self, path: str = "", recursive: bool = False) -> typing.Set[Artefact]:
+    def ls(self, path: str = None, recursive: bool = False) -> typing.Set[Artefact]:
         """ List the contents of this directory, or directory's directories.
 
         Args:
@@ -295,7 +295,7 @@ class Directory(Artefact):
         Returns:
             typing.Set[Artefact]: The collection of objects within the targeted directory
         """
-        return self._manager.ls(self, self.manager.join(self.path, path), recursive=recursive)
+        return self._manager.ls(self.manager.join(self.path, path), recursive=recursive)
 
     def isEmpty(self) -> bool:
         """ Check whether the directory has contents

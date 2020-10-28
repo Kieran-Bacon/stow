@@ -7,6 +7,8 @@ To extend the functionality by supporting another storage medium, you can inheri
 !!! Important
     **`stow` uses the entry point _`stow_managers`_ to find managers**
 
+    Add your managers to this entry point to integrate seamlessly with the `stow` stateless interface and connect utilities.
+
 
 ## Base classes
 
@@ -29,9 +31,20 @@ Each `Manager` implements a localise function for these situations respectively.
 
     If you do find yourself in this situation, please consider adding this special behaviour as it's own abstract base class back to the original project to help others.
 
-### Abstract methods
+## Abstract methods
 
-#### ![mkapi](stow.manager.Manager._isdir)
+### ![mkapi](stow.manager.Manager._abspath)
+### ![mkapi](stow.manager.Manager._makeFile)
+### ![mkapi](stow.manager.Manager._get)
+### ![mkapi](stow.manager.Manager._getBytes)
+### ![mkapi](stow.manager.Manager._put)
+### ![mkapi](stow.manager.Manager._putBytes)
+### ![mkapi](stow.manager.Manager._cp)
+### ![mkapi](stow.manager.Manager._mv)
+### ![mkapi](stow.manager.Manager._rm)
+### ![mkapi](stow.manager.Manager._ls)
+### ![mkapi](stow.manager.Manager.toConfig)
+### ![mkapi](stow.manager.Manager._loadFromProtocol)
 
 ## Extending example
 
