@@ -9,6 +9,8 @@ nav:
     - Managers: managers.md
     - Extending: extending.md
     - Changelog: changelog.md
+    - CLI: cli.md
+    - FAQ: faq.md
     - Reference:
         - stow: reference/stow.md
         - stow.artefacts: reference/stow.artefacts.md
