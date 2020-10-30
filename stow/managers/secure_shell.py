@@ -18,7 +18,8 @@ class SSH(RemoteManager):
         pass
 
     def _identifyPath(self, relpath: str) -> typing.Union[str, Artefact]:
-        """ Given a manager relative path, identify what object (if any) is at that location.
+        """ Given a manager relative path, identify what object (if any) is at that location and store its information
+        as a result. Should call _addArtefact in the call stack for the returned item to ensure that things are updated
 
         Args:
             relpath: Manager relative path

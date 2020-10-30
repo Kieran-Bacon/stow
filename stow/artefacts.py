@@ -15,9 +15,14 @@ class Artefact:
         path: The file's relative path
     """
 
-    def __init__(self, manager, path: str):
-        self._manager = manager
-        self._path = path
+    def __init__(
+        self,
+        manager,
+        path: str
+        ):
+
+        self._manager = manager  # Link back to the owning manager
+        self._path = path  # Relative path on manager
         self._exists = True # As you are created you are assumed to exist
 
     def __getattr__(self, attr):
@@ -33,6 +38,11 @@ class Artefact:
     def manager(self):
         """ Return the manager object this Artefact belongs to """
         return self._manager
+
+    @property
+    def directory(self):
+        """ Directory object this artefact exists within """
+        return self._manager[self._manager.dirname(self._path)]
 
     @property
     def path(self):
@@ -81,11 +91,21 @@ class File(Artefact):
         size: The size in bytes of the file content
     """
 
-    def __init__(self, manager, path: str, modifiedTime: datetime.datetime, size: float):
+    def __init__(
+        self,
+        manager,
+        path: str,
+        size: float,
+        modifiedTime: datetime.datetime,
+        createdTime: datetime.datetime = None,
+        accessedTime: datetime.datetime = None
+        ):
         super().__init__(manager, path)
 
-        self._modifiedTime = modifiedTime
-        self._size = size
+        self._size = size  # The size in bytes of the object
+        self._createdTime = createdTime  # Time the artefact was physically created
+        self._modifiedTime = modifiedTime  # Time the artefact was last modified via the os
+        self._accessedTime = accessedTime  # Time the artefact was last accessed
 
     def __len__(self): return self._size
     def __repr__(self):
@@ -134,27 +154,37 @@ class File(Artefact):
     def modifiedTime(self):
         """ UTC localised datetime of time file last modified by a write/append method """
         return self._modifiedTime
-    @modifiedTime.setter
-    def modifiedTime(self, time):
-        self._modifiedTime = time
+
+    @property
+    def createdTime(self):
+        """ UTC localised datetime of time file last modified by a write/append method """
+        if self._createdTime is None:
+            return self._modifiedTime
+        return self._createdTime
+
+    @property
+    def accessedTime(self):
+        """ UTC localised datetime of time file last modified by a write/append method """
+        if self._accessedTime is None:
+            return self._modifiedTime
+        return self._accessedTime
 
     @property
     def size(self):
         """ Size of file content in bytes """
         return self._size
-    @size.setter
-    def size(self, newSize):
-        self._size = newSize
 
     @contextlib.contextmanager
-    def open(self, mode: str = 'r', **kwargs) -> io.TextIOWrapper:
+    def open(self, mode: str = 'r', **kwargs) -> io.IOBase:
         """ Context manager to allow the pulling down and opening of a file """
         with self._manager.open(self, mode, **kwargs) as handle:
             yield handle
 
     def _update(self, other: Artefact):
-        self._modifiedTime = other.modifiedTime
-        self._size = other.size
+        self._createdTime = other._createdTime
+        self._modifiedTime = other._modifiedTime
+        self._accessedTime = other._accessedTime
+        self._size = other._size
 
 class SubFile(File):
     """ A file object of a submanager. Wrapper for a complete Manager File
@@ -246,6 +276,34 @@ class Directory(Artefact):
         """
         return self.manager.touch(self.manager.join(self._path, path))
 
+    def relpath(self, artefact: typing.Union[Artefact, str]) -> str:
+        """ Assuming the artefact is a member of this directory, return a filepath which is relative to this directory
+
+        Args:
+            artefact: the artefact who's path will be made relative
+
+        Returns:
+            str: the relative path to the artefact from this directory
+
+        Raises:
+            ArtefactNotMember: raised when artefact is not a member of the directory
+        """
+
+        # Get the path
+        if isinstance(artefact, Artefact):
+            path = artefact.path
+        else:
+            path = artefact
+
+        # Raise error if the artefact is not a member of the directory
+        if not path.startswith(self.path):
+            raise exceptions.ArtefactNotMember(
+                "Cannot create relative path for Artefact {} as its not a member of {}".format(artefact, self)
+            )
+
+        # Return the path
+        return path[len(self.path):]
+
     @contextlib.contextmanager
     def localise(self, path: str) -> str:
         """ Localise an artefact of the directory.
@@ -284,6 +342,24 @@ class Directory(Artefact):
             OperationNotPermitted: In the even the target is a directory and recursive has not been toggled
         """
         return self.manager.rm(self.manager.join(self.path, path), recursive)
+
+    def _ls(self, recursive: bool = False):
+        """ Get the current contents from this directory, do not update or edit state """
+
+        if recursive:
+            # Iterate through contents and recursively add lower level artifacts
+            contents = set()
+            for art in self._contents:
+                if isinstance(art, Directory):
+                    contents |= art._ls(True)
+
+                contents.add(art)
+
+            # Return all child content
+            return contents
+
+        # Make the content a set and return just this level
+        return set(self._contents)
 
     def ls(self, path: str = None, recursive: bool = False) -> typing.Set[Artefact]:
         """ List the contents of this directory, or directory's directories.

@@ -1,6 +1,6 @@
 __version__ = "0.2.0"
 
-from .artefacts import File, Directory
+from .artefacts import Artefact, File, Directory
 from .manager import Manager
 from .utils import find, connect
 
@@ -25,5 +25,6 @@ from .stateless import (
     cp,
     mv,
     sync,
-    rm
+    rm,
+    supports_unicode_filenames
 )

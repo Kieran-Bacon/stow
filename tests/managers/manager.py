@@ -80,6 +80,40 @@ class ManagerTests:
         self.assertIn(self.manager['/directory/file2.txt'], self.manager['/directory'])
         self.assertIn(self.manager['/otherdir/file3.txt'], self.manager['/otherdir'])
 
+    def test_getEnsuresDirectories(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            file = self.manager.touch("/file1.txt")
+            contentbytes = b"here is some content"
+            file.content = contentbytes
+
+            # Get the file
+            filepath = os.path.join(directory, "some_dir", "another dir", "file.1.txt")
+            self.manager.get("/file1.txt", filepath)
+
+            with open(filepath, "rb") as handle:
+                self.assertEqual(handle.read(), contentbytes)
+
+    def test_getWontOverwriteDirectory(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            filepath = os.path.join(directory, "some_dir", "another dir", "file.1.txt")
+            os.makedirs(os.path.dirname(filepath))
+
+            file = self.manager.touch("/file1.txt")
+            contentbytes = b"here is some content"
+            file.content = contentbytes
+
+            with pytest.raises(stow.exceptions.OperationNotPermitted):
+                self.manager.get("/file1.txt", os.path.join(directory, "some_dir"))
+
+            self.manager.get("/file1.txt", os.path.join(directory, "some_dir"), overwrite=True)
+
+            with open(os.path.join(directory, "some_dir"), "rb") as handle:
+                self.assertEqual(handle.read(), contentbytes)
+
     def test_put_and_get(self):
 
         with tempfile.TemporaryDirectory() as directory:

@@ -13,7 +13,7 @@ from .. import exceptions
 class FS(LocalManager):
     """ Wrap a local filesystem (a networked drive or local directory)
 
-    Params:
+    Args:
         path (str): The local relative path to where the manager is to be initialised
     """
 
@@ -76,7 +76,7 @@ class FS(LocalManager):
         # Download
         method(src_remote, dest_local)
 
-    def _put(self, src_local, dest_remote, merge: bool = False):
+    def _put(self, src_local, dest_remote):
 
         if os.path.isdir(src_local):
             # Copy the directory into place
