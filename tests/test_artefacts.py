@@ -214,7 +214,7 @@ class Test_Files(BasicSetup, unittest.TestCase):
 
         newTime = (datetime.datetime.now() - datetime.timedelta(seconds=2))
         newSize = 4000
-        newFile = stow.artefacts.File(self.manager, '/file1', newTime, newSize)
+        newFile = stow.artefacts.File(self.manager, '/file1', newSize, newTime)
 
         file._update(newFile)
 

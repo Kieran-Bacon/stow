@@ -2,295 +2,277 @@
 """
 
 import os
-import re
-import contextlib
 import typing
+import urllib.parse
+import contextlib
 from functools import wraps
-from urllib.parse import urlparse
 
 from .artefacts import Artefact
-from .manager import Manager, LocalManager, RemoteManager
-from .utils import connect
-from .managers import FS, managers
-
-from . import exceptions
+from .manager import Manager, LocalManager
+from . import utils
 
 def _getManager(artefact) -> typing.Tuple[Manager, str]:
+
     if isinstance(artefact, Artefact):
         manager = artefact.manager
         relpath = artefact.path
 
     elif isinstance(artefact, str):
-        parsedURL = urlparse(artefact)
+        result = urllib.parse.urlparse(artefact)
 
-        protocol = parsedURL.scheme
-        netloc = parsedURL.netloc
-
-        if not protocol:
-
-
-        if not parsedURL.scheme:
-            manager = connect(manager="FS", path="/")
-            relpath = os.path.abspath(os.path.expanduser(parsedURL.path))
-
-        elif parsedURL.scheme == "s3":
-            manager = connect(manager="S3", bucket=parsedURL.netloc)
-            relpath = parsedURL.path
+        # Find the manager that is correct for the protocol
+        if result.scheme:
+            manager = find(result.scheme)
+            return manager._loadFromProtocol(result), result.path
 
         else:
-            # Unsupported / invalid path
-            raise exceptions.InvalidPath("Couldn't find manager to handle path: {}".format(artefact))
-
-        relpath = relpath if relpath else "/"
+            # Local manager - start it at the base of the file system
+            manager = find("FS")
+            return manager("/"), result.path
 
     else:
         raise TypeError("Artefact reference must be either `stow.Artefact` or string not type {}".format(type(artefact)))
 
     return manager, relpath
 
-def manager(artefact: str) -> Manager:
-    """ Fetch the manager object for the given URL """
+@wraps(utils.find)
+def find(*args, **kwargs) -> typing.Type[Manager]:
+    return utils.find(*args, **kwargs)
     pass
 
-def artefact(artefact: str) -> Artefact:
+@wraps(utils.connect)
+def connect(*args, **kwargs) -> Manager:
+    return utils.connect(*args, **kwargs)
+
+@wraps(utils.parseURL)
+def parseURL(*args, **kwargs) -> utils.ParsedURL:
+    return utils.parseURL(*args, **kwargs)
+
+def manager(stowPath: str) -> Manager:
+    """ Fetch the manager object for the given URL even if no artefact exists
+
+    Args:
+        stowPath: A stow string to an object whose manager is to be returned
+
+    Returns:
+        Manager: The manager identified in the url
+    """
+    return parseURL(stowPath)[0]
+
+def artefact(stowPath: str) -> Artefact:
     """ Fetch an artefact object for the given path
 
     Params:
-        artefact (str): Manager relative path
+        stowPath: Manager relative path to artefact
+
+    Returns:
+        Arefact: The artefact object
+
+    Raises:
+        ArtefactNotFound: In the event that no artefact exists at the location given
     """
-    manager, relpath = _getManager(artefact)
+    manager, relpath =  utils.parseURL(stowPath)
     return manager[relpath]
 
-def exists(path: str) -> bool:
-    """ Check if the path points at a valid artefact
+@wraps(Manager.abspath)
+def abspath(*args, **kwargs) -> str:
+    return Manager.abspath(*args, **kwargs)
 
-    Params:
-        path (str): the path to check if it exists
-
-    Returns:
-        bool: True if an artefact is found at the location
-    """
-    manger, relpath = _getManager(path)
-    return relpath in manger
-
-def isabs(path: str):
-    """ Check if the provided path is an absolute path for the manager
-
-    Args:
-        path (str): Path to check
-
-    Returns:
-        bool: True if the path given is absolute
-    """
-
-    manager, _ = _getManager(path)
-
-    if isinstance(manager, FS):
-        return manager.isabs(path)
-
-    else:
-        # For the path to identify a different/valid manager then it must be an absolute path
-        return True
-
-def abspath(artefact: typing.Union[Artefact, str]) -> str:
-    manager, relpath = _getManager(artefact)
-
-    if isinstance(managers, LocalManager):
-        return os.path.abspath(relpath)
-
-    else:
-        NotImplementedError("Cannot find given absolute of remote artefact")
-
-def basename(self, artefact: typing.Union[Artefact, str]) -> str:
-    """ Return the basename of the provided artefact/relative path. The base name of a filepath is the name of the
-    file/folder at the end of the hierarchy.
-
-    Args:
-        artefact (Artefact/str): the artefact to have it's name extracted
-
-    Returns:
-        str: the base name of the artefact
-    """
-    return os.path.basename(self.relpath(relpath))
-
-def basename(artefact: typing.Union[Artefact, str]):
-    manager, relpath = _getManager(artefact)
-    return manager.basename(relpath)
-
-def commonprefix(self, paths: typing.Iterable[str]) -> typing.Iterable[str]:
-    return os.path.commonprefix(paths)
-
-def commonpath(self, paths: typing.Iterable[str]) -> typing.Iterable[str]:
-    return os.path.commonpath(paths)
-
-@abstractmethod
-def abspath(self, relpath: str) -> str:
-
-    pass
-
-
-
-    def getctime(artefact: typing.Union[Artefact, str]) -> float:
-        """Return the time of last access of path. The return value is a floating point number giving the number of
-        seconds since the epoch
-
-        Args:
-            artefact: An artefact object or string to get access time from
-
-        Return:
-            float: the timestamp of the file created
-
-        Raises:
-            ArtefactNotFound: in the event that the path doesn't lead anywhere
-        """
-        pass
-
-
-
-    def getmtime(artefact: typing.Union[Artefact, str]) -> float:
-
-    def getatime(artefact: typing.Union[Artefact, str]) -> float:
-
-    os.path.getsize(path)
-
-os.path.isfile(path)
-Return True if path is an existing regular file. This follows symbolic links, so both islink() and isfile() can be true for the same path.
-
-Changed in version 3.6: Accepts a path-like object.
-
-os.path.isdir(path)
-Return True if path is an existing directory. This follows symbolic links, so both islink() and isdir() can be true for the same path.
-
-Changed in version 3.6: Accepts a path-like object.
-
-os.path.islink(path)
-Return True if path refers to an existing directory entry that is a symbolic link. Always False if symbolic links are not supported by the Python runtime.
-
-Changed in version 3.6: Accepts a path-like object.
-
-os.path.ismount(path)
-Return True if pathname path is a mount point: a point in a file system where a different file system has been mounted. On POSIX, the function checks whether path’s parent, path/.., is on a different device than path, or whether path/.. and path point to the same i-node on the same device — this should detect mount points for all Unix and POSIX variants. It is not able to reliably detect bind mounts on the same filesystem. On Windows, a drive letter root and a share UNC are always mount points, and for any other path GetVolumePathName is called to see if it is different from the input path.
-
-New in version 3.4: Support for detecting non-root mount points on Windows.
-
-Changed in version 3.6: Accepts a path-like object.
-
-
-
-
-@wraps(Manager.relpath)
-def relpath(path: str) -> str:
-    return Manager.relpath(path)
-
-@wraps(Manager.commonprefix)
-def commonprefix(artefacts: typing.Iterable[typing.Union[Artefact, str]]):
-
-    paths = []
-    for art in artefacts:
-        if isinstance(art, Artefact):
-            paths.append(art.path)
-
-        else:
-            paths.append(art)
-
-    return os.path.commonprefix(paths)
-
+@wraps(Manager.basename)
+def basename(*args, **kwargs) -> str:
+    return Manager.basename(*args, **kwargs)
 
 @wraps(Manager.commonpath)
-def commonpath(artefacts: typing.Iterable[typing.Union[Artefact, str]]):
+def commonpath(*args, **kwargs) -> str:
+    return Manager.commonpath(*args, **kwargs)
 
-    paths = []
-    for art in artefacts:
-        if isinstance(art, Artefact):
-            paths.append(art.path)
-
-        else:
-            paths.append(art)
-
-    return os.path.commonpath(paths)
+@wraps(Manager.commonprefix)
+def commonprefix(*args, **kwargs) -> str:
+    return Manager.commonprefix(*args, **kwargs)
 
 @wraps(Manager.dirname)
-def dirname(artefact: typing.Union[Artefact, str]):
-    manager, relpath = _getManager(artefact)
-    return manager.dirname(relpath)
+def dirname(*args, **kwargs) -> str:
+    return Manager.dirname(*args, **kwargs)
+
+@wraps(Manager.expanduser)
+def expanduser(*args, **kwargs) -> str:
+    return Manager.expanduser(*args, **kwargs)
+
+@wraps(Manager.expandvars)
+def expandvars(*args, **kwargs) -> str:
+    return Manager.expandvars(*args, **kwargs)
+
+@wraps(Manager.isabs)
+def isabs(*args, **kwargs) -> str:
+    return Manager.isabs(*args, **kwargs)
 
 @wraps(Manager.join)
-def join(*artefacts: typing.Iterable[typing.Union[Artefact, str]]):
-    base = artefacts[0]
-    parsedURL = urlparse(base)
-    manager, _ = _getManager(base)
-    return manager.join(*artefacts)
+def join(*args, **kwargs) -> str:
+    return Manager.join(*args, **kwargs)
+
+@wraps(Manager.normcase)
+def normcase(*args, **kwargs) -> str:
+    return Manager.normcase(*args, **kwargs)
+
+@wraps(Manager.normpath)
+def normpath(*args, **kwargs) -> str:
+    return Manager.normpath(*args, **kwargs)
+
+@wraps(Manager.realpath)
+def realpath(*args, **kwargs) -> str:
+    return Manager.realpath(*args, **kwargs)
+
+@wraps(Manager.relpath)
+def relpath(*args, **kwargs) -> str:
+    return Manager.relpath(*args, **kwargs)
+
+@wraps(Manager.samefile)
+def samefile(*args, **kwargs) -> str:
+    return Manager.samefile(*args, **kwargs)
+
+@wraps(Manager.sameopenfile)
+def sameopenfile(*args, **kwargs) -> str:
+    return Manager.sameopenfile(*args, **kwargs)
+
+@wraps(Manager.samestat)
+def samestat(*args, **kwargs) -> str:
+    return Manager.samestat(*args, **kwargs)
+
+@wraps(Manager.split)
+def split(*args, **kwargs) -> str:
+    return Manager.split(*args, **kwargs)
+
+@wraps(Manager.splitdrive)
+def splitdrive(*args, **kwargs) -> str:
+    return Manager.splitdrive(*args, **kwargs)
+
+@wraps(Manager.splitext)
+def splitext(*args, **kwargs) -> str:
+    return Manager.splitext(*args, **kwargs)
+
+@wraps(Manager.md5)
+def md5(*args, **kwargs) -> str:
+    return Manager.md5(*args, **kwargs)
+
+
+# Instance wrapped
+
+@wraps(Manager.isfile)
+def isfile(artefact: typing.Union[Artefact, str]) -> bool:
+    manager, relpath = _getManager(artefact)
+    return manager.isfile(relpath)
+
+@wraps(Manager.isdir)
+def isdir(artefact: typing.Union[Artefact, str]) -> bool:
+    manager, relpath = _getManager(artefact)
+    return manager.isdir(relpath)
+
+@wraps(Manager.islink)
+def islink(artefact: typing.Union[Artefact, str]) -> bool:
+    manager, relpath = _getManager(artefact)
+    return manager.islink(relpath)
+
+@wraps(Manager.ismount)
+def ismount(artefact: typing.Union[Artefact, str]) -> bool:
+    manager, relpath = _getManager(artefact)
+    return manager.ismount(relpath)
+
+@wraps(Manager.getctime)
+def getctime(artefact: typing.Union[Artefact, str]) -> bool:
+    manager, relpath = _getManager(artefact)
+    return manager.getctime(relpath)
+
+@wraps(Manager.getmtime)
+def getmtime(artefact: typing.Union[Artefact, str]) -> bool:
+    manager, relpath = _getManager(artefact)
+    return manager.getmtime(relpath)
+
+@wraps(Manager.getatime)
+def getatime(artefact: typing.Union[Artefact, str]) -> bool:
+    manager, relpath = _getManager(artefact)
+    return manager.getatime(relpath)
+
+@wraps(Manager.exists)
+def exists(artefact: typing.Union[Artefact, str]) -> bool:
+    manager, relpath = _getManager(artefact)
+    return manager.exists(relpath)
+
+@wraps(Manager.lexists)
+def lexists(artefact: typing.Union[Artefact, str]) -> bool:
+    manager, relpath = _getManager(artefact)
+    return manager.lexists(relpath)
 
 @wraps(Manager.touch)
-def touch(artefact: str):
+def touch(artefact, *args, **kwargs):
     manager, relpath = _getManager(artefact)
     return manager.touch(relpath)
 
 @wraps(Manager.mkdir)
-def mkdir(artefact: str, ignoreExists: bool = True, overwrite: bool = False):
+def mkdir(artefact, *args, **kwargs):
     manager, relpath = _getManager(artefact)
-    return manager.mkdir(relpath, ignoreExists, overwrite)
+    return manager.mkdir(relpath,*args, **kwargs)
 
 @wraps(Manager.localise)
 @contextlib.contextmanager
-def localise(artefact):
+def localise(artefact, *args, **kwargs):
     manager, relpath = _getManager(artefact)
-    with manager.localise(relpath) as abspath:
+    with manager.localise(relpath, *args, **kwargs) as abspath:
         yield abspath
 
 @wraps(Manager.open)
 @contextlib.contextmanager
-def open(artefact, mode, **kwargs):
+def open(artefact, mode, *args, **kwargs):
     manager, relpath = _getManager(artefact)
-    with manager.open(relpath, mode, **kwargs) as handle:
+    with manager.open(relpath, mode, *args, **kwargs) as handle:
         yield handle
 
 @wraps(Manager.ls)
-def ls(artefact = ".", **kwargs):
+def ls(artefact = os.path.curdir, **kwargs):
     manager, relpath = _getManager(artefact)
-    return manager.ls(relpath, **kwargs)
+    return manager.ls(manager.abspath(manager.expandvars(manager.expanduser(relpath))), **kwargs)
 
 @wraps(Manager.get)
-def get(src_remote, dest_local):
+def get(src_remote, dest_local, *args, **kwargs):
     manager, relpath = _getManager(src_remote)
-    manager.get(relpath, dest_local)
+    manager.get(relpath, dest_local, *args, **kwargs)
 
 @wraps(Manager.put)
-def put(src, dest, *, overwrite=False, merge=False):
+def put(src, dest, *args, **kwargs):
 
     # Get the destination manager for the artifact
     dest_manager, dest_relpath = _getManager(dest)
 
     if isinstance(src, bytes):
-        return dest_manager.put(src, dest_relpath, overwrite=overwrite, merge=merge)
+        return dest_manager.put(src, dest_relpath, *args, **kwargs)
 
     else:
         src_manager, src_relpath = _getManager(src)
-        return dest_manager.put(src_manager[src_relpath], dest_relpath, overwrite=overwrite, merge=merge)
+        return dest_manager.put(src_manager[src_relpath], dest_relpath, *args, **kwargs)
 
 @wraps(Manager.cp)
-def cp(src, dest):
+def cp(src, dest, *args, **kwargs):
     srcM, srcP = _getManager(src)
     destM, destP = _getManager(dest)
-    assert srcM is destM
-    srcM.cp(srcP, destP)
+    destM.cp(srcP, destP, *args, **kwargs)
 
 @wraps(Manager.mv)
-def mv(src, dest):
+def mv(src, dest, *args, **kwargs):
     srcM, srcP = _getManager(src)
     destM, destP = _getManager(dest)
     assert srcM is destM
-    srcM.mv(srcP, destP)
+    srcM.mv(srcP, destP, *args, **kwargs)
 
 @wraps(Manager.sync)
-def sync(src, dest):
+def sync(src, dest, *args, **kwargs):
     srcM, srcP = _getManager(src)
     destM, destP = _getManager(dest)
 
     # Call sync on the destination manager
-    destM.sync(srcM[srcP], destM[destP])
+    destM.sync(srcM[srcP], destM[destP], *args, **kwargs)
 
 @wraps(Manager.rm)
 def rm(artefact, *args, **kwargs):
     manger, relpath = _getManager(artefact)
     manger.rm(relpath, *args, **kwargs)
+
+supports_unicode_filenames = os.path.supports_unicode_filenames

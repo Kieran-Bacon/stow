@@ -1,31 +1,30 @@
 import os
-from abc import ABC, abstractmethod, abstractclassmethod
+import re
+import io
+import abc
 import typing
+import urllib
 import shutil
 import tempfile
 import contextlib
-import hashlib
-import re
-import io
-import urllib.parse
 
-from . import exceptions
-from .artefacts import Artefact, File, Directory, SubFile, SubDirectory
+from .abstract_methods import AbstractManager
+from .class_methods import ClassMethodManager
+
+from ..artefacts import Artefact, File, Directory, SubFile, SubDirectory
+from .. import utils
+from .. import exceptions
 
 import logging
 log = logging.getLogger(__name__)
 
-class Manager(ABC):
+class Manager(AbstractManager, ClassMethodManager):
     """ Manager Abstract base class - expressed the interface of a Manager which governs a storage option and allows
     extraction and placement of files in that storage container
 
     """
 
     SUPPORTS_UNICODE_FILENAMES = os.path.supports_unicode_filenames
-
-
-
-    def toConfig(): pass
 
     _ROOT_PATH = "/"
     _PLACEHOLDER = "placeholder.ignore"
@@ -39,14 +38,13 @@ class Manager(ABC):
         self._paths = {self._ROOT_PATH: self._root}
         self._submanagers = {}
 
-    @abstractmethod
-    def __repr__(self): pass
     def __contains__(self, artefact: typing.Union[Artefact, str]) -> bool:
         if isinstance(artefact, Artefact):
             return self is artefact.manager
         else:
             return self.exists(artefact)
-    def __getitem__(self, managerPath: str) -> Artefact:
+
+    def __getitem__(self, path: str) -> Artefact:
         """ Fetch an artefact from the manager. In the event that it hasn't been cached, look it up on the underlying
         implementation and return a newly created object. If it doesn't exist raise an error
 
@@ -60,440 +58,33 @@ class Manager(ABC):
             ArtefactNotFound: In the event that the path does not exist
         """
 
-        if managerPath in self._paths:
-            return self._paths[managerPath]
+        # Clean the path given - ensures its a manager path
+        path = self._managerPath(path)
 
-        obj = self._identifyPath(managerPath)
-        if obj is None:
-            raise exceptions.ArtefactNotFound("Couldn't locate artefact {}".format(managerPath))
+        # If the path exists within the manager - return it
+        if path in self._paths:
+            return self._paths[path]
 
-        return obj
+        # Load the artefact and return it
+        return self._loadArtefact(path)
 
-    @staticmethod
-    def _splitArtefactUnionForm(artefact: typing.Union[Artefact, str]) -> typing.Tuple[typing.Union[Artefact, None], str]:
-        """ Take an artefact or a string and return in a strict format the object and string representation. This allows
-        methods to accept both and resolve and ensure.
+    def _managerPath(self, path: str) -> str:
 
-        Only the path is guaranteed, the artefact object will be None if it is not passed
+        if not self.isabs(path):
+            # relative path given - try and convert it
+            path = self.abspath(self.expandvars(self.expanduser(path)))
 
-        Args:
-            artefact: Type unknown, artefact object or path
+        if os.name == 'nt':
+            # Make Windows paths (if provided) unix like
+            if artefact.find(":") != -1:
+                # Remove the drive name
+                artefact = artefact[artefact.index(":")+1:]
 
-        Returns:
-            artefact: An artefact object or None
-            path: the path passed or pull from the artefact object
+            artefact = artefact.replace("\\", "/")
 
-        """
-        if isinstance(artefact, Artefact):
-            return artefact, artefact.path
+        return path
 
-        return None, artefact
-
-
-    @classmethod
-    def abspath(cls, artefact: typing.Union[Artefact, str]) -> str:
-        """ Return a normalized absolute version of the path or artefact given.
-
-        Args:
-            artefact: The path or object whose path is to be made absolute and returned
-
-        Returns:
-            str: the absolute path of the artefact provided
-
-        Raises:
-            ValueError: Cannot make a remote artefact object's path absolute
-        """
-        if isinstance(artefact, Artefact):
-            if isinstance(artefact.manager, LocalManager):
-                return os.path.abspath(artefact.path)
-
-            else:
-                raise ValueError("Cannot get absolute path for remote artefact {}".format(artefact))
-
-        else:
-            return os.path.abspath(artefact)
-
-    @classmethod
-    def basename(cls, artefact: typing.Union[Artefact, str]) -> str:
-        """ Return the base name of an artefact or path. This is the second element of the pair returned by passing path
-        to the function `split()`.
-
-        Args:
-            artefact: The path or object whose path is to have its base name extracted
-
-        Returns:
-            str: the basename
-        """
-        _, path = cls._splitArtefactUnionForm(artefact)
-        return os.path.basename(path)
-
-    @classmethod
-    def commonpath(cls, paths: typing.Iterable[typing.Union[Artefact, str]]) -> str:
-        """ Return the longest common sub-path of each pathname in the sequence paths
-
-        Examples:
-            commonpath(["/foo/bar", "/foo/ban/pip"]) == "/foo"
-
-        Args:
-            paths: Artefact/paths who will have their paths comparied to find a common path
-
-        Returns:
-            str: A valid owning directory path that is the shared owning directory for all paths
-
-        Raises:
-            ValueError: If there is no crossover at all
-        """
-        return os.path.commonpath([cls._splitArtefactUnionForm(path)[1] for path in paths])
-
-    @classmethod
-    def commonprefix(cls, paths: typing.Iterable[typing.Union[Artefact, str]]) -> str:
-        """ Return the longest common string literal for a collection of path/artefacts
-
-        Examples:
-            commonpath(["/foo/bar", "/foo/ban/pip"]) == "/foo/ba"
-
-        Args:
-            paths: Artefact/paths who will have their paths comparied to find a common path
-
-        Returns:
-            str: A string that all paths startwith (may be empty string)
-        """
-        return os.path.commonprefix([cls._splitArtefactUnionForm(path)[1] for path in paths])
-
-    @classmethod
-    def dirname(cls, artefact: typing.Union[Artefact, str]) -> str:
-        """ Return the directory name of path or artefact. Preserve the protocol of the path if a protocol is given
-
-        Args:
-            artefact: The artefact or path whose directory path is to be returned
-
-        Returns:
-            str: The directory path for the holding directory of the artefact
-        """
-        obj, path = cls._splitArtefactUnionForm(artefact)
-
-        if obj or path.index(":") == -1:
-            # Obj path or path within no protocol and therefore no need to parse
-            return os.path.dirname(path)
-
-        else:
-            # Preserve protocol (if there is one) - dirname the path
-            result = urllib.parse.urlparse(artefact)
-            return urllib.parse.ParseResult(
-                result.scheme,
-                result.netloc,
-                os.path.dirname(result.path),
-                result.params,
-                result.query,
-                result.fragment
-            ).geturl()
-
-    def exists(self, artefact: typing.Union[Artefact, str]) -> str:
-        """ Return true if the given artefact is a member of the manager, or the path is correct for the manager and it
-        leads to a File or Directory.
-
-        Does not handle protocols
-
-        Args:
-            artefact: Artefact or path whose existence is to be checked
-
-        Returns:
-            bool: True if artefact exists else False
-        """
-        # Only split as we want to trigger reassessment of the underlying file
-        _, path = self._splitArtefactUnionForm(artefact)
-
-        # If not none then its a valid object - any updates will have taken place
-        return self._identifyPath(path) is not None
-
-    def lexists(self, artefact: typing.Union[Artefact, str]) -> str:
-        """ Return true if the given artefact is a member of the manager, or the path is correct for the manager and it
-        leads to a File or Directory.
-
-        Does not handle protocols
-
-        Args:
-            artefact: Artefact or path whose existence is to be checked
-
-        Returns:
-            bool: True if artefact exists else False
-        """
-        log.warning("lexists: Symbolic links are not supported - defaulting to exists")
-        return self.exists(artefact)
-
-    @staticmethod
-    def expanduser(path: str) -> str:
-        """ On Unix and Windows, return the argument with an initial component of ~ or ~user replaced by that user’s
-        home directory.
-
-        On Unix, an initial ~ is replaced by the environment variable HOME if it is set; otherwise the current user’s
-        home directory is looked up in the password directory through the built-in module pwd. An initial ~user is
-        looked up directly in the password directory.
-
-        On Windows, USERPROFILE will be used if set, otherwise a combination of HOMEPATH and HOMEDRIVE will be used.
-        An initial ~user is handled by stripping the last directory component from the created user path derived above.
-
-        If the expansion fails or if the path does not begin with a tilde, the path is returned unchanged.
-
-        Args:
-            path: the path which may contain a home variable indicator to be expanded
-
-        Returns:
-            str: A path with the home path factored in - if applicable
-        """
-        return os.path.expanduser(path)
-
-    @staticmethod
-    def expandvars(path: str):
-        """ Return the argument with environment variables expanded. Substrings of the form $name or ${name} are
-        replaced by the value of environment variable name. Malformed variable names and references to non-existing
-        variables are left unchanged.
-
-        On Windows, %name% expansions are supported in addition to $name and ${name}.
-
-        Args:
-            path: A path which might contain variables to be expanded
-
-        Returns:
-            str: A string with any environment variables added
-        """
-        return os.path.expandvars(path)
-
-    @staticmethod
-    def isabs(path: str) -> bool:
-        """ Return True if path is an absolute pathname.
-        On Unix, that means it begins with a slash,
-        on Windows that it begins with a (back)slash after chopping off a potential drive letter.
-
-        Args:
-            path: the path to be checked for being absolute
-        """
-        return os.path.isabs(path)
-
-    @classmethod
-    def join(cls, *paths: typing.Iterable[str], separator=os.sep) -> str:
-        """ Join one or more path components intelligently. The return value is the concatenation of path and any
-        members of *paths with exactly one directory separator following each non-empty part except the last,
-        meaning that the result will only end in a separator if the last part is empty. If a component is an absolute
-        path, all previous components are thrown away and joining continues from the absolute path component.
-
-        Protocols/drive letters are perserved in the event that an absolute is passed in.
-
-        Args:
-            *paths: segments of a path to be joined together
-            separator: The character to be used to join the path segments
-
-        Returns:
-            str: A joined path
-        """
-        if not paths:
-            return ""
-
-        parsedResult = None
-        joined = ""
-        totalLength = len(paths)
-
-        for i, segment in enumerate(paths):
-
-            # Identify and record the last full
-            presult = urllib.parse.urlparse(segment)
-            if presult.scheme:
-                parsedResult = presult
-
-            # Delete previous joined segments as new absolute path is provided
-            if cls.isabs(segment):
-                joined = ""
-
-            # Add the segment and a seperator
-            joined += segment
-            if i != totalLength:
-                joined += separator
-
-        if parsedResult:
-            return urllib.parse.ParseResult(
-                parsedResult.schema,
-                parsedResult.netloc,
-                joined,
-                parsedResult.params,
-                parsedResult.query,
-                parsedResult.fragment
-            )
-
-        return joined
-
-    @staticmethod
-    def normcase(path: str) -> str:
-        """ Normalize the case of a pathname. On Windows, convert all characters in the pathname to lowercase, and also
-        convert forward slashes to backward slashes. On other operating systems, return the path unchanged.
-
-        Args:
-            path: path to normalise
-
-        Returns:
-            str: the path normalised
-        """
-        return os.path.normcase(path)
-
-    @staticmethod
-    def normpath(path: str) -> str:
-        """ Normalize a pathname by collapsing redundant separators and up-level references so that A//B, A/B/, A/./B
-        and A/foo/../B all become A/B.
-
-        Args:
-            path: the path whose to be
-
-        Returns:
-            str: The path transformed
-        """
-        # Check that the url is for a remote manager
-        url = urllib.parse.urlparse(path)
-        if url.scheme and url.netloc:
-            # URL with protocol
-            return urllib.parse.ParseResult(
-                url.scheme,
-                url.netloc,
-                os.path.normpath(url.path).replace("\\", "/"),
-                url.params,
-                url.query,
-                url.fragment
-            )
-
-        # Apply the normal path - method to the path
-        return os.path.normpath(path)
-
-    @classmethod
-    def realpath(cls, path: str) -> str:
-        """ Return the canonical path of the specified filename, eliminating any symbolic links encountered in the path
-        (if they are supported by the operating system).
-
-        Args:
-            path: the path to have symbolic links corrected
-
-        Returns:
-            str: the path with the symbolic links corrected
-        """
-        return os.path.realpath(path)
-
-    @classmethod
-    def relpath(cls, path: str, start=os.curdir) -> str:
-        """ Return a relative filepath to path either from the current directory or from an optional start directory
-
-        Args:
-            path: the path to be made relative
-            start: the location to become relative to
-        """
-        return os.path.relpath(path, start)
-
-    @classmethod
-    def savefile(cls, artefact1: typing.Union[Artefact, str], artefact2: typing.Union[Artefact, str]) -> bool:
-        """ Check if provided artefacts are represent the same data on disk
-
-        Args:
-            artefact1: An artefact object or path
-            artefact2: An artefact object or path
-
-        Returns:
-            bool: True if the artefacts are the same
-        """
-        obj1, path1 = cls._splitArtefactUnionForm(artefact1)
-        obj2, path2 = cls._splitArtefactUnionForm(artefact2)
-
-        if obj1 is None or obj2 is None:
-            return os.path.samefile(path1, path2)
-
-        else:
-            return obj1 is obj2
-
-    @classmethod
-    def sameopenfile(handle1: io.IOBase, handle2: io.IOBase) -> bool:
-        """ Return True if the file descriptors fp1 and fp2 refer to the same file.
-        """
-        return os.path.sameopenfile(handle1, handle2)
-
-    @classmethod
-    def samestat(cls, artefact1: typing.Union[Artefact, str], artefact2: typing.Union[Artefact, str]) -> bool:
-        """ Check if provided artefacts are represent the same data on disk
-
-        Args:
-            artefact1: An artefact object or path
-            artefact2: An artefact object or path
-
-        Returns:
-            bool: True if the artefacts are the same
-        """
-        _, path1 = cls._splitArtefactUnionForm(artefact1)
-        _, path2 = cls._splitArtefactUnionForm(artefact2)
-
-        return os.path.samestat(path1, path2)
-
-    @classmethod
-    def split(cls, artefact: typing.Union[Artefact, str]) -> typing.Tuple[str, str]:
-        """ Split the pathname path into a pair, (head, tail) where tail is the last pathname component and head is
-        everything leading up to that.
-
-        Args:
-            artefact: the artefact to be split
-
-        Returns:
-            (dirname, basename): the split parts of the artefact
-        """
-
-        _, path = cls._splitArtefactUnionForm(artefact)
-        return (cls.dirname(path), cls.basename(path))
-
-    @classmethod
-    def splitdrive(cls, path: str) -> typing.Tuple[str, str]:
-        """ Split the pathname path into a pair (drive, tail) where drive is either a mount point or the empty string.
-
-        Args:
-            path: the path whose mount point/drive is to be removed
-
-        Returns:
-            (drive, path): tuple with drive string separated from the path
-        """
-
-        return os.path.splitdrive(path)
-
-    @classmethod
-    def splitext(cls, artefact: typing.Union[Artefact, str]) -> typing.Tuple[str, str]:
-        """ Split the pathname path into a pair (root, ext) such that root + ext == path, and ext is empty or begins
-        with a period and contains at most one period.
-
-        Args:
-            artefact: the artefact to have the extension extracted
-
-        Returns:
-            (root, ext): The root path without the extension and the extension
-        """
-        _, path = cls._splitArtefactUnionForm(artefact)
-        return os.path.splitext(path)
-
-    @abstractmethod
-    def _abspath(self, managerPath):
-        """ Return the most accurate path to an object in the managers vernacular. Opposite of relpath
-
-        examples:
-            local managers shall convert a relative path to its full absolute os compatible filepath
-            s3 shall convert the relative path to a s3 valid key
-
-        Args:
-            artefact (str): The artefact object or it's relative path which is to be converted
-        """
-        pass
-
-    @abstractmethod
-    def _makeFile(self, abspath: str) -> File:
-        """ Make a file object using the underlying implementation objects from a manager relative path
-
-        Args:
-            abspath: Manager absolute path
-
-        Returns:
-            File: The File object representing the on disk data object
-        """
-        pass
-
-    def _makeDirectory(self, managerPath: str) -> Directory:
+    def _ensureDirectory(self, managerPath: str) -> Directory:
         """ Fetch the owning `container` for the manager relative path given. In the event that no `container` object
         exists for the path, create one and recursively find its owning `container` to add it to. The goal of this
         function is to traverse up the hierarchy and ensure all the directory objects exist, and when they do quickly
@@ -519,156 +110,9 @@ class Manager(ABC):
             return self._root
 
         # Create a directory at this location, add it to the data store and return it
-        art = Directory(self, managerPath)
+        art = self._makeDirectory(managerPath)
         self._addArtefact(art)  # Link it with any owner + submanagers
         return art
-
-    @abstractmethod
-    def _get(self, source: Artefact, destination: str):
-        """ Fetch the artefact and downloads its data to the local destination path provided
-
-        The existence of the file to collect has already been checked so this function can be written to assume its
-        existence
-
-        Args:
-            source: The source object and context that is to be downloaded
-            destination: The local path to where the source is to be written
-        """
-        pass
-
-    @abstractmethod
-    def _getBytes(self, source: File) -> bytes:
-        """ Fetch the file artefact contents directly. This is to avoid having to write the contents of files to discs
-        for some of the other operations.
-
-        The existence of the file to collect has already been checked so this function can be written to assume its
-        existence
-
-        Args:
-            source: The source object and context that is to be downloaded
-
-        Returns:
-            bytes: The bytes content of the disk
-        """
-        pass
-
-    @abstractmethod
-    def _put(self, source: str, destination: str):
-        """ Put the local filesystem object onto the underlying manager implementation using the absolute paths given.
-
-        To avoid user error - an artefact cannot be placed onto a Directory unless an overwrite toggle has been passed
-        which is False by default. This should protect them from accidentally deleting a directory.
-
-        In the event that they want to do so - the deletion of the directory will be handled before operating this
-        function. Therefore their is no need to check/protect against it. (famous last words)
-
-        Args:
-            source: A local path to an artefact (File or Directory)
-            destination: A manager abspath path for the artefact
-        """
-        pass
-
-    @abstractmethod
-    def _putBytes(self, fileBytes: bytes, destination: str):
-        """ Put the bytes of a file object onto the underlying manager implementation using the absolute path given.
-
-        This function allows processes to avoid writing files to disc for speedier transfers.
-
-        If its not possible to transmit bytes - I'd recommend writing the bytes to a tempfile and then operating the
-        put method.
-
-        Args:
-            fileBytes (bytes): files bytes
-            destinationAbsPath (str): Remote absolute path
-        """
-        pass
-
-    @abstractmethod
-    def _cp(self, source: Artefact, destination: str):
-        """ Method for copying an artefact local to the manager to an another location on the manager. Implementation
-        would avoid having to download data from a manager to re-upload that data.
-
-        If there isn't a method of duplicating the data on the manager, you can call
-            self._put(self._abspath(source.path), destination)
-
-        Which will mean the behaviour defaults to the put action.
-
-        Args:
-            source: the manager local source file
-            destination: a manager abspath path for destination
-        """
-        pass
-
-    @abstractmethod
-    def _mv(self, source: Artefact, destination: str):
-        """ Method for moving an artefact local to the manager to an another location on the manager. Implementation
-        would avoid having to download data from a manager to re-upload that data.
-
-        If there isn't a method of duplicating the data on the manager, you can call
-            self._put(self._abspath(source.path), destination)
-            self._rm(self._abspath(source.path))
-
-        Which will mean the behaviour defaults to the put action and then a delete of the original file. Achieving the
-        same goal.
-
-        Args:
-            source: the manager local source file
-            destination: a manager abspath path for destination
-        """
-        pass
-
-    @abstractmethod
-    def _ls(self, managerPath: str) -> typing.Iterable[Artefact]:
-        """ List and convert to Artefact objects, the contents of the directory at the managerPath location
-
-        The existence of the directory has already been confirmed.
-
-        This method can be used in conjunction with self._makeFile and self._makeDirectory to great affect:
-
-        1. You can list the items in the directory and call makeFile and makeDirectory on them and collect
-        created objects to be returned or
-
-        1. Have ls add all files and directories when called (good when you can download multiple metadata at once for
-        no cost) and then have makeFile call ls on its parent directory before hand so that it can return the created
-        file object by ls.
-
-        Food for thought.
-
-        Args:
-            managerPath: the manager abspath to the directory whose content is to be indexed
-
-        Returns:
-            typing.Iterable[Artefact]: All of the artefact objects inside the directory
-        """
-        pass
-
-    @abstractmethod
-    def _rm(self, artefact: Artefact):
-        """ Delete the underlying artefact data on the manager.
-
-        To avoid possible user error in deleting directories, the user must have already indicated that they want to
-        delete everything
-
-        Args:
-            artefact: The artefact on the manager to be deleted
-        """
-        pass
-
-    @abstractclassmethod
-    def _loadFromProtocol(cls, url: urllib.parse.ParseResult):
-        """ Create a new instance of the manager using the information passed via the url ParseResult object that will
-        have been created via the stateless interface
-
-        Args:
-            url: The result of passing the stateless path through urllib.parse.urlparse
-
-        Returns:
-            Manager: A manager of this type loaded with information from the url
-
-        Raises:
-            Error: Errors due to missing information and so on
-        """
-        pass
 
     def _addArtefact(self, artefact: Artefact):
         """ Add an artefact object into the manager data structures - do not add if the object has already been added
@@ -683,13 +127,13 @@ class Manager(ABC):
         if artefact.manager is not self:
             raise exceptions.ArtefactNotMember("Artefact {} is not a member of {} and couldn't be added".format(artefact, self))
 
-        if artefact.path in self._path:
-            # The artefact was already added to the manager
-            log.warning("Artefact {} was previously been added - no action being taken".format(artefact))
+        if artefact.path in self._paths:
+            # The artefact was already member of the manager - Updating the original artefact with new data
+            self._paths[artefact.path]._update(artefact)
             return
 
         # Get the directory for the artefact
-        directory = self._makeDirectory(self.dirname(artefact))
+        directory = self._ensureDirectory(self.dirname(artefact))
         directory._add(artefact)
 
         # Add the artefact into the manager store
@@ -703,7 +147,33 @@ class Manager(ABC):
                     # The artefact exists within the sub manager - pass the parent object
                     manager._addMain(artefact)
 
-    def _artefactFormStandardise(self, artObj: typing.Union[Artefact, str], require=False) -> typing.Tuple[Artefact, str]:
+    def _loadArtefact(self, abspath: str) -> Artefact:
+        """ Identify the type of the artefact and then add it to the manager
+
+        This allows you to specify the method of adding the artefact and doesn't limit you to adding a single artefact.
+        It may be better to load an entire directory and then return the targeted artefact
+
+        Args:
+            abspath: The manager relative path to the object to be loaded
+
+        Returns:
+            Artefact: the artefact created at that location
+
+        Raises:
+            ArtefactNotFound: If the path doesn't lead to an artefact
+        """
+
+        # Check to see if there is an artefact that exists on disk
+        obj = self._identifyPath(abspath)
+        if obj is None:
+            raise exceptions.ArtefactNotFound("Couldn't locate artefact {}".format(abspath))
+
+        # Add the created artefact to the manager
+        self._addArtefact(obj)
+
+        return obj
+
+    def _artefactFormStandardise(self, artefact: typing.Union[Artefact, str], require=False) -> typing.Tuple[Artefact, str]:
         """ Convert the incoming object which could be either an artefact or relative path into a standardised form for
         both such that functions can be easily convert and use what they require
 
@@ -715,17 +185,24 @@ class Manager(ABC):
             Artefact or None: the artefact object or None if it doesn't exists and require is False
             str: The relative path of the object/the passed value
         """
-        if isinstance(artObj, Artefact):
-            return artObj, artObj.path
+        if isinstance(artefact, Artefact):
+            return artefact, artefact.path
 
         else:
-            # A path was given
-            if require or artObj in self:
-                # TODO should this convert the path to be manager clean?
-                return self[artObj], artObj
+            if require:
+                # The artefact must be collected
+                return self[artefact], artefact
 
-            # Only return path - not attempting to fetch artefact
-            return None, artObj
+            # Clean and ensure the artefact path
+            artefact = self._managerPath(artefact)
+
+            if self.exists(artefact):
+                # Check to see if the artefact exists - if it does then it is available
+                return self._paths[artefact]
+
+            else:
+                # The object doesn't exist on disk
+                return None, artefact
 
     def _updateArtefactObjects(self, artefact: Artefact):
         """ Perform a update for the manager on the contents of a directory which has been editted on mass and whose
@@ -757,13 +234,13 @@ class Manager(ABC):
                     # The artefact has been deleted or the type of the artefact has changed - it needs to be delinked
                     self._delink(artefact)
 
-                elif isinstance(artefact, (File, SubFile)):
+                elif isinstance(artefact, File):
                     # Update the artefact with the informant as we've pulled it
                     artefact._update(check)
 
                 else:
                     # The directory needs to be checked for issues
-                    self._updateDirectory(artefact)
+                    self._updateArtefactObjects(artefact)
 
             # Cannot be sure that all of the contents has been collected due to change
             artefact._collected = False
@@ -789,11 +266,10 @@ class Manager(ABC):
         if self.dirname(srcObj.path) != self.dirname(destPath):
             # Disconnect object with the directories that it exists in and add it to the destination location
             srcObj.directory._remove(srcObj)
-            self._makeDirectory(self.dirname(destPath))._add(srcObj)
+            self._ensureDirectory(self.dirname(destPath))._add(srcObj)
 
-        # Move and rename the object
-        del self._paths[srcObj.path]
-        self._paths[destPath] = srcObj
+        # Move the object in the manager state
+        self._paths[destPath] = self._paths.pop(srcObj.path)
 
         # Update the artefacts info
         source_path = srcObj.path
@@ -829,7 +305,7 @@ class Manager(ABC):
                 art._exists = False
 
         # Delete references to the object and set it's existence to false
-        self[self.dirname(artefact.path)]._delink(artefact)
+        self[self.dirname(artefact.path)]._remove(artefact)
         del self._paths[artefact.path]
         artefact._exists = False
 
@@ -837,6 +313,182 @@ class Manager(ABC):
             for uri, manager in self._submanagers.items():
                 if artefact.path.startswith(uri):
                     manager._removeMain(artefact)
+
+    def isfile(self, artefact: typing.Union[Artefact, str]) -> bool:
+        """ Check if the artefact provided is a file
+
+        Args:
+            artefact: The artefact to be checked
+
+        Returns:
+            Bool: True or False in answer to the question
+        """
+        if isinstance(artefact, Artefact):
+            return isinstance(artefact, File)
+
+        return isinstance(self[artefact], File) if self.exists(artefact) else False
+
+    def isdir(self, artefact: typing.Union[Artefact, str]) -> bool:
+        """ Check if the artefact provided is a directory
+
+        Args:
+            artefact: The artefact to be checked
+
+        Returns:
+            Bool: True or False in answer to the question
+        """
+
+
+        if isinstance(artefact, Directory):
+            return isinstance(artefact, File)
+
+        return isinstance(self[artefact], Directory) if self.exists(artefact) else False
+
+    def islink(self, artefact: typing.Union[Artefact, str]) -> bool:
+        """ Check if the artefact provided is a link
+
+        Will check for local managers but will default to False for remote managers
+
+        Args:
+            artefact: The artefact to be checked
+
+        Returns:
+            Bool: True or False in answer to the question
+        """
+        if isinstance(self, LocalManager):
+            # We are local and we can use the local test
+            return os.path.islink(self.abspath(artefact))
+
+        else:
+            log.warning("islink: Symbolic links are not supported - defaulting to False")
+            return False
+
+    def ismount(self, artefact: typing.Union[Artefact, str]) -> bool:
+        """ Check if the artefact provided is a link
+
+        Will check for local managers but will default to False for remote managers
+
+        Args:
+            artefact: The artefact to be checked
+
+        Returns:
+            Bool: True or False in answer to the question
+        """
+        if isinstance(self, LocalManager):
+            # We are local and we can use the local test
+            return os.path.ismount(self.abspath(artefact))
+
+        else:
+            log.warning("ismounts: mount point are not implemented on remote managers - returning False")
+            return False
+
+    def getctime(self, artefact: typing.Union[Artefact, str]) -> typing.Union[float, None]:
+        """ Get the created time for the artefact as a UTC timestamp
+
+        Args:
+            artefact: the artefact whose creation datetime is to be returned
+
+        Returns:
+            timestamp: a float timestamp of creation time if manager holds such information else None
+
+        Raises:
+            ArtefactNotFound: If there is no artefact at the location
+        """
+        obj, _ = self._artefactFormStandardise(artefact, require=True)
+        return obj.createdTime
+
+    def getmtime(self, artefact: typing.Union[Artefact, str]) -> typing.Union[float, None]:
+        """ Get the modified time for the artefact as a UTC timestamp
+
+        Args:
+            artefact: the artefact whose modified datetime is to be returned
+
+        Returns:
+            timestamp: a float timestamp of modified time if manager holds such information else None
+
+        Raises:
+            ArtefactNotFound: If there is no artefact at the location
+        """
+        obj, _ = self._artefactFormStandardise(artefact, require=True)
+        return obj.modifiedTime
+
+    def getatime(self, artefact: typing.Union[Artefact, str]) -> typing.Union[float, None]:
+        """ Get the accessed time for the artefact as a UTC timestamp
+
+        Args:
+            artefact: the artefact whose accessed datetime is to be returned
+
+        Returns:
+            timestamp: a float timestamp of accessed time if manager holds such information else None
+
+        Raises:
+            ArtefactNotFound: If there is no artefact at the location
+        """
+        obj, _ = self._artefactFormStandardise(artefact, require=True)
+        return obj.accessedTime
+
+    def exists(self, artefact: typing.Union[Artefact, str]) -> bool:
+        """ Return true if the given artefact is a member of the manager, or the path is correct for the manager and it
+        leads to a File or Directory.
+
+        Does not handle protocols
+
+        Args:
+            artefact: Artefact or path whose existence is to be checked
+
+        Returns:
+            bool: True if artefact exists else False
+        """
+        # Only split as we want to trigger reassessment of the underlying file
+        obj, path = self._splitArtefactUnionForm(artefact)
+
+        # Check to see if the artefact exists on disc still
+        check = self._identifyPath(path)
+
+        # Check + update state if information about the object has changed
+        if obj is not None:
+
+            if check is not None:
+                # Both objects exist - check that they have changed type and update if not
+
+                if type(obj) != type(check):
+
+                    # The obj has changed type
+                    self._delinkArtefactObjects(obj)
+
+                    # Add the artefact in
+                    self._addArtefact(check)
+
+                else:
+                    # An update has occurred
+                    if isinstance(obj, File):
+                        obj._update(check)
+
+            else:
+                # The on disk representation has been removed
+                self._delinkArtefactObjects(obj)
+
+        elif check is not None:
+            # A new artefact has been created
+            self._addArtefact(check)
+
+        # If not none then its a valid object - any updates will have taken place
+        return check is not None
+
+    def lexists(self, artefact: typing.Union[Artefact, str]) -> str:
+        """ Return true if the given artefact is a member of the manager, or the path is correct for the manager and it
+        leads to a File or Directory.
+
+        Does not handle protocols
+
+        Args:
+            artefact: Artefact or path whose existence is to be checked
+
+        Returns:
+            bool: True if artefact exists else False
+        """
+        log.warning("lexists: Symbolic links are not supported - defaulting to exists")
+        return self.exists(artefact)
 
     def get(self, src_remote: typing.Union[Artefact, str], dest_local: str, overwrite: bool = False) -> Artefact:
         """ Get a remote artefact from the storage option and write it to the destination path given.
@@ -873,7 +525,6 @@ class Manager(ABC):
 
         # Fetch the object and place it at the location
         return self._get(obj, dest_local)
-
 
     def _putArtefact(
         self,
@@ -917,7 +568,8 @@ class Manager(ABC):
                         # File is being replaced with a directory - delete the file and create a new directory object
                         self._delink(destinationArtifact)
 
-                return self._makeDirectory(destinationPath)
+                # Ensure the directory is created and added to the manager
+                return self._ensureDirectory(destinationPath)
 
         else:
             # The artefact is a file binary
@@ -936,10 +588,10 @@ class Manager(ABC):
 
             else:
                 # The artefact has overwritten a directory - all artefacts below this root have been deleted
-                self._delink(destinationArtifact)
+                self._delinkArtefactObjects(destinationArtifact)
 
         # Add the new artefact and return it
-        self._add(art)
+        self._addArtefact(art)
         return art
 
     def put(
@@ -1070,7 +722,7 @@ class Manager(ABC):
             self._delink(destObj)
 
         # We must be an artefact on the box copying to another location on the box - destination is clear
-        self._mv(self._abspath(srcObj), self._abspath(destPath))
+        self._mv(srcObj, destPath)
         self._moveArtefactObjects(srcObj, destPath)
 
     def rm(self, artefact: typing.Union[Artefact, str], recursive: bool = False) -> None:
@@ -1101,7 +753,7 @@ class Manager(ABC):
 
         Args:
             art (Directory/str): The Directory artefact or the relpath to the directory to be listed
-            recursive (bool) = False: Return subdirectory contents aswell
+            recursive (bool) = False: Return subdirectory contents as well
 
         Returns:
             {Artefact}: The artefact objects which are within the directory
@@ -1156,7 +808,7 @@ class Manager(ABC):
             open(emptyFile, 'w').close()
             return self.put(emptyFile, relpath)
 
-    def sync(self, source: Directory, destination: Directory, delete: bool = False) -> None:
+    def sync(self, source: typing.Union[Directory, str], destination: typing.Union[Directory, str], overwrite: bool = False, delete: bool = False) -> None:
         """ Put artefacts in the source location into the destination location if they have more recently been editted
 
         Args:
@@ -1166,6 +818,22 @@ class Manager(ABC):
                 the source.
         """
 
+        # Fetch the destination object - If None, nothing to sync so simply put the source
+        destObj, destPath = self._artefactFormStandardise(destination)
+        if destObj is None:
+            return self.put(source, destPath)
+
+        # Fetch the source object and require that it be an Artefact so we can check object states
+        srcObj, srcPath = self._artefactFormStandardise(source)
+        if srcObj is None:
+            # The source must not be an object or a member of this manager - we need to connect to it so we can
+            # determine that
+            srcManager, srcPath = utils.parseURL(srcPath)
+
+            # Get the source object
+            source = srcManager[srcPath]
+
+        # Ensure that the two passed artefacts are directories
         if not (isinstance(source, Directory) and isinstance(destination, Directory)):
             raise exceptions.ArtefactTypeError("Cannot Synchronise non directory objects {} -> {} - must sync directories".format(source, destination))
 
@@ -1185,8 +853,13 @@ class Manager(ABC):
                 # There is a conflict - lets compare local and destination
                 destinationArtefact = destinationMapped.pop(relpath)
 
-                if isinstance(destinationArtefact, Directory):
-                    raise OperationNotPermitted("Cannot sync source file {} as destination is a directory {}".format(sourceArtefact, destinationArtefact))
+                # Don't perform sync
+                if isinstance(destinationArtefact, Directory) and not overwrite:
+                    raise exceptions.OperationNotPermitted(
+                        "Cannot sync source file {} to destination is a directory {}, and operation not permitted".format(
+                            sourceArtefact, destinationArtefact
+                        )
+                    )
 
                 elif sourceArtefact.modifiedTime > destinationArtefact.modifiedTime:
                     # File is more up to date than destination
@@ -1195,23 +868,15 @@ class Manager(ABC):
         # Remove destination artefacts if delete is toggled
         if delete:
             # As updated artefacts were popped during their sync - any left File artefacts are to be deleted
-            for destinationArtefact in destinationMapped.values():
-                if isinstance(destinationArtefact, File):
-                    destinationArtefact.manager.rm(destinationArtefact)
 
-    @contextlib.contextmanager
-    @abstractmethod
-    def localise(self, artefact: typing.Union[Artefact, str]):
-        pass
+            # Sort to ensure that nested files appear before their directories
+            # This allows us to check to see if the directory is empty knowning that everything to be deleted from it
+            # has been, as all nested artefacts will appear sooner and be removed before hand.
+            for artefact in sorted(destinationMapped.values(), key=lambda x: len(x.path)):
 
-    @staticmethod
-    def md5(path):
-        hash_md5 = hashlib.md5()
-        with open(path, "rb") as f:
-            for chunk in iter(lambda: f.read(4096), b""):
-                hash_md5.update(chunk)
-
-        return hash_md5.hexdigest()
+                if isinstance(artefact, File) or (artefact.isEmpty()):
+                    # Delete the file or remove the directory if it is now empty
+                    self.rm(artefact)
 
     @contextlib.contextmanager
     def open(self, artefact: typing.Union[File, str], mode: str, **kwargs) -> io.IOBase:
@@ -1231,10 +896,6 @@ class Manager(ABC):
         if art is None:
             if mode in self._READONLYMODES:
                 raise FileNotFoundError('File does not exist in the manager')
-
-            else:
-                # Create the file for touching
-                self.touch(path)
 
         with self.localise(artefact) as abspath:
             with open(abspath, mode, **kwargs) as handle:
@@ -1278,44 +939,60 @@ class SubManager(Manager):
     """ Created by a `Manager` instance to manage a section of the filesystem as if it were a fully fledged manager. The
     interface passes through to owning manager who executes the actions asked to the Sub Manager. Not to be instantiated
     directly or extended.
+
+    Args:
+        owner: The manager object this submanager belongs too
+        path: The path in the manager the submanager exists
+        rootDirectory: The owning managers root artefact object
     """
 
-    def __init__(self, owner: Manager, uri: str, rootDirectory: Directory):
+    def __init__(self, owner: Manager, path: str, rootDirectory: Directory):
         self._root = SubDirectory(self, self._ROOT_PATH, rootDirectory)
+        self._path = path
         self._paths = {self._ROOT_PATH: self._root}
         self._submanagers = None
+
         self._owner = owner
-        self._uri = uri
 
-    def __repr__(self): return '<SubManager of {} {}>'.format(self._owner, self._uri)
-    def isabs(self, path: str): return self._owner.isabs(path)
-    def abspath(self, relpath: str): return self._owner.abspath(self.join(self._uri, relpath))
-    def _subrelpath(self, mainRelpath: str): return mainRelpath[len(self._uri):]
-    def _isdir(self, relpath: str) -> str: return self._owner._isdir(self.join(self._uri, relpath))
+    def __repr__(self):
+        return '<SubManager of {} {}>'.format(self._owner, self._path)
 
-    def _makefile(self, relpath: str) -> Artefact:
-        # Given that its a local relative path
-        mainArt = self._owner._makefile(self.join(self._uri, relpath))
-        return SubFile(self, relpath, mainArt)
+    def _abspath(self, managerPath):
+        return self._owner._abspath(self.join(self._path, managerPath[1:]))
 
-    def _backfillHierarchy(self, relpath: str):
-        # Ask the parent to make the directory object at this location. This shall then be added to this sub manager
-        # by the parent along with any other directories that were created - by the end of this call, a directory
-        # shall exist in this manager for this relpath
-        self._owner._backfillHierarchy(self.join(self._uri, relpath))
-        if not relpath:
-            return self._root
-        return self._paths[relpath]
+    def _makeFile(self, abspath: str) -> File:
+        mainArt = self._owner._makeFile(self.join(self._path, abspath, joinAbsolutes=True))
+        return SubFile(self, abspath, mainArt)
 
-    def _add(self, artefact: Artefact):
+    def _makeDirectory(self, abspath: str) -> Directory:
+        mainDirectory = self._owner._makeDirectory(self.join(self._path, abspath, joinAbsolutes=True))
+        return SubDirectory(self, abspath, mainDirectory)
+
+    def _identifyPath(self, abspath: str) -> typing.Union[Artefact, None]:
+        mainCheck = self._owner._identifyPath(self.join(self._path, abspath, joinAbsolutes=True))
+
+        if isinstance(mainCheck, File):
+            return SubFile(self, abspath, mainCheck)
+
+        elif isinstance(mainCheck, Directory):
+            return SubDirectory(self, abspath, mainCheck)
+
+        else:
+            return mainCheck
+
+    def _loadArtefact(self, abspath: str) -> Artefact:
+        self._owner._loadArtefact(self.join(self._path, abspath, joinAbsolutes=True))
+        return self._paths[abspath]
+
+    def _addArtefact(self, artefact: Artefact):
         # Add the artefact and link it to the main artefact it represents
-        assert isinstance(artefact, (SubFile, SubDirectory))
-        super()._add(artefact)
-        self._owner._add(artefact._concrete)
+        assert isinstance(artefact, (SubFile, SubDirectory)), type(artefact)
+        super()._addArtefact(artefact)
+        self._owner._addArtefact(artefact._concrete)
 
     def _addMain(self, artefact: Artefact):
         # Add an artefact which has been created in the main manager
-        relpath = artefact.path[len(self._uri):]
+        relpath = artefact.path[len(self._path):]
         if relpath in self._paths: return
 
         if isinstance(artefact, File):
@@ -1323,32 +1000,42 @@ class SubManager(Manager):
         else:
             subArtefact = SubDirectory(self, relpath, artefact)
 
-        super()._add(subArtefact)
+        super()._addArtefact(subArtefact)
 
     def _get(self, source: Artefact, destination: str):
         # Switch artefact to main to download it's contents
-        self._owner._get(source._concrete, destination)
+        return self._owner._get(source._concrete, destination)
 
-    def _put(self, source_filepath, destination_abspath, merge: bool):
-        # Abspath already surpasses this manager - pass args straight on
-        self._owner._put(source_filepath, destination_abspath, merge=merge)
+    def _getBytes(self, source: File) -> bytes:
+        return self._owner._getBytes(source._concrete)
+
+    def _put(self, source: str, destination: str):
+        self._owner._put(source, destination)
 
     def _putBytes(self, source, destinationAbsPath):
         self._owner._putBytes(source, destinationAbsPath)
 
-    # NOTE movement of files handled by main manager
-    def _cp(self, srcObj: Artefact, destPath: str): self._owner._cp(srcObj._concrete, self.join(self._uri, destPath))
-    def _mv(self, srcObj: Artefact, destPath: str): self._owner._mv(srcObj._concrete, self.join(self._uri, destPath))
-    def _move(self, srcObj: Artefact, destPath: str): self._owner._move(srcObj._concrete, self.join(self._uri,destPath))
-    def _moveMain(self, srcPath: str, destPath: str): super()._move(self[self._subrelpath(srcPath)], self._subrelpath(destPath))
+    def _cp(self, srcObj: Artefact, destPath: str):
+        return self._owner._cp(srcObj._concrete, self.join(self._path, destPath, joinAbsolutes=True))
+
+    def _mv(self, srcObj: Artefact, destPath: str):
+        return self._owner._mv(srcObj._concrete, self.join(self._path, destPath, joinAbsolutes=True))
+
+    def _move(self, srcObj: Artefact, destPath: str):
+        return self._owner._move(srcObj._concrete, self.join(self._path,destPath, joinAbsolutes=True))
+
+    def _moveMain(self, srcPath: str, destPath: str):
+        return super()._move(self[self._subrelpath(srcPath)], self._subrelpath(destPath))
 
     # Main manager handles deleting the underlying objects
-    def _rm(self, artefact: Artefact): self._owner._rm(artefact._concrete)
-    def _delink(self, artefact: Artefact): self._owner._delink(artefact._concrete)
-    def _removeMain(self, artefact: Artefact): super()._delink(self[self._subrelpath(artefact.path)])
+    def _rm(self, artefact: Artefact):
+        return self._owner._rm(artefact._concrete)
 
-    def _collectDirectoryContents(self, directory: Directory):
-        self._owner._collectDirectoryContents(directory._concrete)
+    def _removeMain(self, artefact: Artefact):
+        return super()._delinkArtefactObjects(self[self._subrelpath(artefact.path)])
+
+    def _ls(self, directory: Directory):
+        return self._owner._ls(directory._concrete)
 
     @contextlib.contextmanager
     def localise(self, artefact: typing.Union[Artefact, str]):
@@ -1358,7 +1045,19 @@ class SubManager(Manager):
     def submanager(self):
         raise NotImplementedError("A submanager cannot be created on a submanager")
 
-class LocalManager(Manager, ABC):
+    @classmethod
+    def _loadFromProtocol(cls, url: urllib.parse.ParseResult):
+        raise NotImplementedError("Cannot load a submanager from a protocol string")
+
+    def toConfig(self) -> dict:
+        config = self._owner.toConfig()
+
+        # Add this managers uri as submanager point
+        config["submanager"] = self._path
+
+        return config
+
+class LocalManager(Manager, abc.ABC):
     """ Abstract Base Class for managers that will be working with local artefacts.
     """
 
@@ -1367,7 +1066,7 @@ class LocalManager(Manager, ABC):
         obj, path = self._artefactFormStandardise(artefact)
         exception = None
 
-        abspath = self.abspath(path)
+        abspath = self._abspath(path)
         os.makedirs(os.path.dirname(abspath), exist_ok=True)
 
         try:
@@ -1375,22 +1074,18 @@ class LocalManager(Manager, ABC):
         except Exception as e:
             exception = e
 
-        if os.path.isdir(abspath):
-            # The localised object has been made to be a directory - object already in position tf just update the manager
-            if obj is not None:
-                assert isinstance(obj, Directory)
-                self._updateDirectory(obj)
+        if obj is not None:
+            # Update the original artefact with the changes
+            self._updateArtefactObjects(obj)
 
         else:
-            # The localised object is
-            art = self._makefile(path)
-            if obj is not None: obj._update(art)
-            else:   self._add(art)
+            # Create a new artefact for the artefact
+            self._loadArtefact(path)
 
         if exception:
             raise exception
 
-class RemoteManager(Manager, ABC):
+class RemoteManager(Manager):
     """ Abstract Base Class for managers that will be working with remote artefacts so efficiency with fetching and
     pushing files is important for time and bandwidth
     """

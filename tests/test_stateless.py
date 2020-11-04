@@ -18,6 +18,17 @@ class Test_Stateless(unittest.TestCase):
         files = {filename for filename in os.listdir()}
         self.assertEqual(arts, files)
 
+    def test_join(self):
+        self.assertEqual(stow.join("./example", "there"), "./example/there")
+        self.assertEqual(stow.join("example", "there"), "example/there")
+        self.assertEqual(stow.join("example", "/there"), "/there")
+        self.assertEqual(stow.join('/', '/directory'), "/directory")
+        self.assertEqual(stow.join('/', 'directory'), "/directory")
+        self.assertEqual(stow.join('s3://example-bucket/a/b', 'hello', 'there'), "s3://example-bucket/a/b/hello/there")
+        self.assertEqual(stow.join('s3://example-bucket/a/b', '/hello', 'there'), "s3://example-bucket/hello/there")
+        self.assertEqual(stow.join('s3://example-bucket/a/b', 'c:/hello', 'there'), "c:/hello/there")
+        self.assertEqual(stow.join("s3://example-location/directory", "filename.txt"), "s3://example-location/directory/filename.txt")
+
     def test_put(self):
 
         with tempfile.TemporaryDirectory() as source, tempfile.TemporaryDirectory() as destination:
@@ -86,29 +97,16 @@ class Test_Stateless(unittest.TestCase):
 
     def test_open(self):
 
-        try:
-            filename = str(uuid.uuid4())
+        with tempfile.TemporaryDirectory() as source:
+
+            filename = stow.join(source, str(uuid.uuid4()))
             with stow.open(filename, "w") as handle:
                 handle.write("content")
 
             with open(filename, "r") as handle:
                 self.assertEqual(handle.read(), "content")
 
-        finally:
-            os.remove(filename)
 
-    def test_join(self):
-
-        self.assertEqual(stow.join("./example", "there"), "./example/there")
-        self.assertEqual(stow.join("example", "there"), "example/there")
-        self.assertEqual(stow.join("example", "/there"), "example/there")
-
-    def test_join_with_protocol(self):
-
-        self.assertEqual(
-            stow.join("s3://example-location/directory", "filename.txt"),
-            "s3://example-location/directory/filename.txt"
-        )
 
 
 

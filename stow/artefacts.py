@@ -1,3 +1,4 @@
+import abc
 import io
 import datetime
 import contextlib
@@ -45,6 +46,24 @@ class Artefact:
         return self._manager[self._manager.dirname(self._path)]
 
     @property
+    @abc.abstractmethod
+    def modifiedTime(self):
+        """ UTC localised datetime of time file last modified by a write/append method """
+        pass
+
+    @property
+    @abc.abstractmethod
+    def createdTime(self):
+        """ UTC localised datetime of time file last modified by a write/append method """
+        pass
+
+    @property
+    @abc.abstractmethod
+    def accessedTime(self):
+        """ UTC localised datetime of time file last modified by a write/append method """
+        pass
+
+    @property
     def path(self):
         """ Return the manager relative path to this Artefact """
         return self._path
@@ -80,6 +99,17 @@ class Artefact:
             OperationNotPermitted: If the location given is a Directory and the get is not enforced
         """
         self._manager.get(self, path)
+
+    def delete(self, force: bool = False):
+        """ Delete this artefact from the disk
+
+        Args:
+            force: An "are you sure" for directories
+
+        Raises:
+            OperationNotPermitted: If directory and deletion has not been deleted
+        """
+        self.manager.rm(self)
 
 class File(Artefact):
     """ A filesystem file object - a container of bytes representing some data
@@ -196,7 +226,7 @@ class SubFile(File):
     """
 
     def __init__(self, manager, path: str, file: File):
-        Artefact.__init__(self, manager, path)
+        super(File, self).__init__(manager, path)
         self._concrete = file
 
     def __len__(self): return len(self._concrete)
@@ -206,14 +236,24 @@ class SubFile(File):
     def content(self) -> bytes: return self._concrete.content
 
     @property
-    def modifiedTime(self): return self._concrete.modifiedTime
-    @modifiedTime.setter
-    def modifiedTime(self, time): self._concrete.modifiedTime = time
+    def _modifiedTime(self): return self._concrete._modifiedTime
+    @_modifiedTime.setter
+    def _modifiedTime(self, time): self._concrete._modifiedTime = time
 
     @property
-    def size(self): return self._concrete.size
-    @size.setter
-    def size(self, newSize): self._concrete.size = newSize
+    def _createdTime(self): return self._concrete._createdTime
+    @_createdTime.setter
+    def _createdTime(self, time): self._concrete._createdTime = time
+
+    @property
+    def _accessedTime(self): return self._concrete._accessedTime
+    @_accessedTime.setter
+    def _accessedTime(self, time): self._concrete._accessedTime = time
+
+    @property
+    def _size(self): return self._concrete.size
+    @_size.setter
+    def _size(self, newSize): self._concrete.size = newSize
 
     @contextlib.contextmanager
     def open(self, mode: str = 'r', **kwargs) -> io.TextIOWrapper:
@@ -235,10 +275,22 @@ class Directory(Artefact):
         collected (bool): Toggle as to whether the directory contents has been collected (false when JIT Loading)
     """
 
-    def __init__(self, manager, path: str):
+    def __init__(
+        self,
+        manager,
+        path: str,
+        *,
+        createdTime: datetime.datetime = None,
+        modifiedTime: datetime.datetime = None,
+        accessedTime: datetime.datetime = None
+        ):
         super().__init__(manager, path)
         self._contents = weakref.WeakSet()
         self._collected = False
+
+        self._createdTime = createdTime
+        self._modifiedTime = modifiedTime
+        self._accessedTime = accessedTime
 
     def __len__(self): return len(self.ls())
     def __iter__(self): return iter(self._contents)
@@ -254,6 +306,33 @@ class Directory(Artefact):
         self._contents.add(artefact)
     def _remove(self, artefact: Artefact) -> None: self._contents.remove(artefact)
 
+    @property
+    def createdTime(self):
+        """ UTC localised datetime of time file last modified by a write/append method """
+        if self._createdTime is None:
+            if self._contents:
+                return min(x.createdTime for x in self._contents.values())
+            return None
+        return self._createdTime
+
+    @property
+    def modifiedTime(self):
+        """ UTC localised datetime of time file last modified by a write/append method """
+        if self._modifiedTime is None:
+            if self._contents:
+                return max(x.modifiedTime for x in self._contents.values())
+            return None
+        return self._modifiedTime
+
+    @property
+    def accessedTime(self):
+        """ UTC localised datetime of time file last modified by a write/append method """
+        if self._accessedTime is None:
+            if self._contents:
+                return max(x.accessedTime for x in self._contents.values())
+            return None
+        return self._accessedTime
+
     def mkdir(self, path: str):
         """ Create a directory nested inside this `Directory` with the relative path given
 
@@ -263,7 +342,7 @@ class Directory(Artefact):
         Returns:
             Directory: The newly created directory object
         """
-        return self.manager.mkdir(self.manager.join(self._path, path))
+        return self.manager.mkdir(self.manager.join(self._path, path, joinAbsolutes=True))
 
     def touch(self, path: str) -> File:
         """ Touch a file at given location relative to this Directory
@@ -274,7 +353,7 @@ class Directory(Artefact):
         Returns:
             File: The newly created file object
         """
-        return self.manager.touch(self.manager.join(self._path, path))
+        return self.manager.touch(self.manager.join(self._path, path, joinAbsolutes=True))
 
     def relpath(self, artefact: typing.Union[Artefact, str]) -> str:
         """ Assuming the artefact is a member of this directory, return a filepath which is relative to this directory
@@ -302,7 +381,7 @@ class Directory(Artefact):
             )
 
         # Return the path
-        return path[len(self.path):]
+        return self.manager.relpath(artefact.path, self.path)
 
     @contextlib.contextmanager
     def localise(self, path: str) -> str:
@@ -329,19 +408,20 @@ class Directory(Artefact):
         Yields:
             io.IOBase: An IO object depending on the mode for interacting with the file
         """
-        with self.manager.open(self.manager.join(self._path, path), mode, **kwargs) as handle:
+        with self.manager.open(self.manager.join(self._path, self.manager._managerPath(path)[1:]), mode, **kwargs) as handle:
             yield handle
 
-    def rm(self, path, recursive: bool = False):
+    def rm(self, path: str = None, recursive: bool = False):
         """ Remove an artefact at the given location
 
         Args:
+            artefact: Path that is to be deleted
             recursive: If the target is a directory, whether to delete recursively the directories contents
 
         Raises:
             OperationNotPermitted: In the even the target is a directory and recursive has not been toggled
         """
-        return self.manager.rm(self.manager.join(self.path, path), recursive)
+        return self.manager.rm(self.manager.join(self.path, path, joinAbsolutes=True), recursive)
 
     def _ls(self, recursive: bool = False):
         """ Get the current contents from this directory, do not update or edit state """
@@ -371,7 +451,7 @@ class Directory(Artefact):
         Returns:
             typing.Set[Artefact]: The collection of objects within the targeted directory
         """
-        return self._manager.ls(self.manager.join(self.path, path), recursive=recursive)
+        return self._manager.ls(self.path if not path else self.manager.join(self.path, path), recursive=recursive)
 
     def isEmpty(self) -> bool:
         """ Check whether the directory has contents
@@ -381,11 +461,21 @@ class Directory(Artefact):
         """
         return not (bool(self._contents) or bool(len(self)))
 
+    def _update(self, other: 'Directory'):
+
+        self._contents = self._contents.union(other._contents)
+        self._createdTime = other._createdTime
+        self._modifiedTime = other._modifiedTime
+        self._accessedTime = other._accessedTime
+        self._collected = False
+
 class SubDirectory(Directory):
     """ A directory object of a submanager. Wrapper for a complete Manager directory """
 
     def __init__(self, manager, path: str, directory: Directory):
-        super().__init__(manager, path)
+        super(Directory, self).__init__(manager, path)  # Access the parent of Directory
+        self._contents = weakref.WeakSet()
+        self._collected = False
         self._concrete = directory
 
     @property
@@ -399,3 +489,26 @@ class SubDirectory(Directory):
     def _add(self, artefact: Artefact) -> None:
         assert isinstance(artefact, (SubFile, SubDirectory))
         self._contents.add(artefact)
+
+
+    @property
+    def _modifiedTime(self): return self._concrete._modifiedTime
+    @_modifiedTime.setter
+    def _modifiedTime(self, time): self._concrete._modifiedTime = time
+
+    @property
+    def _createdTime(self): return self._concrete._createdTime
+    @_createdTime.setter
+    def _createdTime(self, time): self._concrete._createdTime = time
+
+    @property
+    def _accessedTime(self): return self._concrete._accessedTime
+    @_accessedTime.setter
+    def _accessedTime(self, time): self._concrete._accessedTime = time
+
+    def _update(self, other: Artefact):
+        if hasattr(other, "_concrete"):
+            self._concrete._update(other.concrete)
+
+        else:
+            self._concrete._update(other)

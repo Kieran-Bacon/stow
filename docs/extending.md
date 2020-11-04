@@ -67,3 +67,10 @@ class SSH(stow.manager):
 
 
 ```
+
+
+!!! Important
+    If you want to improve the efficiency of the artefact load function then you can implement `_loadArtefact` which does the job making the artefact and then adding it to the manager. this can be overloaded to call the ls operation and return the artefact from the added ls function but
+
+    to do this well you will need to wrap you ls function is an if and check to see if the directly is already pulled.
+    this way you can call the make artefact on every item and only the first time it will be pulled.

@@ -1,11 +1,12 @@
+import collections
+import typing
+import urllib
 import functools
 import pkg_resources
 
-from .manager import Manager
-
 MANAGERS = {}
 
-def find(manager: str) -> Manager:
+def find(manager: str):
     """ Fetch the `Manager` class hosted on the 'stow_managers' entrypoint with the given name `manager` entry name.
 
     Args:
@@ -36,9 +37,9 @@ def find(manager: str) -> Manager:
     return mClass
 
 @functools.lru_cache(maxsize=None)
-def connect(manager: str, *, submanager: str = None, **kwargs) -> Manager:
+def connect(manager: str, *, submanager: str = None, **kwargs):
     """ Find and connect to a `Manager` using its name (entrypoint name) and return an instance of that `Manager`
-    initalised with the kwargs provided. A path can be provided as the location on the manager for a sub manager to be
+    initialised with the kwargs provided. A path can be provided as the location on the manager for a sub manager to be
     created which will be returned instead.
 
     Args:
@@ -66,3 +67,37 @@ def connect(manager: str, *, submanager: str = None, **kwargs) -> Manager:
 
     # Create the Manager - pass all the kwarg arguments
     return mClass(**kwargs)
+
+# Parsed URL tuple definition
+ParsedURL = collections.namedtuple("ParsedURL", ["manager", "relpath"])
+
+def parseURL(stowURL: str) -> ParsedURL:
+    """ Parse the passed stow URL and return a ParsedURL a named tuple of manager and relpath
+
+    Example:
+        manager, relpath = stow.parseURL("s3://example-bucket/path/to/file)
+
+        result = stow.parseURL("s3://example-bucket/path/to/file)
+        result.manager
+        result.relpath
+
+    Args:
+        stowURL: The path to be parsed and manager identified
+
+    Returns:
+        typing.NamedTuple: Holding the manager and relative path of
+    """
+
+    # Parse the url provided
+    parsedURL = urllib.parse.urlparse(stowURL)
+
+    # Find the manager that is correct for the protocol
+    if parsedURL.scheme:
+        manager = find(parsedURL.scheme)
+
+    else:
+        # Local manager
+        manager = find("FS")
+
+    # Return the manager parsed
+    return ParsedURL(manager._loadFromProtocol(parsedURL), parsedURL.path)

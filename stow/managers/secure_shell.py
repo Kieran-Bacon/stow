@@ -52,6 +52,9 @@ class SSH(RemoteManager):
     def _makeFile(self, relpath: str) -> Artefact:
         pass
 
+    def _makeDirectory(self, relpath: str) -> Artefact:
+        pass
+
     def _get(self, source: Artefact, destination: str):
         pass
 
