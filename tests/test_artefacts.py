@@ -34,6 +34,20 @@ class BasicSetup:
 
 class Test_Artefacts(BasicSetup, unittest.TestCase):
 
+    def test_existence(self):
+
+        # Test that when a file is deleted that the object no longer works
+        file = self.manager["/file1"]
+
+        # Assert that we can get the length of the file
+        self.assertTrue(len(file))
+
+        # Detele the file from the manager
+        self.manager.rm("/file1")
+
+        with pytest.raises(stow.exceptions.ArtefactNoLongerExists):
+            self.assertTrue(len(file))
+
     def test_path(self):
 
         file = self.manager['/file1']

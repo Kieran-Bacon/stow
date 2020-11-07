@@ -16,7 +16,7 @@ from .manager import ManagerTests, SubManagerTests
 CONFIG_PATH = os.path.join(ETC_DIR, 'aws_credentials.ini')
 BUCKET_NAME_INCLUDE = 'pykb-storage-test-bucket'
 
-@unittest.skipIf(True or not os.path.exists(CONFIG_PATH), 'No credentials at {} to connect to aws'.format(CONFIG_PATH))
+@unittest.skipIf(False or not os.path.exists(CONFIG_PATH), 'No credentials at {} to connect to aws'.format(CONFIG_PATH))
 class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
 
     @classmethod
@@ -107,47 +107,6 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
     def tearDown(self):
         self.s3.Bucket(self.bucket_name).objects.delete()
 
-    def test_abspath(self):
-
-        paths = [
-            ('/hello/kieran', 'hello/kieran'),
-            ('/hello/kieran', 'hello/kieran'),
-            (r'\what\the\hell', 'what/the/hell'),
-            (r'C:\\what\\the\\something', 'what/the/something'),
-            ('s3://path/like/this', 'path/like/this')
-        ]
-
-
-        for i, o in paths:
-            self.assertEqual(self.manager.abspath(i), o)
-    def test_relPath(self):
-
-        paths = [
-            ('/hello/kieran', '/hello/kieran'),
-            ('/hello/kieran/', '/hello/kieran'),
-            (r'\what\the\hell', '/what/the/hell'),
-            (r'C:\\what\\the\\hell', '/what/the/hell'),
-            ('s3://path/like/this', '/path/like/this')
-        ]
-
-
-        for i, o in paths:
-            self.assertEqual(self.manager.relpath(i), o)
-
-    def test_basename(self):
-
-        paths = [
-            ('/hello/kieran', 'kieran'),
-            ('/hello/', 'hello'),
-            (r'\what\the\hell', 'hell'),
-            (r'C:\\what\\the\\something', 'something'),
-            ('s3://path/like/this', 'this')
-        ]
-
-
-        for i, o in paths:
-            self.assertEqual(self.manager.basename(i), o)
-
     def test_connect_submanager(self):
 
         self.setUpWithFiles()
@@ -162,14 +121,6 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
 
         self.assertIsInstance(sub_manager, stow.manager.SubManager)
         self.assertEqual(len(sub_manager.ls()), 1)
-
-    def test_join_with_protocol(self):
-
-        self.assertEqual(
-            self.manager.join("s3://example-location/directory", "filename.txt"),
-            "s3://example-location/directory/filename.txt"
-        )
-
 
     def test_stateless_put_file_with_manager(self):
         # Test that when putting with the stateless interface that put actually works

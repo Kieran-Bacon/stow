@@ -5,6 +5,28 @@ import functools
 import pkg_resources
 
 MANAGERS = {}
+INITALISED_MANAGERS = {}
+
+def initCache(function):
+    """ Cache results and return previously created manager objects
+    """
+
+    functools.wraps(function)
+    def wrapper(manager, **kwargs):
+
+        identifier = hash((manager, "-".join(["{}-{}".format(k,v) for k,v in sorted(kwargs.items(), key=lambda x: x[0])])))
+
+        if identifier in INITALISED_MANAGERS:
+            return INITALISED_MANAGERS[identifier]
+
+        manager = function(manager, **kwargs)
+
+        INITALISED_MANAGERS[identifier] = manager
+
+        return manager
+
+    return wrapper
+
 
 def find(manager: str):
     """ Fetch the `Manager` class hosted on the 'stow_managers' entrypoint with the given name `manager` entry name.
@@ -22,7 +44,7 @@ def find(manager: str):
     # Get the manager class for the manager type given - load the manager type if not already loaded
     lmanager = manager.lower()
 
-    if manager in MANAGERS:
+    if lmanager in MANAGERS:
         mClass = MANAGERS[lmanager]
 
     else:
@@ -36,7 +58,7 @@ def find(manager: str):
 
     return mClass
 
-@functools.lru_cache(maxsize=None)
+@initCache
 def connect(manager: str, *, submanager: str = None, **kwargs):
     """ Find and connect to a `Manager` using its name (entrypoint name) and return an instance of that `Manager`
     initialised with the kwargs provided. A path can be provided as the location on the manager for a sub manager to be
@@ -92,12 +114,11 @@ def parseURL(stowURL: str) -> ParsedURL:
     parsedURL = urllib.parse.urlparse(stowURL)
 
     # Find the manager that is correct for the protocol
-    if parsedURL.scheme:
+    if parsedURL.scheme and parseURL.netloc:
         manager = find(parsedURL.scheme)
+        return ParsedURL(manager._loadFromProtocol(parsedURL), parsedURL.path)
 
     else:
         # Local manager
         manager = find("FS")
-
-    # Return the manager parsed
-    return ParsedURL(manager._loadFromProtocol(parsedURL), parsedURL.path)
+        return ParsedURL(manager(path=parsedURL.path), "/")

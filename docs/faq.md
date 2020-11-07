@@ -1,4 +1,14 @@
 # Frequently asked questions
+
+## How to put into things into a directory
+
+The put method takes the source artefact and puts it directly at the location given by destination. If you'd like to move things by bulk into a destination and keep the same name you can write the following
+
+```python
+with artefact in stow.ls("local_directory"):
+    stow.put(artefact, stow.join(target.path, artefact.basename))
+```
+
 ## put vs sync for directories
 ### How do stamp on a directory with another?
 

@@ -21,150 +21,129 @@ class FS(LocalManager):
 
     def __repr__(self): return '<Manager(FS): {}>'.format(self._path)
 
-    def _abspath(self, managerPath):
+    def _abspath(self, managerPath: str) -> str:
         return os.path.abspath(os.path.join(self._path, managerPath[1:]))
 
-    def _makeFile(self, path: str):
-        abspath = self._abspath(path)
+    def _identifyPath(self, managerPath: str):
 
-        if not os.path.exists(abspath):
-            with open(abspath, "w"):
-                pass
-
-        stats = os.stat(abspath)
-
-        # Created time
-        createdTime = datetime.datetime.utcfromtimestamp(stats.st_mtime)
-        createdTime = pytz.UTC.localize(createdTime)
-
-        # Modified time
-        modifiedTime = datetime.datetime.utcfromtimestamp(stats.st_mtime)
-        modifiedTime = pytz.UTC.localize(modifiedTime)
-
-        # Access time
-        accessedTime = datetime.datetime.utcfromtimestamp(stats.st_mtime)
-        accessedTime = pytz.UTC.localize(accessedTime)
-
-        return File(
-            self,
-            path,
-            stats.st_size,
-            modifiedTime,
-            createdTime,
-            accessedTime,
-        )
-
-
-    def _makeDirectory(self, path: str):
-        abspath = self._abspath(path)
-
-        if not os.path.exists(abspath):
-            os.path.makedirs(abspath)
-
-        stats = os.stat(abspath)
-
-        # Created time
-        createdTime = datetime.datetime.utcfromtimestamp(stats.st_mtime)
-        createdTime = pytz.UTC.localize(createdTime)
-
-        # Modified time
-        modifiedTime = datetime.datetime.utcfromtimestamp(stats.st_mtime)
-        modifiedTime = pytz.UTC.localize(modifiedTime)
-
-        # Access time
-        accessedTime = datetime.datetime.utcfromtimestamp(stats.st_mtime)
-        accessedTime = pytz.UTC.localize(accessedTime)
-
-        return Directory(
-            self,
-            path,
-            createdTime=createdTime,
-            modifiedTime=modifiedTime,
-            accessedTime=accessedTime,
-        )
-
-    def _identifyPath(self, path: str):
-
-        abspath = self._abspath(path)
+        abspath = self._abspath(managerPath)
 
         if os.path.exists(abspath):
+
+            stats = os.stat(abspath)
+
+            # Created time
+            createdTime = datetime.datetime.utcfromtimestamp(stats.st_mtime)
+            createdTime = pytz.UTC.localize(createdTime)
+
+            # Modified time
+            modifiedTime = datetime.datetime.utcfromtimestamp(stats.st_mtime)
+            modifiedTime = pytz.UTC.localize(modifiedTime)
+
+            # Access time
+            accessedTime = datetime.datetime.utcfromtimestamp(stats.st_mtime)
+            accessedTime = pytz.UTC.localize(accessedTime)
+
             if os.path.isfile(abspath):
-                return self._makeFile(path)
+                return File(
+                    self,
+                    managerPath,
+                    stats.st_size,
+                    modifiedTime,
+                    createdTime,
+                    accessedTime,
+                )
 
             elif os.path.isdir(abspath):
-                return self._makeDirectory(path)
+                return Directory(
+                    self,
+                    managerPath,
+                    createdTime=createdTime,
+                    modifiedTime=modifiedTime,
+                    accessedTime=accessedTime,
+                )
 
         return None
 
-    def _get(self, src_remote: Artefact, dest_local: str):
+    def _get(self, source: str, destination: str):
 
-        # Get the absolute path to the object
-        src_remote = self.abspath(src_remote.path)
+        # Convert source path
+        sourceAbspath = self._abspath(source)
 
         # Identify download method
-        method = shutil.copytree if os.path.isdir(src_remote) else shutil.copy
+        method = shutil.copytree if os.path.isdir(sourceAbspath) else shutil.copy
 
         # Download
-        method(src_remote, dest_local)
+        method(sourceAbspath, destination)
 
-    def _getBytes(self, source: File) -> bytes:
+    def _getBytes(self, source: str) -> bytes:
 
         with open(self._abspath(source), "rb") as handle:
-            fileBytes = handle.read()
+            return handle.read()
 
-        return fileBytes
+    def _put(self, source: str, destination: str):
 
-    def _put(self, src_local, dest_remote):
+        # Convert destination path
+        destinationAbspath = self._abspath(destination)
 
-        if os.path.isdir(src_local):
-            # Copy the directory into place
-            shutil.copytree(src_local, dest_remote)
+        # Ensure the destination
+        os.makedirs(os.path.dirname(destinationAbspath), exist_ok=True)
 
-        else:
-            # Putting a file
-            os.makedirs(os.path.dirname(dest_remote), exist_ok=True)
-            shutil.copy(src_local, dest_remote)
+        # Select the put method
+        method = shutil.copytree if os.path.isdir(source) else shutil.copy
 
-    def _putBytes(self, source, destinationAbsPath):
+        # Perform the putting
+        method(source, destinationAbspath)
+
+    def _putBytes(self, fileBytes: bytes, destination: str):
+
+        # Convert destination path
+        destinationAbspath = self._abspath(destination)
 
         # Makesure the destination exists
-        os.makedirs(os.path.dirname(destinationAbsPath), exist_ok=True)
+        os.makedirs(os.path.dirname(destinationAbspath), exist_ok=True)
 
         # Write the byte file
-        with open(destinationAbsPath, "wb") as handle:
-            handle.write(source)
+        with open(destinationAbspath, "wb") as handle:
+            handle.write(fileBytes)
 
-    def _cp(self, srcObj: Artefact, destPath: str):
-        self._put(self.abspath(srcObj.path), self.abspath(destPath))
+    def _cp(self, source: str, destination: str):
+        self._put(self._abspath(source), self._abspath(destination))
 
-    def _mv(self, srcObj: Artefact, destPath: str):
+    def _mv(self, source: str, destination: str):
 
-        absDestination = self._abspath(destPath)
-        os.makedirs(os.path.dirname(absDestination), exist_ok=True)
-        os.rename(self._abspath(srcObj.path), absDestination)
+        # Convert the source and destination
+        source, destination = self._abspath(source), self._abspath(destination)
 
-    def _ls(self, directory: Directory):
+        # Ensure the destination location
+        os.makedirs(os.path.dirname(destination), exist_ok=True)
+
+        # Move the source artefact
+        os.rename(source, destination)
+
+    def _ls(self, directory: str):
 
         # Get a path to the folder
-        abspath = self._abspath(directory.path)
+        abspath = self._abspath(directory)
 
         # Iterate over the folder and identify every object - add the created
         for art in os.listdir(abspath):
             self._addArtefact(
                 self._identifyPath(
-                    self.join(directory.path, art)
+                    self.join(directory, art)
                 )
             )
 
-    def _rm(self, artefact: Artefact):
+    def _rm(self, artefact: str):
 
-        abspath = self.abspath(artefact.path)
-        if not os.path.exists(abspath): return # NOTE the file has already been deleted - copy directory has this affect
+        # Convert the artefact
+        artefact = self._abspath(artefact)
 
-        if isinstance(artefact, Directory):
-            shutil.rmtree(abspath)
-        else:
-            os.remove(abspath)
+        # Select method for deleting
+        method = shutil.rmtree if os.path.isdir(artefact) else os.remove
+
+        # Remove the artefact
+        method(artefact)
 
     @classmethod
     def _loadFromProtocol(cls, url: urllib.parse.ParseResult):

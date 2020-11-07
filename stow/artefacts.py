@@ -26,11 +26,14 @@ class Artefact:
         self._path = path  # Relative path on manager
         self._exists = True # As you are created you are assumed to exist
 
-    def __getattr__(self, attr):
-        if self.__getattribute__('_exists'):
-            return self.__getattribute__(attr)
+    def __getattribute__(self, attr):
+
+        if object.__getattribute__(self, '_exists'):
+            return object.__getattribute__(self, attr)
         else:
-            raise exceptions.ArtefactNoLongerExists(f"{self} no longer exists")
+            raise exceptions.ArtefactNoLongerExists(
+                "Artefact {} {} no longer exists".format(type(self), object.__getattribute__(self, "_path"))
+            )
 
     def __hash__(self): return hash(id(self))
     def __eq__(self, other): return hash(self) == hash(other)
@@ -205,6 +208,16 @@ class File(Artefact):
         return self._size
 
     @contextlib.contextmanager
+    def localise(self) -> str:
+        """ Localise this File artefact
+
+        Returns:
+            str: the absolute local path to the manager path
+        """
+        with self.manager.localise(self) as abspath:
+            yield abspath
+
+    @contextlib.contextmanager
     def open(self, mode: str = 'r', **kwargs) -> io.IOBase:
         """ Context manager to allow the pulling down and opening of a file """
         with self._manager.open(self, mode, **kwargs) as handle:
@@ -233,9 +246,6 @@ class SubFile(File):
     def __repr__(self): return '<stow.SubFile for {}>'.format(self._concrete)
 
     @property
-    def content(self) -> bytes: return self._concrete.content
-
-    @property
     def _modifiedTime(self): return self._concrete._modifiedTime
     @_modifiedTime.setter
     def _modifiedTime(self, time): self._concrete._modifiedTime = time
@@ -249,6 +259,11 @@ class SubFile(File):
     def _accessedTime(self): return self._concrete._accessedTime
     @_accessedTime.setter
     def _accessedTime(self, time): self._concrete._accessedTime = time
+
+    @property
+    def content(self) -> bytes: return self._concrete.content
+    @content.setter
+    def content(self, content: bytes): self._concrete.content = content
 
     @property
     def _size(self): return self._concrete.size
@@ -384,8 +399,8 @@ class Directory(Artefact):
         return self.manager.relpath(artefact.path, self.path)
 
     @contextlib.contextmanager
-    def localise(self, path: str) -> str:
-        """ Localise an artefact of the directory.
+    def localise(self, path: str = None) -> str:
+        """ Localise an artefact this directory or a child artefact with the provided path.
 
         Args:
             path: Path of localisation
@@ -393,7 +408,7 @@ class Directory(Artefact):
         Returns:
             str: the absolute local path to the manager path
         """
-        with self.manager.localise(self.manager.join(self._path, path)) as abspath:
+        with self.manager.localise(self if path is None else self.manager.join(self._path, path)) as abspath:
             yield abspath
 
     @contextlib.contextmanager
@@ -507,8 +522,4 @@ class SubDirectory(Directory):
     def _accessedTime(self, time): self._concrete._accessedTime = time
 
     def _update(self, other: Artefact):
-        if hasattr(other, "_concrete"):
-            self._concrete._update(other.concrete)
-
-        else:
-            self._concrete._update(other)
+        self._concrete._update(other._concrete)

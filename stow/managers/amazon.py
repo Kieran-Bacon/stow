@@ -1,8 +1,10 @@
-import os
 import boto3
 from botocore.exceptions import ClientError
-import tempfile
+
+import os
 import re
+import io
+import typing
 import urllib.parse
 
 from ..artefacts import Artefact, File, Directory
@@ -51,94 +53,100 @@ class Amazon(RemoteManager):
 
     def __repr__(self): return '<Manager(S3): {}>'.format(self._bucketName)
 
-    def isabs(self, path: str) -> bool:
-        return self._S3_OBJECT_KEY.match(path) is not None
-
-    def abspath(self, relpath: str):
+    def _abspath(self, managerPath: str) -> str:
         """ Difference between AWS and manager path is the removal of a leading '/'. As such remove the first character
         """
-        return self.relpath(relpath)[1:]
+        managerPath = managerPath[1:]
+        assert self._S3_OBJECT_KEY.match(managerPath) is not None, "artefact name isn't accepted by S3"
+        return managerPath
 
-    @classmethod
-    def join(cls, *components) -> str:
-        """ Join a series of amazon s3 paths """
-        """ Join a relative path with another path for sub and return a manager relative path
-        """
+    def _identifyPath(self, managerPath: str) -> typing.Union[Artefact, None]:
 
-        # Check if the string has a protocol
-        url = urllib.parse.urlparse(components[0])
-        bucket = None
-        if url.scheme != "":
-            if url.scheme != "s3":
-                raise ValueError("{} manager cannot join paths of non compatible paths: {}".format(cls), components)
+        # Create a pagination that looks specifically at the manager path given
+        pages = self._clientPaginator.paginate(
+            Bucket=self._bucketName,
+            Prefix=self._abspath(managerPath),
+            Delimiter="/"
+        )
 
-            components = list(components)
-            bucket = url.netloc
-            components[0] = url.path
+        keyName = self.basename(managerPath)
+        dirName = keyName + "/"
 
-        path = cls._MULTI_SEP_REGEX.sub("/", cls._LINE_SEP.join(components))
+        # Iterate over the pages -
+        for page in pages:
+            if page is None:
+                break
 
-        if bucket:
-            path = "s3://{}{}".format(bucket, path)
+            # Check To see if there are any files with the given name
+            if "Contents" in page:
+                # There are files that lead with the manager path given
+                for file in page["Contents"]:
+                    if file["Key"] == keyName:
+                        # We've found the file artefact that directly matches - create a file and return
+                        return File(
+                            self,
+                            managerPath,
+                            modifiedTime=file["LastModified"],
+                            size=file["Size"]
+                        )
 
-        return path
+            if "CommonPrefixes" in page:
 
-    def _isdir(self, relpath: str):
+                for directory in page["CommonPrefixes"]:
+                    if directory["Prefix"] == dirName:
+                        # The path is to the directory
+                        return Directory(self, managerPath)
 
-        # Get manager specific path
-        abspath = self.abspath(relpath)
-        if not abspath:
-            # Referencing bucket
-            return True
+        return None
 
-        try:
-            # Try and load the object outright - if successful then file not dir
-            self._bucket.Object(abspath).load()
-            return False
+    def _loadArtefact(self, managerPath: str) -> Artefact:
 
-        except ClientError as e:
-            # No object existed at location - check if a directory exists
-            if e.response["Error"]["Code"] != "404": raise
+        directory = self.dirname(managerPath)
 
-            # Get all directories for that level
-            dirs = self._clientPaginator.paginate(
-                Bucket=self._bucketName,
-                Prefix=self.abspath(self.dirname(relpath)) + "/",
-                Delimiter='/'
-            )
+        if directory in self._paths:
+            # We may have already pulled this artefact and don't need to do it again
 
-            # Loop through the returned directires and if any match return True
-            for dirObj in dirs.search("CommonPrefixes"):
-                if dirObj is None: continue
-                if relpath == self.relpath(dirObj.get("Prefix")): return True
+            directoryObject = self._paths[directory]
 
-            raise exceptions.ArtefactNotFound("Couldn't find artefact with relpath: {}".format(relpath))
+            if directoryObject._collected:
+                # The owning directory supposedly already exists and has already been collected - recheck s3
+                return super()._loadArtefact(managerPath)
 
-    def _makefile(self, remotePath: str):
-        try:
-            awsObject = self._bucket.Object(self.abspath(remotePath))
-        except Exception as e:
-            raise exceptions.ArtefactNotFound(
-                "Couldn't create file at {} as it doesn't exist".format(remotePath)
-            ) from e
+        else:
+            # The owning directory doesn't exist - We will identify it and then add its contents
+            directoryObject = self._identifyPath(directory)
 
-        return File(self, remotePath, awsObject.last_modified, awsObject.content_length)
+            if directoryObject is None or isinstance(directoryObject, File):
+                # There isn't a directory because it has no contents
+                raise exceptions.ArtefactNotFound("Cannot locate artefact {}".format(managerPath))
 
-    def _get(self, src_remote: Artefact, dest_local: str):
+        # Add all artefacts of the directory into the manager - adding the target artefact at the same time
+        self._ls(self._abspath(directory))
+        directoryObject._collected = True
 
-        if isinstance(src_remote, Directory):
+        # Return the artefact
+        if managerPath in self._paths:
+            return self._paths[managerPath]
 
-            # Identify the prefix for the directory
-            prefix = self.abspath(src_remote.path)
+        else:
+            raise exceptions.ArtefactNotFound("Cannot locate artefact {}".format(managerPath))
 
-            for object in self._bucket.objects.filter(Prefix=prefix):
-                # Collect the objects in that directory - downlad each one
+    def _get(self, source: str, destination: str):
 
-                # Write the relative path
-                relative_path = object.key[len(prefix) + 1:]
+        # Convert manager path to s3
+        keyName = self._abspath(source)
+
+        # If the source object is a directory
+        if isinstance(self[source], Directory):
+
+            # Loop through all objects in the bucket and create them locally
+            for object in self._bucket.objects.filter(Prefix=keyName):
+
+                # Get the objects relative path to the directory
+                relativePath = self.relpath(object.key, keyName)
 
                 # Create object absolute path
-                path = os.path.abspath(os.path.join(dest_local, relative_path))
+                path = os.path.join(destination, relativePath)
 
                 # Ensure the directory for that object
                 os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -147,24 +155,32 @@ class Amazon(RemoteManager):
                 self._bucket.download_file(object.key, path)
 
         else:
-            self._bucket.download_file(self.abspath(src_remote.path), dest_local)
+            self._bucket.download_file(keyName, destination)
 
-    def _put(self, src_local, dest_remote, merge: bool = False):
+    def _getBytes(self, source: str) -> bytes:
 
-        if os.path.isdir(src_local):
+        # Get buffer to recieve bytes
+        bytes_buffer = io.BytesIO()
+
+        # Fetch the file bytes and write them to the buffer
+        self._s3Client.download_fileobj(Bucket=self._bucketName, Key=self._abspath(source), Fileobj=bytes_buffer)
+
+        # Return the bytes stored in the buffer
+        return bytes_buffer.getvalue()
+
+    def _put(self, source: str, destination: str):
+
+        destination = self._abspath(destination)
+
+        if os.path.isdir(source):
             # A directory of items is to be uploaded - walk local directory and uploaded each file
 
-            for root, dirs, files in os.walk(src_local):
-                dRoot = self.join(dest_remote, root[len(src_local):])
+            for root, dirs, files in os.walk(source):
+                dRoot = self.join(destination, self.relpath(root, source))
 
                 if not (dirs or files):
                     # There are no sub-directories or files to be uploaded
-
-                    if merge and dRoot in self and not self[dRoot].isEmpty():
-                        # We are merging a directory that has contents so no activity to take
-                        continue
-
-                    placeholder_path = self.abspath(self.join(dRoot, self._PLACEHOLDER))
+                    placeholder_path = self._abspath(self.join(dRoot, self._PLACEHOLDER))
                     self._bucket.put_object(Key=placeholder_path, Body=b'')
                     continue
 
@@ -172,100 +188,104 @@ class Amazon(RemoteManager):
                 for file in files:
                     self._bucket.upload_file(
                         os.path.join(root, file),
-                        self.abspath(self.join(dRoot, file))
+                        self._abspath(self.join(dRoot, file))
                     )
 
         else:
             # Putting a file
-            self._bucket.upload_file(src_local, dest_remote)
+            self._bucket.upload_file(source, destination)
 
-    def _putBytes(self, source, destinationAbsPath):
-        self._bucket.put_object(Key=destinationAbsPath, Body=source)
+    def _putBytes(self, fileBytes: bytes, destination: str):
+        self._bucket.put_object(Key=self._abspath(destination), Body=fileBytes)
 
-    def _rm(self, artefact: Artefact):
+    def _cpFile(self, source, destination):
+        self._bucket.Object(destination).copy_from(CopySource={'Bucket': self._bucketName, 'Key': source})
 
-        key = self.abspath(artefact.path)
-        if isinstance(artefact, Directory):
+    def _cp(self, source: str, destination: str):
+
+        # Convert the paths to s3 paths
+        sourcePath, destinationPath = self._abspath(source), self._abspath(destination)
+
+        # Detemine how to handle the source
+        if isinstance(self[source], Directory):
+            # Source is director - loop through and copy each file object
+            for obj in self._bucket.objects.filter(Prefix=sourcePath):
+                self._cpFile(obj.key, self.join(destinationPath, self.relpath(obj.key, sourcePath)))
+
+        else:
+            # Source is a file - copy directly to location
+            self._cpFile(sourcePath, destinationPath)
+
+    def _mv(self, source: str, destination: str):
+
+        # Convert the paths to s3 paths
+        sourcePath, destinationPath = self._abspath(source), self._abspath(destination)
+
+        # Detemine how to handle the source
+        if isinstance(self[source], Directory):
+            # Source is director - loop through and copy each file object
+            for obj in self._bucket.objects.filter(Prefix=sourcePath):
+                self._cpFile(obj.key, self.join(destinationPath, self.relpath(obj.key, sourcePath)))
+                obj.delete()
+
+        else:
+            # Source is a file - copy directly to location
+            self._cpFile(sourcePath, destinationPath)
+            self._bucket.Object(sourcePath).delete()
+
+    def _ls(self, directory: str):
+
+        # Create a pagination that looks specifically at the manager path given
+        pages = self._clientPaginator.paginate(
+            Bucket=self._bucketName,
+            Prefix=self._abspath(directory) + "/",
+            Delimiter="/"
+        )
+
+        # Iterate over the pages
+        for page in pages:
+            if page is None:
+                break
+
+            # Check To see if there are any files with the given name
+            if "Contents" in page:
+                # There are files that lead with the manager path given
+                for file in page["Contents"]:
+                    self._addArtefact(
+                        File(
+                            self,
+                            "/" + file["Key"],
+                            modifiedTime=file["LastModified"],
+                            size=file["Size"]
+                        )
+                    )
+
+            if "CommonPrefixes" in page:
+                for directory in page["CommonPrefixes"]:
+                    return self._addArtefact(Directory(self, "/" + directory["Prefix"][:-1]))
+
+    def _rm(self, artefact: str):
+
+        key = self._abspath(artefact)
+
+        if isinstance(self[artefact], Directory):
             for obj in self._bucket.objects.filter(Prefix=key):
                 obj.delete()
 
         else:
             self._bucket.Object(key).delete()
 
-    def _cpFile(self, source, destination):
-        self._bucket.Object(destination).copy_from(CopySource={'Bucket': self._bucketName, 'Key': source})
+    def _loadFromProtocol(cls, url: urllib.parse.ParseResult):
 
-    def _cp(self, srcObj: Artefact, destPath: str):
-        """ Move the object to the desintation """
+        # Extract the query data passed into
+        queryData = urllib.parse.parse_qs(url.query)
 
-        source_path, dest_path = self.abspath(srcObj.path), self.abspath(destPath)
-        if isinstance(srcObj, Directory):
-            for obj in self._bucket.objects.filter(Prefix=source_path):
-                relative = obj.key[len(source_path):]
-                self._cpFile(obj.key, self.abspath(self.join(dest_path, relative)))
-
-        else:
-            self._cpFile(source_path, dest_path)
-
-    def _mvFile(self, source, destination):
-        self._cpFile(source, destination)
-        self._bucket.Object(source).delete()
-
-    def _mv(self, srcObj: Artefact, destPath: str):
-        """ Move the object to the desintation """
-
-        source_path, dest_path = self.abspath(srcObj.path), self.abspath(destPath)
-        if isinstance(srcObj, Directory):
-            for obj in self._bucket.objects.filter(Prefix=source_path):
-                relative = obj.key[len(source_path):]
-                self._mvFile(obj.key, self.abspath(self.join(dest_path, relative)))
-
-        else:
-            self._mvFile(source_path, dest_path)
-
-    def _collectDirectoryContents(self, directory: Directory):
-
-        abspath = self.abspath(directory.path)
-        if abspath: abspath += "/"
-
-        # Extract the relevent objects from s3
-        dirs = self._clientPaginator.paginate(Bucket=self._bucketName, Prefix=abspath, Delimiter='/')
-        for dirRelpath in (self.relpath(p.get("Prefix")) for p in dirs.search("CommonPrefixes") if p is not None):
-            self._backfillHierarchy(dirRelpath)
-
-        # Iterate over the files
-        files = iter(self._bucket.objects.filter(Prefix=abspath, Delimiter='/'))
-        for obj in files:
-            key = obj.key
-            relpath = self.relpath(key)
-
-            if (
-                relpath in self._paths or
-                key == abspath or
-                key.endswith(self._PLACEHOLDER)
-                ):
-                continue
-
-            self._add(
-                File(self, relpath, obj.last_modified, obj.size)
-            )
-
-        directory._collected = True
-
-    def _listdir(self, relpath: str):
-
-        abspath = self.abspath(relpath)
-        if abspath: abspath += "/"
-
-        # Extract the relevent objects from s3
-        dirs = self._clientPaginator.paginate(Bucket=self._bucketName, Prefix=abspath, Delimiter='/')
-        files = self._bucket.objects.filter(Prefix=abspath, Delimiter='/')
-
-        # Expand and convert s3 objects
-        dirs = {self.relpath(p.get("Prefix")) for p in dirs.search("CommonPrefixes") if p is not None}
-        files = {self.relpath(obj.key) for obj in files if obj.key != abspath and obj.key.split('/')[-1] != self._PLACEHOLDER}
-
-        return dirs, files
+        return cls(
+            bucket=url.netloc,
+            aws_access_key_id = queryData.get("aws_access_key_id", [None])[0],
+            aws_secret_access_key = queryData.get("aws_secret_access_key", [None])[0],
+            region_name = queryData.get("region_name", [None])[0],
+        )
 
     def toConfig(self):
         return {

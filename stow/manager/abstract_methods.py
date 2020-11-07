@@ -12,44 +12,24 @@ class AbstractManager(ABC):
         pass
 
     @abstractmethod
-    def _abspath(self, managerPath):
-        """ Return the most accurate path to an object in the managers vernacular. Opposite of relpath
+    def _abspath(self, managerPath: str) -> str:
+        """ Return the absolute path on the backend provider from the standardised manager path.
 
         examples:
             local managers shall convert a relative path to its full absolute os compatible filepath
             s3 shall convert the relative path to a s3 valid key
 
         Args:
-            artefact (str): The artefact object or it's relative path which is to be converted
-        """
-        pass
-
-    @abstractmethod
-    def _makeFile(self, abspath: str) -> File:
-        """ Make a file object using the underlying implementation objects from a manager relative path
-
-        Args:
-            abspath: Manager absolute path
+            managerPath: The manager relative path which is to be converted to an absolute path
 
         Returns:
-            File: The File object representing the on disk data object
+            str: The manager absolute path
         """
         pass
 
-    @abstractmethod
-    def _makeDirectory(self, abspath: str) -> Directory:
-        """ Make a directory object using the underlying implementation objects from a manager relative path
-
-        Args:
-            abspath: Manager absolute path
-
-        Returns:
-            File: The File object representing the on disk data object
-        """
-        pass
 
     @abstractmethod
-    def _identifyPath(self, abspath: str) -> typing.Union[Artefact, None]:
+    def _identifyPath(self, managerPath: str) -> typing.Union[Artefact, None]:
         """ Look at the underying implementation and get an artefact that represents the object at th path given if it
         exists. If no object could be found, return None
 
@@ -62,7 +42,7 @@ class AbstractManager(ABC):
         pass
 
     @abstractmethod
-    def _get(self, source: Artefact, destination: str):
+    def _get(self, source: str, destination: str):
         """ Fetch the artefact and downloads its data to the local destination path provided
 
         The existence of the file to collect has already been checked so this function can be written to assume its
@@ -75,7 +55,7 @@ class AbstractManager(ABC):
         pass
 
     @abstractmethod
-    def _getBytes(self, source: File) -> bytes:
+    def _getBytes(self, source: str) -> bytes:
         """ Fetch the file artefact contents directly. This is to avoid having to write the contents of files to discs
         for some of the other operations.
 
@@ -101,7 +81,7 @@ class AbstractManager(ABC):
         function. Therefore their is no need to check/protect against it. (famous last words)
 
         Args:
-            source: A local path to an artefact (File or Directory)
+            source: A local absolute path to an artefact (File or Directory)
             destination: A manager abspath path for the artefact
         """
         pass
@@ -122,7 +102,7 @@ class AbstractManager(ABC):
         pass
 
     @abstractmethod
-    def _cp(self, source: Artefact, destination: str):
+    def _cp(self, source: str, destination: str):
         """ Method for copying an artefact local to the manager to an another location on the manager. Implementation
         would avoid having to download data from a manager to re-upload that data.
 
@@ -138,7 +118,7 @@ class AbstractManager(ABC):
         pass
 
     @abstractmethod
-    def _mv(self, source: Artefact, destination: str):
+    def _mv(self, source: str, destination: str):
         """ Method for moving an artefact local to the manager to an another location on the manager. Implementation
         would avoid having to download data from a manager to re-upload that data.
 
@@ -156,7 +136,7 @@ class AbstractManager(ABC):
         pass
 
     @abstractmethod
-    def _ls(self, directory: Directory):
+    def _ls(self, directory: str):
         """ List all artefacts that are present at the directory objects location and add them into the manager.
 
         The existence of the directory has already been confirmed.
@@ -174,12 +154,12 @@ class AbstractManager(ABC):
         Food for thought.
 
         Args:
-            managerPath: the manager abspath to the directory whose content is to be indexed
+            managerPath: the manager path to the directory whose content is to be indexed
         """
         pass
 
     @abstractmethod
-    def _rm(self, artefact: Artefact):
+    def _rm(self, artefact: str):
         """ Delete the underlying artefact data on the manager.
 
         To avoid possible user error in deleting directories, the user must have already indicated that they want to
@@ -208,8 +188,19 @@ class AbstractManager(ABC):
 
     @contextlib.contextmanager
     @abstractmethod
-    def localise(self, artefact: typing.Union[Artefact, str]):
-        """ TODO
+    def localise(self, artefact: typing.Union[Artefact, str]) -> str:
+        """ Localise an artefact, ensure that there is an absolute path that reaches this artefact. For local artefacts
+        this will be the direct abspath. Remote managers will get the artefact, and pass back the path to this local
+        version.
+
+        A path is still returned even if the artefact doesn't exist. It will be the responsibility of the calling method
+        to handle what is localised.
+
+        Args:
+            artefact: The artefact path or artefact object
+
+        Yields:
+            str: The abspath for the artefact
         """
         pass
 

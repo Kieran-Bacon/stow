@@ -1,3 +1,4 @@
 mkdocs
 mkapi
 pytest
+pytest-cov

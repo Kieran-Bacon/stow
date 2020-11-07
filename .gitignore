@@ -4,4 +4,6 @@
 *.egg-info
 *.pyc
 
+.coverage
+htmlcov
 aws_credentials.ini
