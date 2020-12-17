@@ -112,7 +112,7 @@ class Artefact:
         Raises:
             OperationNotPermitted: If directory and deletion has not been deleted
         """
-        self.manager.rm(self)
+        self.manager.rm(self, recursive=force)
 
 class File(Artefact):
     """ A filesystem file object - a container of bytes representing some data
@@ -268,7 +268,7 @@ class SubFile(File):
     @property
     def _size(self): return self._concrete.size
     @_size.setter
-    def _size(self, newSize): self._concrete.size = newSize
+    def _size(self, newSize): self._concrete._size = newSize
 
     @contextlib.contextmanager
     def open(self, mode: str = 'r', **kwargs) -> io.TextIOWrapper:
@@ -276,7 +276,7 @@ class SubFile(File):
         with self._concrete.open(mode, **kwargs) as handle:
             yield handle
 
-    def _update(self, other: Artefact): self._concrete._update(other)
+    # def _update(self, other: Artefact): self._concrete._update(other)
 
 class Directory(Artefact):
     """ A directory represents an local filesystems directory or folder. Directories hold references to other
@@ -326,7 +326,7 @@ class Directory(Artefact):
         """ UTC localised datetime of time file last modified by a write/append method """
         if self._createdTime is None:
             if self._contents:
-                return min(x.createdTime for x in self._contents.values())
+                return min(x.createdTime for x in self._contents)
             return None
         return self._createdTime
 
@@ -335,7 +335,7 @@ class Directory(Artefact):
         """ UTC localised datetime of time file last modified by a write/append method """
         if self._modifiedTime is None:
             if self._contents:
-                return max(x.modifiedTime for x in self._contents.values())
+                return max(x.modifiedTime for x in self._contents)
             return None
         return self._modifiedTime
 
@@ -344,7 +344,7 @@ class Directory(Artefact):
         """ UTC localised datetime of time file last modified by a write/append method """
         if self._accessedTime is None:
             if self._contents:
-                return max(x.accessedTime for x in self._contents.values())
+                return max(x.accessedTime for x in self._contents)
             return None
         return self._accessedTime
 
@@ -396,7 +396,7 @@ class Directory(Artefact):
             )
 
         # Return the path
-        return self.manager.relpath(artefact.path, self.path)
+        return self.manager.relpath(path, self.path)
 
     @contextlib.contextmanager
     def localise(self, path: str = None) -> str:
@@ -505,21 +505,14 @@ class SubDirectory(Directory):
         assert isinstance(artefact, (SubFile, SubDirectory))
         self._contents.add(artefact)
 
-
     @property
     def _modifiedTime(self): return self._concrete._modifiedTime
-    @_modifiedTime.setter
-    def _modifiedTime(self, time): self._concrete._modifiedTime = time
 
     @property
     def _createdTime(self): return self._concrete._createdTime
-    @_createdTime.setter
-    def _createdTime(self, time): self._concrete._createdTime = time
 
     @property
     def _accessedTime(self): return self._concrete._accessedTime
-    @_accessedTime.setter
-    def _accessedTime(self, time): self._concrete._accessedTime = time
 
     def _update(self, other: Artefact):
         self._concrete._update(other._concrete)

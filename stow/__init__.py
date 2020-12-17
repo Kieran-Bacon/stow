@@ -2,6 +2,7 @@ __version__ = "0.2.0"
 
 from .artefacts import Artefact, File, Directory, SubFile, SubDirectory
 from .manager import Manager, SubManager
+from . import exceptions
 
 from .stateless import (
     find,
