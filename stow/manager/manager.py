@@ -95,6 +95,10 @@ class Manager(AbstractManager, ClassMethodManager):
 
         Returns:
             Directory: The owning directory container, which may have just been created
+
+        Raises:
+            ArtefactNotFound: If the path given doesn't exist in the manager
+            ArtefactTypeError: The path exists but it isn't a directory object which is what is expected
         """
 
         if managerPath in self._paths:
@@ -111,7 +115,10 @@ class Manager(AbstractManager, ClassMethodManager):
 
         # Create a directory at this location, add it to the data store and return it
         art = self._identifyPath(managerPath)
-        if art is None or isinstance(art, File):
+        if art is None:
+            raise exceptions.ArtefactNotFound("No artefact found at location {}")
+
+        elif isinstance(art, File):
             raise exceptions.ArtefactTypeError("Invalid path given {}. Path points to a file {}.".format(managerPath, directory))
 
         self._addArtefact(art)  # Link it with any owner + submanagers
@@ -820,10 +827,7 @@ class Manager(AbstractManager, ClassMethodManager):
             return self.put(directory, path, overwrite=overwrite)
 
     def touch(self, relpath: str) -> Artefact:
-        with tempfile.TemporaryDirectory() as directory:
-            emptyFile = os.path.join(directory, 'empty_file')
-            open(emptyFile, 'w').close()
-            return self.put(emptyFile, relpath)
+        return self.put(b'', relpath)
 
     def sync(self, source: typing.Union[Directory, str], destination: typing.Union[Directory, str], overwrite: bool = False, delete: bool = False) -> None:
         """ Put artefacts in the source location into the destination location if they have more recently been editted
@@ -1229,7 +1233,7 @@ class RemoteManager(Manager):
                     put, delete = self._compareHierarhy(checksum, self._parseHierarchy(local_path))
 
                     # Define the method for converting the abspath back to the manager relative path
-                    contexualise = lambda x: self.join(path, self.relpath(x[len(local_path):]))
+                    contexualise = lambda x: self.join(path, x[len(local_path)+1:])
 
                     # Put/delete the affected artefacts
                     for abspath in put: self.put(abspath, contexualise(abspath))

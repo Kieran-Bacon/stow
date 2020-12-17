@@ -56,21 +56,21 @@ class Amazon(RemoteManager):
     def _abspath(self, managerPath: str) -> str:
         """ Difference between AWS and manager path is the removal of a leading '/'. As such remove the first character
         """
-        managerPath = managerPath[1:]
-        assert self._S3_OBJECT_KEY.match(managerPath) is not None, "artefact name isn't accepted by S3"
-        return managerPath
+        abspath = managerPath[1:]
+        assert not abspath or self._S3_OBJECT_KEY.match(abspath) is not None, "artefact name isn't accepted by S3"
+        return abspath
 
     def _identifyPath(self, managerPath: str) -> typing.Union[Artefact, None]:
+
+        # Extract the key path
+        key = self._abspath(managerPath)
 
         # Create a pagination that looks specifically at the manager path given
         pages = self._clientPaginator.paginate(
             Bucket=self._bucketName,
-            Prefix=self._abspath(managerPath),
+            Prefix=key,
             Delimiter="/"
         )
-
-        keyName = self.basename(managerPath)
-        dirName = keyName + "/"
 
         # Iterate over the pages -
         for page in pages:
@@ -81,7 +81,7 @@ class Amazon(RemoteManager):
             if "Contents" in page:
                 # There are files that lead with the manager path given
                 for file in page["Contents"]:
-                    if file["Key"] == keyName:
+                    if file["Key"] == key:
                         # We've found the file artefact that directly matches - create a file and return
                         return File(
                             self,
@@ -92,8 +92,11 @@ class Amazon(RemoteManager):
 
             if "CommonPrefixes" in page:
 
+                # Directories end in "/"
+                key += "/"
+
                 for directory in page["CommonPrefixes"]:
-                    if directory["Prefix"] == dirName:
+                    if directory["Prefix"] == key:
                         # The path is to the directory
                         return Directory(self, managerPath)
 
@@ -101,30 +104,22 @@ class Amazon(RemoteManager):
 
     def _loadArtefact(self, managerPath: str) -> Artefact:
 
-        directory = self.dirname(managerPath)
+        if managerPath in self._paths:
+            # We may have already pulled the manager
+            return super()._loadArtefact(managerPath)
 
-        if directory in self._paths:
-            # We may have already pulled this artefact and don't need to do it again
+        # Ensure the owning directory and fetch the directory object
+        try:
+            directory = self._ensureDirectory(self.dirname(managerPath))
 
-            directoryObject = self._paths[directory]
-
-            if directoryObject._collected:
-                # The owning directory supposedly already exists and has already been collected - recheck s3
-                return super()._loadArtefact(managerPath)
-
-        else:
-            # The owning directory doesn't exist - We will identify it and then add its contents
-            directoryObject = self._identifyPath(directory)
-
-            if directoryObject is None or isinstance(directoryObject, File):
-                # There isn't a directory because it has no contents
-                raise exceptions.ArtefactNotFound("Cannot locate artefact {}".format(managerPath))
+        except (exceptions.ArtefactNotFound, exceptions.ArtefactTypeError) as e:
+            raise exceptions.ArtefactNotFound("Cannot locate atefact {}".format(managerPath)) from e
 
         # Add all artefacts of the directory into the manager - adding the target artefact at the same time
-        self._ls(self._abspath(directory))
-        directoryObject._collected = True
+        self._ls(directory.path)
+        directory._collected = True
 
-        # Return the artefact
+        # Check now that the directory has been downloaded and added that the original target exists
         if managerPath in self._paths:
             return self._paths[managerPath]
 
@@ -175,12 +170,15 @@ class Amazon(RemoteManager):
         if os.path.isdir(source):
             # A directory of items is to be uploaded - walk local directory and uploaded each file
 
+            sourcePathLength = len(source) + 1
+
             for root, dirs, files in os.walk(source):
-                dRoot = self.join(destination, self.relpath(root, source))
+
+                dRoot = self.join(destination, root[sourcePathLength:])
 
                 if not (dirs or files):
                     # There are no sub-directories or files to be uploaded
-                    placeholder_path = self._abspath(self.join(dRoot, self._PLACEHOLDER))
+                    placeholder_path = self.join(dRoot, self._PLACEHOLDER)
                     self._bucket.put_object(Key=placeholder_path, Body=b'')
                     continue
 
@@ -188,7 +186,7 @@ class Amazon(RemoteManager):
                 for file in files:
                     self._bucket.upload_file(
                         os.path.join(root, file),
-                        self._abspath(self.join(dRoot, file))
+                        self.join(dRoot, file)
                     )
 
         else:
@@ -235,10 +233,16 @@ class Amazon(RemoteManager):
 
     def _ls(self, directory: str):
 
+        if directory != "/":
+            key = self._abspath(directory) + "/"
+
+        else:
+            key = ""
+
         # Create a pagination that looks specifically at the manager path given
         pages = self._clientPaginator.paginate(
             Bucket=self._bucketName,
-            Prefix=self._abspath(directory) + "/",
+            Prefix=key,
             Delimiter="/"
         )
 
@@ -251,6 +255,11 @@ class Amazon(RemoteManager):
             if "Contents" in page:
                 # There are files that lead with the manager path given
                 for file in page["Contents"]:
+
+                    if self.basename(file["Key"]) == self._PLACEHOLDER:
+                        # Don't list placeholders
+                        continue
+
                     self._addArtefact(
                         File(
                             self,
@@ -262,7 +271,7 @@ class Amazon(RemoteManager):
 
             if "CommonPrefixes" in page:
                 for directory in page["CommonPrefixes"]:
-                    return self._addArtefact(Directory(self, "/" + directory["Prefix"][:-1]))
+                    self._addArtefact(Directory(self, "/" + directory["Prefix"][:-1]))
 
     def _rm(self, artefact: str):
 
@@ -275,6 +284,7 @@ class Amazon(RemoteManager):
         else:
             self._bucket.Object(key).delete()
 
+    @classmethod
     def _loadFromProtocol(cls, url: urllib.parse.ParseResult):
 
         # Extract the query data passed into

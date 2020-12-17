@@ -30,7 +30,7 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
             's3',
             aws_access_key_id=cls._config['aws_access_key_id'],
             aws_secret_access_key=cls._config['aws_secret_access_key'],
-            # region_name=cls._config['region_name']
+            region_name=cls._config['region_name']
         )
 
         for bucket in cls.s3.buckets.all():
@@ -71,7 +71,7 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
             bucket=self.bucket_name,
             aws_access_key_id=self._config['aws_access_key_id'],
             aws_secret_access_key=self._config['aws_secret_access_key'],
-            # region_name=self._config['region_name']
+            region_name=self._config['region_name']
         )
 
     def setUpWithFiles(self):
@@ -119,7 +119,7 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
             aws_secret_access_key=self._config['aws_secret_access_key']
         )
 
-        self.assertIsInstance(sub_manager, stow.manager.SubManager)
+        self.assertIsInstance(sub_manager, stow.SubManager)
         self.assertEqual(len(sub_manager.ls()), 1)
 
     def test_stateless_put_file_with_manager(self):
@@ -140,7 +140,7 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
             )
 
         self.assertEqual(
-            self.manager["file_put.txt"].content.decode(), "hello"
+            self.manager["/file_put.txt"].content.decode(), "hello"
         )
 
 
@@ -158,6 +158,6 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
         )
 
         self.assertEqual(
-            self.manager["bytes_put.txt"].content.decode(), "hello"
+            self.manager["/bytes_put.txt"].content.decode(), "hello"
         )
 

@@ -1,1 +1,1 @@
-from .manager import Manager, LocalManager, RemoteManager
+from .manager import Manager, SubManager, LocalManager, RemoteManager

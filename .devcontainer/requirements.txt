@@ -1,3 +1,4 @@
+awscli
 mkdocs
 mkapi
 pytest

@@ -48,17 +48,6 @@ def connect(*args, **kwargs) -> Manager:
 def parseURL(*args, **kwargs) -> utils.ParsedURL:
     return utils.parseURL(*args, **kwargs)
 
-def manager(stowPath: str) -> Manager:
-    """ Fetch the manager object for the given URL even if no artefact exists
-
-    Args:
-        stowPath: A stow string to an object whose manager is to be returned
-
-    Returns:
-        Manager: The manager identified in the url
-    """
-    return parseURL(stowPath)[0]
-
 def artefact(stowPath: str) -> Artefact:
     """ Fetch an artefact object for the given path
 
@@ -242,12 +231,8 @@ def put(src, dest, *args, **kwargs):
     # Get the destination manager for the artifact
     dest_manager, dest_relpath = _getManager(dest)
 
-    if isinstance(src, bytes):
-        return dest_manager.put(src, dest_relpath, *args, **kwargs)
-
-    else:
-        src_manager, src_relpath = _getManager(src)
-        return dest_manager.put(src_manager[src_relpath], dest_relpath, *args, **kwargs)
+    # Put the source path into the manager
+    return dest_manager.put(src, dest_relpath, *args, **kwargs)
 
 @wraps(Manager.cp)
 def cp(src, dest, *args, **kwargs):

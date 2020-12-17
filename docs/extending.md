@@ -34,7 +34,7 @@ Each `Manager` implements a localise function for these situations respectively.
 ## Abstract methods
 
 ### ![mkapi](stow.manager.Manager._abspath)
-### ![mkapi](stow.manager.Manager._makeFile)
+### ![mkapi](stow.manager.Manager._identifyPath)
 ### ![mkapi](stow.manager.Manager._get)
 ### ![mkapi](stow.manager.Manager._getBytes)
 ### ![mkapi](stow.manager.Manager._put)

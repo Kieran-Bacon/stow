@@ -11,7 +11,6 @@
 ### ![mkapi](stow.find|apilink)
 ### ![mkapi](stow.connect|apilink)
 ### ![mkapi](stow.parseURL|apilink)
-### ![mkapi](stow.manager|apilink)
 ### ![mkapi](stow.artefact|apilink)
 ### ![mkapi](stow.abspath|apilink)
 ### ![mkapi](stow.basename|apilink)

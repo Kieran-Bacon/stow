@@ -1,13 +1,12 @@
 __version__ = "0.2.0"
 
-from .artefacts import Artefact, File, Directory
-from .manager import Manager
+from .artefacts import Artefact, File, Directory, SubFile, SubDirectory
+from .manager import Manager, SubManager
 
 from .stateless import (
     find,
     connect,
     parseURL,
-    manager,
     artefact,
     abspath,
     basename,
