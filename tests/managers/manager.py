@@ -80,6 +80,15 @@ class ManagerTests:
         self.assertIn(self.manager['/directory/file2.txt'], self.manager['/directory'])
         self.assertIn(self.manager['/otherdir/file3.txt'], self.manager['/otherdir'])
 
+    def test_touchByName(self):
+
+        file = self.manager.touch("/file.txt")
+
+        self.assertIs(file, self.manager["file.txt"])
+
+        file2 = self.manager.touch("file2.txt")
+        self.assertIs(file2, self.manager["file2.txt"])
+
     def test_getEnsuresDirectories(self):
 
         with tempfile.TemporaryDirectory() as directory:
