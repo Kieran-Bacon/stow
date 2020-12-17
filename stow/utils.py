@@ -113,12 +113,17 @@ def parseURL(stowURL: str) -> ParsedURL:
     # Parse the url provided
     parsedURL = urllib.parse.urlparse(stowURL)
 
-    # Find the manager that is correct for the protocol
-    if parsedURL.scheme and parseURL.netloc:
+    # Handle protocol managers vs local file system
+    if parsedURL.scheme and parsedURL.netloc:
         manager = find(parsedURL.scheme)
-        return ParsedURL(manager._loadFromProtocol(parsedURL), parsedURL.path)
+        scheme = parsedURL.scheme
 
     else:
-        # Local manager
         manager = find("FS")
-        return ParsedURL(manager(path=parsedURL.path), "/")
+        scheme = "FS"
+
+    # Get the signature for the manager from the url
+    signature, relpath = manager._signatureFromURL(parsedURL)
+
+    # Has to use connect otherwise it will just create lots and lots of new managers
+    return ParsedURL(connect(scheme, **signature), relpath)

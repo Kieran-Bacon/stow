@@ -19,6 +19,12 @@ class Test_Stateless(unittest.TestCase):
         self.assertEqual(arts, files)
 
     def test_join(self):
+        self.assertEqual(stow.join("hello//there", "buddy/"), "hello//there/buddy/")
+        self.assertEqual(stow.join("hello", "/", "there"), "/there")
+        self.assertEqual(stow.join("hello"), "hello")
+        self.assertEqual(stow.join("", "hello"), "hello")
+        self.assertEqual(stow.join("/", "/hello", "/"), "/")
+        self.assertEqual(stow.join("/", "/", "/"), "/")
         self.assertEqual(stow.join("./example", "there"), "./example/there")
         self.assertEqual(stow.join("example", "there"), "example/there")
         self.assertEqual(stow.join("example", "/there"), "/there")
@@ -28,6 +34,12 @@ class Test_Stateless(unittest.TestCase):
         self.assertEqual(stow.join('s3://example-bucket/a/b', '/hello', 'there'), "s3://example-bucket/hello/there")
         self.assertEqual(stow.join('s3://example-bucket/a/b', 'c:/hello', 'there'), "c:/hello/there")
         self.assertEqual(stow.join("s3://example-location/directory", "filename.txt"), "s3://example-location/directory/filename.txt")
+
+    def test_joinAbsolute(self):
+
+        self.assertEqual(stow.join("/hello", "/there", "/buddy", joinAbsolutes=True), "/hello/there/buddy")
+        self.assertEqual(stow.join('s3://example-bucket/a/b', 'c:/hello', 'there', joinAbsolutes=True), "c:/a/b/hello/there")
+        self.assertEqual(stow.join('s3://example-bucket/a/b', 'hello', 'there', joinAbsolutes=True), "s3://example-bucket/a/b/hello/there")
 
     def test_put(self):
 

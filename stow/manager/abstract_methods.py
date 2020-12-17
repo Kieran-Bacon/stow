@@ -171,15 +171,16 @@ class AbstractManager(ABC):
         pass
 
     @abstractclassmethod
-    def _loadFromProtocol(cls, url: urllib.parse.ParseResult):
-        """ Create a new instance of the manager using the information passed via the url ParseResult object that will
-        have been created via the stateless interface
+    def _signatureFromURL(cls, url: urllib.parse.ParseResult):
+        """ Create the signature that can be passed to the init of the manager to create a new instance using the
+        information passed via the url ParseResult object that will have been created via the stateless interface
 
         Args:
             url: The result of passing the stateless path through urllib.parse.urlparse
 
         Returns:
             Manager: A manager of this type loaded with information from the url
+            Relpath: The manager relative path for the artefact that may have been referenced
 
         Raises:
             Error: Errors due to missing information and so on

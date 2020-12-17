@@ -56,8 +56,8 @@ class Amazon(RemoteManager):
     def _abspath(self, managerPath: str) -> str:
         """ Difference between AWS and manager path is the removal of a leading '/'. As such remove the first character
         """
-        abspath = managerPath[1:]
-        assert not abspath or self._S3_OBJECT_KEY.match(abspath) is not None, "artefact name isn't accepted by S3"
+        abspath = managerPath.strip("/")
+        assert not abspath or self._S3_OBJECT_KEY.match(abspath) is not None, "artefact name isn't accepted by S3: {}".format(abspath)
         return abspath
 
     def _identifyPath(self, managerPath: str) -> typing.Union[Artefact, None]:
@@ -285,17 +285,19 @@ class Amazon(RemoteManager):
             self._bucket.Object(key).delete()
 
     @classmethod
-    def _loadFromProtocol(cls, url: urllib.parse.ParseResult):
+    def _signatureFromURL(cls, url: urllib.parse.ParseResult):
 
         # Extract the query data passed into
         queryData = urllib.parse.parse_qs(url.query)
 
-        return cls(
-            bucket=url.netloc,
-            aws_access_key_id = queryData.get("aws_access_key_id", [None])[0],
-            aws_secret_access_key = queryData.get("aws_secret_access_key", [None])[0],
-            region_name = queryData.get("region_name", [None])[0],
-        )
+        signature = {
+            "bucket": url.netloc,
+            "aws_access_key_id": queryData.get("aws_access_key_id", [None])[0],
+            "aws_secret_access_key": queryData.get("aws_secret_access_key", [None])[0],
+            "region_name": queryData.get("region_name", [None])[0],
+        }
+
+        return signature, url.path
 
     def toConfig(self):
         return {

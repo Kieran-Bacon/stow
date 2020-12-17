@@ -161,3 +161,16 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
             self.manager["/bytes_put.txt"].content.decode(), "hello"
         )
 
+    def test_relative_path(self):
+
+
+        self.setUpWithFiles()
+
+        file = self.manager["initial_directory/initial_file2.txt"]
+
+        self.assertEqual(file.content.decode(), "Content")
+
+        file2 = self.manager["/initial_directory/initial_file2.txt"]
+
+        self.assertEqual(file2.content.decode(), "Content")
+

@@ -192,8 +192,8 @@ class ClassMethodManager:
         if not paths:
             return ""
 
-        parsedResult = None
-        validComponents = []
+        parsedResult = None  # Store the network information while path is joined
+        joined = ""  # Constructed path
 
         for segment in paths:
 
@@ -203,21 +203,28 @@ class ClassMethodManager:
                 parsedResult = presult
                 segment = presult.path
 
-            # Delete previous joined segments as new absolute path is provided
-            if cls.isabs(segment) and validComponents:
-                if joinAbsolutes:
-                    segment = segment[1:]
+            if joined:
+                # A path is in the midst of being created
+                if cls.isabs(segment):
+                    # The segment we are adding is an absolute path and as such we have to adjust
+                    if joinAbsolutes:
+                        # We are joining absolute paths - remove the absolute beginning character
+                        segment = segment[1:]
+
+                    else:
+                        # Remove current constructed path
+                        joined = segment
+                        continue
+
+                # Append the next path item into the joined path
+                if joined[-1] == separator:
+                    joined += segment
+
                 else:
-                    validComponents = []
+                    joined += separator + segment
 
-            # Remove trailing connection
-            segment = segment.rstrip("\\/")
-
-            # Add the segment and a seperator
-            validComponents.append(segment)
-
-        # join the string together
-        joined = separator.join(validComponents)
+            else:
+                joined = segment
 
         # Add back in the protocol if given
         if parsedResult:

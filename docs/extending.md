@@ -43,8 +43,8 @@ Each `Manager` implements a localise function for these situations respectively.
 ### ![mkapi](stow.manager.Manager._mv)
 ### ![mkapi](stow.manager.Manager._rm)
 ### ![mkapi](stow.manager.Manager._ls)
+### ![mkapi](stow.manager.Manager._signatureFromURL)
 ### ![mkapi](stow.manager.Manager.toConfig)
-### ![mkapi](stow.manager.Manager._loadFromProtocol)
 
 ## Extending example
 

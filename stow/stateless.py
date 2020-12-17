@@ -18,17 +18,7 @@ def _getManager(artefact) -> typing.Tuple[Manager, str]:
         relpath = artefact.path
 
     elif isinstance(artefact, str):
-        result = urllib.parse.urlparse(artefact)
-
-        # Find the manager that is correct for the protocol
-        if result.scheme:
-            manager = find(result.scheme)
-            return manager._loadFromProtocol(result), result.path
-
-        else:
-            # Local manager - start it at the base of the file system
-            manager = find("FS")
-            return manager("/"), result.path
+        return utils.parseURL(artefact)
 
     else:
         raise TypeError("Artefact reference must be either `stow.Artefact` or string not type {}".format(type(artefact)))
@@ -60,7 +50,7 @@ def artefact(stowPath: str) -> Artefact:
     Raises:
         ArtefactNotFound: In the event that no artefact exists at the location given
     """
-    manager, relpath =  utils.parseURL(stowPath)
+    manager, relpath = _getManager(stowPath)
     return manager[relpath]
 
 @wraps(Manager.abspath)

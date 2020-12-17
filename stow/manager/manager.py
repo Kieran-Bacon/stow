@@ -69,21 +69,18 @@ class Manager(AbstractManager, ClassMethodManager):
         return self._loadArtefact(path)
 
     def _managerPath(self, path: str) -> str:
-
-        if not self.isabs(path):
-            # relative path given - try and convert it
-            path = self.abspath(self.expandvars(self.expanduser(path)))
+        # Expand any environment variables but no home path and do not make absolute relative to local
+        path = self.join("/", self.normpath(self.expandvars(path)))
 
         if os.name == 'nt':
             # Make Windows paths (if provided) unix like
-            if artefact.find(":") != -1:
+            if path.find(":") != -1:
                 # Remove the drive name
-                artefact = artefact[artefact.index(":")+1:]
+                path = path[path.index(":")+1:]
 
-            artefact = artefact.replace("\\", "/")
+            path = path.replace("\\", "/")
 
         return path
-
     def _ensureDirectory(self, managerPath: str) -> Directory:
         """ Fetch the owning `container` for the manager relative path given. In the event that no `container` object
         exists for the path, create one and recursively find its owning `container` to add it to. The goal of this
@@ -1093,7 +1090,7 @@ class SubManager(Manager):
         raise NotImplementedError("A submanager cannot be created on a submanager")
 
     @classmethod
-    def _loadFromProtocol(cls, url: urllib.parse.ParseResult):
+    def _signatureFromURL(cls, url: urllib.parse.ParseResult):
         raise NotImplementedError("Cannot load a submanager from a protocol string")
 
     def toConfig(self) -> dict:

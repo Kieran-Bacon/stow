@@ -146,8 +146,8 @@ class FS(LocalManager):
         method(artefact)
 
     @classmethod
-    def _loadFromProtocol(cls, url: urllib.parse.ParseResult):
-        return cls(url.path)
+    def _signatureFromURL(cls, url: urllib.parse.ParseResult):
+        return {"path": "/"}, os.path.abspath(os.path.expanduser(url.path))
 
     def toConfig(self):
         return {'manager': 'FS', 'path': self._path}

@@ -3,6 +3,8 @@ import unittest
 import os
 import tempfile
 import shutil
+import random
+import string
 
 import stow
 from stow.managers import FS
@@ -41,3 +43,26 @@ class Test_Filesystem(unittest.TestCase, ManagerTests, SubManagerTests):
 
         # Delete the directory and all it's contents
         shutil.rmtree(self.directory)
+
+    def test_relativePath(self):
+
+        filename = "test-filename.txt"
+
+        while os.path.exists(filename):
+            filename = "".join([random.choice(string.ascii_letters) for _ in range(10)])
+
+        #
+        try:
+            with open(filename, "w") as handle:
+                handle.write("Content")
+
+            file = stow.artefact(filename)
+
+            self.assertEqual(file.content.decode(), "Content")
+
+        finally:
+            os.remove(filename)
+
+
+
+
