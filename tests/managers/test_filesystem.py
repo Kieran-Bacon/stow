@@ -64,5 +64,7 @@ class Test_Filesystem(unittest.TestCase, ManagerTests, SubManagerTests):
             os.remove(filename)
 
 
+    def test_config(self):
 
+        self.assertEqual(self.manager.toConfig(), {"manager": "FS", "path": self.directory})
 

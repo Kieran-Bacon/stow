@@ -28,7 +28,6 @@ def _getManager(artefact) -> typing.Tuple[Manager, str]:
 @wraps(utils.find)
 def find(*args, **kwargs) -> typing.Type[Manager]:
     return utils.find(*args, **kwargs)
-    pass
 
 @wraps(utils.connect)
 def connect(*args, **kwargs) -> Manager:
@@ -200,7 +199,7 @@ def localise(artefact, *args, **kwargs):
 
 @wraps(Manager.open)
 @contextlib.contextmanager
-def open(artefact, mode, *args, **kwargs):
+def open(artefact, mode = "r", *args, **kwargs):
     manager, relpath = _getManager(artefact)
     with manager.open(relpath, mode, *args, **kwargs) as handle:
         yield handle
@@ -208,7 +207,7 @@ def open(artefact, mode, *args, **kwargs):
 @wraps(Manager.ls)
 def ls(artefact = os.path.curdir, **kwargs):
     manager, relpath = _getManager(artefact)
-    return manager.ls(manager.abspath(manager.expandvars(manager.expanduser(relpath))), **kwargs)
+    return manager.ls(manager.abspath(relpath), **kwargs)
 
 @wraps(Manager.get)
 def get(src_remote, dest_local, *args, **kwargs):

@@ -434,7 +434,7 @@ class Manager(AbstractManager, ClassMethodManager):
             ArtefactNotFound: If there is no artefact at the location
         """
         obj, _ = self._artefactFormStandardise(artefact, require=True)
-        return obj.createdTime
+        return obj.createdTime.timestamp()
 
     def getmtime(self, artefact: typing.Union[Artefact, str]) -> typing.Union[float, None]:
         """ Get the modified time for the artefact as a UTC timestamp
@@ -449,7 +449,7 @@ class Manager(AbstractManager, ClassMethodManager):
             ArtefactNotFound: If there is no artefact at the location
         """
         obj, _ = self._artefactFormStandardise(artefact, require=True)
-        return obj.modifiedTime
+        return obj.modifiedTime.timestamp()
 
     def getatime(self, artefact: typing.Union[Artefact, str]) -> typing.Union[float, None]:
         """ Get the accessed time for the artefact as a UTC timestamp
@@ -464,7 +464,7 @@ class Manager(AbstractManager, ClassMethodManager):
             ArtefactNotFound: If there is no artefact at the location
         """
         obj, _ = self._artefactFormStandardise(artefact, require=True)
-        return obj.accessedTime
+        return obj.accessedTime.timestamp()
 
     def exists(self, artefact: typing.Union[Artefact, str]) -> bool:
         """ Return true if the given artefact is a member of the manager, or the path is correct for the manager and it
@@ -529,31 +529,36 @@ class Manager(AbstractManager, ClassMethodManager):
         log.warning("lexists: Symbolic links are not supported - defaulting to exists")
         return self.exists(artefact)
 
-    def get(self, source: typing.Union[Artefact, str], destination: str, overwrite: bool = False) -> Artefact:
+    def get(self, source: typing.Union[Artefact, str], destination: str = None, overwrite: bool = False) -> Artefact:
         """ Get a remote artefact from the storage option and write it to the destination path given.
 
         Args:
-            src_remote (Artefact/str): The remote's file object or its path
-            dest_local (str): The local path for the artefact to be written to
+            source (Artefact/str): The remote's file object or its path
+            destination (str) = None: The local path for the artefact to be written to
+
+        Returns:
+            typing.Union[typing.Any, bytes]: Return user defined response for get if file written to destination else
+                return bytes if no desintation given
         """
 
         # Ensure the detination - Remove or raise issue for a local artefact at the location where the get is called
-        if os.path.exists(destination):
-            if os.path.isdir(destination):
-                if overwrite:
-                    shutil.rmtree(destination)
+        if destination is not None:
+            if os.path.exists(destination):
+                if os.path.isdir(destination):
+                    if overwrite:
+                        shutil.rmtree(destination)
+
+                    else:
+                        raise exceptions.OperationNotPermitted(
+                            "Cannot replace local directory ({}) unless overwrite argument is set to True".format(destination)
+                        )
 
                 else:
-                    raise exceptions.OperationNotPermitted(
-                        "Cannot replace local directory ({}) unless overwrite argument is set to True".format(destination)
-                    )
+                    os.remove(destination)
 
             else:
-                os.remove(destination)
-
-        else:
-            # Ensure the directory that this object exists with
-            os.makedirs(self.dirname(destination), exist_ok=True)
+                # Ensure the directory that this object exists with
+                os.makedirs(self.dirname(destination), exist_ok=True)
 
         # Split into object and path - Ensure that the artefact to get is from this manager
         obj, path = self._artefactFormStandardise(source, require=True)
@@ -561,7 +566,14 @@ class Manager(AbstractManager, ClassMethodManager):
             raise exceptions.ArtefactNotMember("Provided artefact is not a member of the manager")
 
         # Fetch the object and place it at the location
-        return self._get(path, destination)
+        if destination is not None:
+            return self._get(path, destination)
+
+        else:
+            if not isinstance(obj, File):
+                raise exceptions.ArtefactTypeError("Cannot get file bytes of {}".format(obj))
+
+            return self._getBytes(path)
 
     def put(
         self,
@@ -674,7 +686,7 @@ class Manager(AbstractManager, ClassMethodManager):
             self._delinkArtefactObjects(destinationObj)
 
         # Look to see if the source artefact is in the manager - if so we can try to be more efficient
-        sourceObject, _ = self._artefactFormStandardise(source)
+        sourceObject, sourcePath = self._artefactFormStandardise(source)
         if sourceObject is None or sourceObject.manager is not self:
             # The source isn't inside this manager - we must find it and use put. No speed up to be had in manager
 
@@ -685,7 +697,7 @@ class Manager(AbstractManager, ClassMethodManager):
             return self.put(sourceObject, destinationPath)
 
         # We must be an artefact on the box copying to another location on the box - destination is clear
-        self._cp(sourceObject, destinationPath)
+        self._cp(sourcePath, destinationPath)
         return self[destinationPath]
 
     def mv(
@@ -894,7 +906,7 @@ class Manager(AbstractManager, ClassMethodManager):
                     self.rm(artefact)
 
     @contextlib.contextmanager
-    def open(self, artefact: typing.Union[File, str], mode: str, **kwargs) -> io.IOBase:
+    def open(self, artefact: typing.Union[File, str], mode: str = "r", **kwargs) -> io.IOBase:
         """ Open a file and create a stream to that file. Expose interface of `open`
 
         Args:

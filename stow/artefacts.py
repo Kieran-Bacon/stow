@@ -38,6 +38,10 @@ class Artefact:
     def __hash__(self): return hash(id(self))
     def __eq__(self, other): return hash(self) == hash(other)
 
+    def __fspath__(self):
+        with self.localise() as path:
+            return path
+
     @property
     def manager(self):
         """ Return the manager object this Artefact belongs to """
@@ -90,6 +94,11 @@ class Artefact:
     @name.setter
     def name(self, name: str):
         self.basename = name
+
+    @abc.abstractmethod
+    @contextlib.contextmanager
+    def localise(self):
+        pass
 
     def save(self, path: str, force: bool = False):
         """ Save the artefact to a local location

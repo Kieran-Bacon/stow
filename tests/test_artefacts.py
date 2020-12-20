@@ -427,6 +427,22 @@ class Test_Directories(unittest.TestCase):
         self.assertEqual(timelessDirectory.modifiedTime, modified)
         self.assertEqual(timelessDirectory.accessedTime, accessed)
 
+    def test_modificationTimeUpdate(self):
+
+        file = self.manager["dir1/file1"]
+
+        self.assertEqual(file.createdTime, file.modifiedTime)
+
+        time.sleep(1.0)
+
+        file.content = b"Updated contents"
+
+        stats = os.stat(self.filepath)
+
+        self.assertEqual(datetime.datetime.utcfromtimestamp(stats.st_ctime), file.createdTime.replace(tzinfo=None))
+        self.assertEqual(datetime.datetime.utcfromtimestamp(stats.st_mtime), file.modifiedTime.replace(tzinfo=None))
+        self.assertEqual(datetime.datetime.utcfromtimestamp(stats.st_atime), file.accessedTime.replace(tzinfo=None))
+
     def test_relpath(self):
 
         directory = self.manager["/dir1"]
@@ -465,6 +481,23 @@ class Test_Directories(unittest.TestCase):
 
         # Now it has a directory and a new file in it
         self.assertEqual(len(dir1._ls(recursive=True)), 3)
+
+    def test_contentUpdateModifiedTime(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            filepath = stow.join(directory, "filename.txt")
+
+            file = stow.touch(filepath)
+
+            modifiedTime = file.modifiedTime
+
+            time.sleep(1)
+
+            file.content = b"file content"
+
+            self.assertNotEqual(modifiedTime, file.modifiedTime)
+            self.assertTrue(modifiedTime < file.modifiedTime)
 
 
     def test_save(self):

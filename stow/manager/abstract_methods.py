@@ -112,7 +112,7 @@ class AbstractManager(ABC):
         Which will mean the behaviour defaults to the put action.
 
         Args:
-            source: the manager local source file
+            source: the manager local source artefact
             destination: a manager abspath path for destination
         """
         pass

@@ -274,7 +274,7 @@ class ClassMethodManager:
                 url.params,
                 url.query,
                 url.fragment
-            )
+            ).geturl()
 
         # Apply the normal path - method to the path
         return os.path.normpath(path)

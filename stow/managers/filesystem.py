@@ -33,7 +33,7 @@ class FS(LocalManager):
             stats = os.stat(abspath)
 
             # Created time
-            createdTime = datetime.datetime.utcfromtimestamp(stats.st_mtime)
+            createdTime = datetime.datetime.utcfromtimestamp(stats.st_ctime)
             createdTime = pytz.UTC.localize(createdTime)
 
             # Modified time
@@ -41,7 +41,7 @@ class FS(LocalManager):
             modifiedTime = pytz.UTC.localize(modifiedTime)
 
             # Access time
-            accessedTime = datetime.datetime.utcfromtimestamp(stats.st_mtime)
+            accessedTime = datetime.datetime.utcfromtimestamp(stats.st_atime)
             accessedTime = pytz.UTC.localize(accessedTime)
 
             if os.path.isfile(abspath):
@@ -108,7 +108,7 @@ class FS(LocalManager):
             handle.write(fileBytes)
 
     def _cp(self, source: str, destination: str):
-        self._put(self._abspath(source), self._abspath(destination))
+        self._put(self._abspath(source), destination)
 
     def _mv(self, source: str, destination: str):
 

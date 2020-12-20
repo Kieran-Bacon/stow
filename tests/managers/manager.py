@@ -282,6 +282,24 @@ class ManagerTests:
         # Assert that the directory object only has the uploaded file in it
         self.assertEqual({a.basename for a in remoteDirectory.ls()}, {"file2.txt"})
 
+    def test_getBytes(self):
+
+        file = self.manager.touch("/A/a.txt")
+        file.content = b"content"
+
+        self.assertEqual(self.manager.get("/A/a.txt"), b"content")
+
+    def test_cp(self):
+
+        file = self.manager.touch("/A/a.txt")
+        file.content = b"content"
+
+        self.manager.cp(file, "/A/b.txt")
+
+        file2 = self.manager["/A/b.txt"]
+
+        self.assertEqual(file2.content, b"content")
+
     def test_ls(self):
         """ Create a hierarchy of files and show that listing the
 

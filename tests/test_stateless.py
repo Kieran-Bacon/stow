@@ -3,15 +3,398 @@ import unittest
 import os
 import tempfile
 import uuid
+import datetime
+import time
 
 import stow
+import stow.managers
 
 class Test_Stateless(unittest.TestCase):
 
+    def test_find(self):
+
+        filesystemManager = stow.find("FS")
+        self.assertTrue(filesystemManager, stow.managers.FS)
+
+        amazonS3 = stow.find("s3")
+        self.assertTrue(amazonS3, stow.managers.Amazon)
+
+        with self.assertRaises(ValueError):
+            stow.find("missing")
+
+    def test_connect(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+            os.mkdir(os.path.join(directory, "directory1"))
+
+            filesystem = stow.connect(manager="FS", path=directory)
+
+            self.assertEqual(filesystem._path, directory)
+            self.assertEqual(len(filesystem.ls()), 1)
+
+    def test_parseURL(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            # Get the manager and path of the directory
+            fsManager, path = stow.parseURL(directory)
+            self.assertIsInstance(fsManager, stow.managers.FS)
+            self.assertEqual(directory, path)
+
+    def test_artefact(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            filepath = os.path.join(directory, "filename.txt")
+            text = "hello there"
+
+            with open(filepath, "w") as handle:
+                handle.write(text)
+
+            stats = os.stat(filepath)
+
+            artefact = stow.artefact(filepath)
+
+            self.assertIsInstance(artefact, stow.File)
+            self.assertEqual(artefact.size, len(text))
+
+            self.assertEqual(datetime.datetime.utcfromtimestamp(stats.st_ctime), artefact.createdTime.replace(tzinfo=None))
+            self.assertEqual(datetime.datetime.utcfromtimestamp(stats.st_mtime), artefact.modifiedTime.replace(tzinfo=None))
+            self.assertEqual(datetime.datetime.utcfromtimestamp(stats.st_atime), artefact.accessedTime.replace(tzinfo=None))
+
     def test_abspath(self):
+
         self.assertEqual(os.path.abspath("."), stow.abspath("."))
         self.assertEqual(os.path.abspath("filename"), stow.abspath("filename"))
         self.assertEqual(os.path.abspath(".."), stow.abspath(".."))
+
+        self.assertEqual(stow.abspath("/hello/there"), "/hello/there")
+        self.assertEqual(stow.abspath("hello/there"), os.path.abspath("hello/there"))
+
+        testfile = stow.artefact(__file__)
+        self.assertEqual(stow.abspath(testfile), os.path.abspath(__file__))
+
+    def test_commonpath(self):
+
+        self.assertEqual(stow.commonpath(["/hello/there", "/hello/there/buddy", "/hello/friend"]), "/hello")
+
+        # List the directory and check out the common path
+        testDirectory = os.path.dirname(os.path.abspath(__file__))
+        artefacts = [os.path.join(testDirectory, filename) for filename in os.listdir(testDirectory)]
+
+        self.assertEqual(stow.commonpath(artefacts), testDirectory)
+
+    def test_commonprefix(self):
+
+        self.assertEqual(stow.commonprefix(["/hello/there", "/hello/there/buddy", "/hello/friend"]), "/hello/")
+        self.assertEqual(stow.commonprefix(["/hello/there", "/hello/there/buddy", "/hello/thriend"]), "/hello/th")
+
+        # List the directory and check out the common path
+        testDirectory = os.path.dirname(os.path.abspath(__file__))
+        artefacts = [os.path.join(testDirectory, filename) for filename in os.listdir(testDirectory)]
+
+        self.assertEqual(stow.commonpath(artefacts), testDirectory)
+
+    def test_dirname(self):
+
+        self.assertEqual(stow.dirname("/hello/there"), "/hello")
+        self.assertEqual(stow.dirname("hello/there"), "hello")
+        self.assertEqual(stow.dirname("./hello/there"), "./hello")
+        self.assertEqual(stow.dirname("/"), os.path.dirname("/"))
+        self.assertEqual(stow.dirname("s3://bucket/there"), "s3://bucket/")
+        self.assertEqual(stow.dirname("s3://bucket/hello/there"), "s3://bucket/hello")
+        self.assertEqual(stow.dirname("s3://hello/there?param1=value1"), "s3://hello/?param1=value1")
+
+    def test_expandusers(self):
+
+        self.assertEqual(stow.expanduser("~/Documents"), os.path.expanduser("~/Documents"))
+        self.assertEqual(stow.expanduser("~/${MODELS}/Documents"), os.path.expanduser("~/${MODELS}/Documents"))
+
+    def test_expandvars(self):
+
+        self.assertEqual(stow.expandvars("~/Documents"), os.path.expandvars("~/Documents"))
+        self.assertEqual(stow.expandvars("~/${MODELS}/Documents"), os.path.expandvars("~/${MODELS}/Documents"))
+
+    def test_isabs(self):
+
+        self.assertEqual(stow.isabs("/hello/there"), True)
+        self.assertEqual(stow.isabs("hello/there"), False)
+
+        self.assertEqual(stow.isabs(os.path.join("/hello", "there")), True)
+        self.assertEqual(stow.isabs(os.path.join("hello", "there")), False)
+
+    def test_normcase(self):
+
+        targets = [
+            "/hello/there",
+            "/HeLLo/THeRe"
+        ]
+
+        for case in targets:
+            self.assertEqual(stow.normcase(case), os.path.normcase(case))
+
+    def test_normpath(self):
+
+        targets = [
+            "/hello/there",
+            "/HeLLo/THeRe",
+            "/hello/../there",
+            "/hello/./there/okay"
+        ]
+
+        for case in targets:
+            self.assertEqual(stow.normpath(case), os.path.normpath(case))
+
+        self.assertEqual(stow.normpath("s3://bucket/hello/there?param1=value1"), "s3://bucket/hello/there?param1=value1")
+        self.assertEqual(stow.normpath("s3://bucket/hello/./there/../okay?param1=value1"), "s3://bucket/hello/okay?param1=value1")
+
+    def test_realpath(self):
+
+        targets = [
+            "/hello/there",
+            "/HeLLo/THeRe",
+            "/hello/../there",
+            "/hello/./there/okay"
+        ]
+
+        for case in targets:
+            self.assertEqual(stow.realpath(case), os.path.realpath(case))
+
+    def test_relpath(self):
+
+        self.assertEqual(stow.relpath("/hello/there/buddy", "/hello/there"), "buddy")
+        self.assertEqual(stow.relpath("/hello/buddy", "/hello/there"), "../buddy")
+        self.assertEqual(stow.relpath("/hello/there", "/hello/there"), ".")
+
+    def test_samefile(self):
+
+        file = stow.artefact(__file__)
+
+        self.assertTrue(stow.samefile(__file__, __file__))
+        self.assertTrue(stow.samefile(__file__, file))
+        self.assertTrue(stow.samefile(file, file))
+
+        f1, f2 = os.listdir()[:2]
+
+        self.assertFalse(stow.samefile(f1, f2))
+        self.assertFalse(stow.samefile(stow.artefact(f1), f2))
+        self.assertFalse(stow.samefile(f1, stow.artefact(f2)))
+
+    def test_sameopenfile(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            filepath = os.path.join(directory, "filename.txt")
+
+            handle2 = open(filepath, "w")
+            handle1 = open(filepath)
+
+
+            self.assertEqual(stow.sameopenfile(handle1, handle2), os.path.sameopenfile(handle1, handle2))
+
+
+    def test_samestat(self):
+
+        file = stow.artefact(__file__)
+
+        self.assertTrue(stow.samestat(os.stat(__file__), os.stat(__file__)))
+        self.assertTrue(stow.samestat(os.stat(__file__), os.stat(file)))
+        self.assertTrue(stow.samestat(os.stat(file), os.stat(file)))
+
+        f1, f2 = os.listdir()[:2]
+
+        self.assertFalse(stow.samestat(os.stat(f1), os.stat(f2)))
+        self.assertFalse(stow.samestat(os.stat(stow.artefact(f1)), os.stat(f2)))
+        self.assertFalse(stow.samestat(os.stat(f1), os.stat(stow.artefact(f2))))
+
+    def test_split(self):
+
+        self.assertEqual(stow.split("/hello/there/buddy.txt"), ("/hello/there", "buddy.txt"))
+        self.assertEqual(stow.split("hello/there/buddy.txt"), ("hello/there", "buddy.txt"))
+
+        self.assertEqual(stow.split(stow.artefact(__file__)), os.path.split(os.path.abspath(__file__)))
+
+    def test_splitdirve(self):
+
+        teststring = [
+            "c:/dir",
+            "C:/hello/there",
+            "C:\\hello\\there"
+        ]
+
+        for string in teststring:
+            self.assertEqual(stow.splitdrive(string), os.path.splitdrive(string), msg=string)
+
+    def test_splitext(self):
+
+        self.assertEqual(stow.splitext("hello.txt"), ("hello", ".txt"))
+        self.assertEqual(stow.splitext("hello.txt"), os.path.splitext("hello.txt"))
+
+
+    def test_md5(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            filepath = os.path.join(directory, "file.txt")
+
+            with open(filepath, "w") as handle:
+                handle.write("Some content please")
+
+            self.assertEqual(stow.md5(filepath), "bc31cd1b77d35ece4bc1495e10231a28")
+            self.assertEqual(stow.md5(stow.artefact(filepath)), "bc31cd1b77d35ece4bc1495e10231a28")
+
+    def test_isfile(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+            filepath = os.path.join(directory, "file.txt")
+
+            with open(filepath, "w") as handle:
+                handle.write("Hero")
+
+            self.assertTrue(stow.isfile(filepath))
+            self.assertTrue(stow.isfile(stow.artefact(filepath)))
+            self.assertFalse(stow.isfile(directory))
+
+    def test_isdir(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+            filepath = os.path.join(directory, "file.txt")
+
+            with open(filepath, "w") as handle:
+                handle.write("Hero")
+
+            self.assertTrue(stow.isdir(directory))
+            self.assertTrue(stow.isdir(stow.artefact(directory)))
+            self.assertFalse(stow.isdir(filepath))
+
+    def test_islink(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+            filepath = os.path.join(directory, "file.txt")
+
+            with open(filepath, "w") as handle:
+                handle.write("Hero")
+
+            linkpath = os.path.join(directory, "file-link.txt")
+            os.symlink(filepath, linkpath)
+
+            self.assertFalse(stow.islink(filepath))
+            self.assertFalse(stow.islink(directory))
+
+            self.assertFalse(stow.islink(stow.artefact(filepath)))
+            self.assertFalse(stow.islink(stow.artefact(directory)))
+
+            self.assertTrue(stow.islink(linkpath))
+            self.assertTrue(stow.islink(stow.artefact(linkpath)))
+
+
+
+
+    def test_ismount(self):
+        self.fail()
+
+    def test_getctime(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+            filepath = os.path.join(directory, "file.txt")
+
+            with open(filepath, "w") as handle:
+                handle.write("Hero")
+
+            self.assertAlmostEqual(stow.getctime(directory), os.path.getctime(directory), places=5)
+            self.assertAlmostEqual(stow.getctime(filepath), os.path.getctime(filepath), places=5)
+            self.assertAlmostEqual(stow.getctime(stow.artefact(directory)), os.path.getctime(directory), places=5)
+            self.assertAlmostEqual(stow.getctime(stow.artefact(filepath)), os.path.getctime(filepath), places=5)
+
+    def test_getmtime(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+            filepath = os.path.join(directory, "file.txt")
+
+            with open(filepath, "w") as handle:
+                handle.write("Hero")
+
+            self.assertAlmostEqual(stow.getmtime(directory), os.path.getmtime(directory), places=5)
+            self.assertAlmostEqual(stow.getmtime(filepath), os.path.getmtime(filepath), places=5)
+            self.assertAlmostEqual(stow.getmtime(stow.artefact(directory)), os.path.getmtime(directory), places=5)
+            self.assertAlmostEqual(stow.getmtime(stow.artefact(filepath)), os.path.getmtime(filepath), places=5)
+
+    def test_getatime(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+            filepath = os.path.join(directory, "file.txt")
+
+            with open(filepath, "w") as handle:
+                handle.write("Hero")
+
+            self.assertAlmostEqual(stow.getatime(directory), os.path.getatime(directory), places=5)
+            self.assertAlmostEqual(stow.getatime(filepath), os.path.getatime(filepath), places=5)
+
+            self.assertAlmostEqual(stow.getatime(stow.artefact(directory)), os.path.getatime(directory), places=5)
+            self.assertAlmostEqual(stow.getatime(stow.artefact(filepath)), os.path.getatime(filepath), places=5)
+
+    def test_exists(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+            filepath = os.path.join(directory, "file.txt")
+
+            with open(filepath, "w") as handle:
+                handle.write("Hero")
+
+            filepath2 = os.path.join(directory, "file2.txt")
+
+            self.assertTrue(stow.exists(filepath))
+            self.assertTrue(stow.exists(directory))
+            self.assertFalse(stow.exists(filepath2))
+
+            self.assertTrue(stow.exists(stow.artefact(filepath)))
+            self.assertTrue(stow.exists(stow.artefact(directory)))
+
+    def test_lexists(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+            filepath = os.path.join(directory, "file.txt")
+
+            with open(filepath, "w") as handle:
+                handle.write("Hero")
+
+            filepath2 = os.path.join(directory, "file2.txt")
+
+            self.assertTrue(stow.lexists(filepath))
+            self.assertTrue(stow.lexists(directory))
+            self.assertFalse(stow.lexists(filepath2))
+
+            self.assertTrue(stow.lexists(stow.artefact(filepath)))
+            self.assertTrue(stow.lexists(stow.artefact(directory)))
+
+    def test_touch(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+            filepath = stow.join(directory, "file.txt")
+
+            file = stow.touch(filepath)
+
+            stats = os.stat(filepath)
+
+    def test_mkdir(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+            directorypath = stow.join(directory, "dir1")
+
+            file = stow.mkdir(directorypath)
+
+            stats = os.stat(directorypath)
+
+    def test_localise(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            with stow.localise(directory) as abspath:
+                self.assertEqual(directory, abspath)
+
+            with stow.localise(stow.artefact(directory)) as abspath:
+                self.assertEqual(directory, abspath)
+
 
     def test_ls(self):
         arts = {os.path.basename(art.path) for art in stow.ls(".")}
@@ -19,6 +402,7 @@ class Test_Stateless(unittest.TestCase):
         self.assertEqual(arts, files)
 
     def test_join(self):
+        self.assertEqual(stow.join(), "")
         self.assertEqual(stow.join("hello//there", "buddy/"), "hello//there/buddy/")
         self.assertEqual(stow.join("hello", "/", "there"), "/there")
         self.assertEqual(stow.join("hello"), "hello")
@@ -118,6 +502,109 @@ class Test_Stateless(unittest.TestCase):
             with open(filename, "r") as handle:
                 self.assertEqual(handle.read(), "content")
 
+    def test_cp(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            filepath1 = stow.join(directory, "file1.txt")
+            filepath2 = stow.join(directory, "file2.txt")
+            filepath3 = stow.join(directory, "file3.txt")
+
+            content = "somecontent to check"
+
+            with open(filepath1, "w") as handle:
+                handle.write(content)
+
+            stow.cp(filepath1, filepath2)
+
+            with open(filepath2) as handle:
+                self.assertEqual(content, handle.read())
+
+            stow.cp(stow.artefact(filepath1), filepath3)
+
+            with stow.open(filepath3) as handle:
+                self.assertEqual(content, handle.read())
+
+    def test_mv(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            filepath1 = stow.join(directory, "file1.txt")
+            filepath2 = stow.join(directory, "file2.txt")
+            filepath3 = stow.join(directory, "file3.txt")
+
+            content = "somecontent to check"
+
+            with open(filepath1, "w") as handle:
+                handle.write(content)
+
+            stow.mv(filepath1, filepath2)
+
+            self.assertFalse(stow.exists(filepath1))
+
+            with open(filepath2) as handle:
+                self.assertEqual(content, handle.read())
+
+            stow.mv(stow.artefact(filepath2), filepath3)
+
+            self.assertFalse(stow.exists(filepath2))
+
+            with stow.open(filepath3, "r") as handle:
+                self.assertEqual(content, handle.read())
+
+    def test_sync(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            # File one should not be copied by the second file
+            stow.touch(stow.join(directory, "dir1", "file1.txt"))
+            file = stow.touch(stow.join(directory, "dir2", "file1.txt"))
+            file.content = b"content"
+
+            # File two should be replaced the second
+            file = stow.touch(stow.join(directory, "dir1", "file2.txt"))
+            stow.touch(stow.join(directory, "dir2", "file2.txt"))
+            time.sleep(1)
+            file.content = b"file2"
+
+            # File should stay
+            file = stow.touch(stow.join(directory, "dir2", "file3.txt"))
+            file.content = b"Original"
+
+            # File should be copied in
+            file = stow.touch(stow.join(directory, "dir1", "file4.txt"))
+            file.content = b"copied"
+
+            stow.sync(
+                stow.join(directory, "dir1"),
+                stow.join(directory, "dir2")
+            )
+
+            self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file1.txt")).content, b"content")
+            self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file2.txt")).content, b"file2")
+            self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file3.txt")).content, b"Original")
+            self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file4.txt")).content, b"copied")
+
+    def test_rm(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            filepath1 = stow.join(directory, "file1.txt")
+            filepath2 = stow.join(directory, "file2.txt")
+
+            stow.touch(filepath1)
+            file = stow.touch(filepath2)
+
+            self.assertTrue(stow.exists(filepath1))
+            self.assertTrue(stow.exists(file))
+
+            stow.rm(filepath1)
+            stow.rm(file)
+
+            self.assertFalse(stow.exists(filepath1))
+
+            with self.assertRaises(stow.exceptions.ArtefactNoLongerExists):
+                self.assertFalse(stow.exists(file))
 
 
 
