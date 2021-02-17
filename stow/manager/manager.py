@@ -69,6 +69,10 @@ class Manager(AbstractManager, ClassMethodManager):
         return self._loadArtefact(path)
 
     def _managerPath(self, path: str) -> str:
+
+        if not path:
+            return "/"
+
         # Expand any environment variables but no home path and do not make absolute relative to local
         path = self.join("/", self.normpath(self.expandvars(path)))
 
@@ -865,8 +869,16 @@ class Manager(AbstractManager, ClassMethodManager):
             raise exceptions.ArtefactTypeError("Cannot Synchronise non directory objects {} -> {} - must sync directories".format(source, destination))
 
         # Get the mappings of source artefacts and destination objects
-        sourceMapped = {source.relpath(artefact): artefact for artefact in source.ls(recursive=True) if isinstance(artefact, File)}
-        destinationMapped = {destination.relpath(artefact): artefact for artefact in destination.ls(recursive=True)}
+        sourceMapped = {
+            source.relpath(artefact): artefact
+            for artefact in source.ls(recursive=True)
+            if isinstance(artefact, File)
+        }
+
+        destinationMapped = {
+            destination.relpath(artefact): artefact
+            for artefact in destination.ls(recursive=True)
+        }
 
         # Iterate over all the files in the source
         for relpath, sourceArtefact in sourceMapped.items():

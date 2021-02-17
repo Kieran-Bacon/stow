@@ -122,6 +122,13 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
         self.assertIsInstance(sub_manager, stow.SubManager)
         self.assertEqual(len(sub_manager.ls()), 1)
 
+    def test_sync_source(self):
+
+        self.setUpWithFiles()
+
+        with tempfile.TemporaryDirectory() as directory:
+            stow.sync("s3://{}".format(self.bucket_name), directory)
+
     def test_stateless_put_file_with_manager(self):
         # Test that when putting with the stateless interface that put actually works
 

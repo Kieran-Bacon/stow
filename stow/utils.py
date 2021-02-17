@@ -48,13 +48,23 @@ def find(manager: str):
         mClass = MANAGERS[lmanager]
 
     else:
+        foundManagerNames = []
+
         for entry_point in pkg_resources.iter_entry_points('stow_managers'):
+
+            foundManagerNames.append(entry_point.name)
+
             if entry_point.name == lmanager:
                 mClass = MANAGERS[lmanager] = entry_point.load()
                 break
 
         else:
-            raise ValueError("Couldn't find a manager called '{}'".format(manager))
+            raise ValueError("Couldn't find a manager called '{}' - found {} managers: {}".format(
+                    manager,
+                    len(foundManagerNames),
+                    foundManagerNames
+                )
+            )
 
     return mClass
 

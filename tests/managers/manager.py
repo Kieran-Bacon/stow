@@ -7,6 +7,7 @@ import shutil
 import contextlib
 import abc
 import time
+import datetime
 
 import stow
 
@@ -79,6 +80,19 @@ class ManagerTests:
         self.assertEqual(len(self.manager.ls(recursive=True)), 5)
         self.assertIn(self.manager['/directory/file2.txt'], self.manager['/directory'])
         self.assertIn(self.manager['/otherdir/file3.txt'], self.manager['/otherdir'])
+
+
+    def test_contains(self):
+
+        file1 = self.manager.touch('/file1.txt')
+
+        # Check that the file exists in the manager
+        self.assertTrue('/file1.txt' in self.manager)
+        self.assertTrue(file1 in self.manager)
+
+        # Esure that non existent files doesn't exist
+        self.assertFalse('/file-non-existent.txt' in self.manager)
+        self.assertFalse(stow.File(None, '/file-non-existent.txt', 10, datetime.datetime.utcnow()) in self.manager)
 
     def test_touchByName(self):
 
@@ -348,6 +362,21 @@ class ManagerTests:
 
         self.assertEqual(len(content), 1)
         self.assertEqual(content.pop().path, "/directory-stack/directory-stack/initial_file3.txt")
+
+    def test_mv_toplevel(self):
+        # Check moving files at the top level works correctly.
+
+        self.setUpWithFiles()
+
+        self.manager.mv('initial_file1.txt', 'initial_file2.txt')
+        self.manager.mv('/initial_file2.txt', '/initial_file3.txt')
+
+        f = self.manager['/initial_file3.txt']
+
+        self.manager.mv('initial_directory', 'initial_directory1')
+        self.manager.mv('/initial_directory1', '/initial_directory2')
+
+        d = self.manager['/initial_directory2']
 
     def test_mv_files(self):
 

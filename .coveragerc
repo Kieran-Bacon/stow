@@ -8,6 +8,7 @@ exclude_lines =
     pass
     def __repr__
     raise NotImplementedError
+    if os.name == 'nt':
 
 ignore_errors = True
 

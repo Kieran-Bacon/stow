@@ -41,6 +41,15 @@ class Test_Stateless(unittest.TestCase):
             self.assertIsInstance(fsManager, stow.managers.FS)
             self.assertEqual(directory, path)
 
+
+    def test_findManagers(self):
+        # Check that
+
+        stow.isfile(os.path.abspath(__file__))
+
+        with self.assertRaises(TypeError):
+            stow.isfile(("other://file.txt",))
+
     def test_artefact(self):
 
         with tempfile.TemporaryDirectory() as directory:
@@ -184,14 +193,23 @@ class Test_Stateless(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
 
-            filepath = os.path.join(directory, "filename.txt")
+            # Write files to check whether they are being openned
+            with open(os.path.join(directory, "file1.txt"), "w") as handle:
+                handle.write("content")
 
-            handle2 = open(filepath, "w")
-            handle1 = open(filepath)
+            with open(os.path.join(directory, "file2.txt"), "w") as handle:
+                handle.write("content")
 
+            fd1 = os.open(os.path.join(directory, "file1.txt"), os.O_RDONLY)
+            fd2 = os.open(os.path.join(directory, "file1.txt"), os.O_RDONLY)
 
-            self.assertEqual(stow.sameopenfile(handle1, handle2), os.path.sameopenfile(handle1, handle2))
+            file = open(os.path.join(directory, "file1.txt"))
+            fd3 = file.fileno()
 
+            self.assertTrue(stow.sameopenfile(fd1, fd2))
+            self.assertTrue(stow.sameopenfile(fd1, fd3))
+
+            self.assertFalse(stow.sameopenfile(fd1, os.open(os.path.join(directory, "file2.txt"), os.O_RDONLY)))
 
     def test_samestat(self):
 
@@ -287,11 +305,14 @@ class Test_Stateless(unittest.TestCase):
             self.assertTrue(stow.islink(linkpath))
             self.assertTrue(stow.islink(stow.artefact(linkpath)))
 
-
-
-
     def test_ismount(self):
-        self.fail()
+
+        if os.name == 'nt':
+            self.assertTrue(stow.ismount('C:'))
+            self.assertFalse(stow.ismount(stow.expanduser('~')))
+        else:
+            self.assertTrue(stow.ismount('/dev'))
+            self.assertFalse(stow.ismount(stow.expanduser('~')))
 
     def test_getctime(self):
 
