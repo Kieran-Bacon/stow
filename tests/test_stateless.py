@@ -446,6 +446,13 @@ class Test_Stateless(unittest.TestCase):
         self.assertEqual(stow.join('s3://example-bucket/a/b', 'c:/hello', 'there', joinAbsolutes=True), "c:/a/b/hello/there")
         self.assertEqual(stow.join('s3://example-bucket/a/b', 'hello', 'there', joinAbsolutes=True), "s3://example-bucket/a/b/hello/there")
 
+    def test_joiningWithArtefacts(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            dir1 = stow.mkdir(stow.join(directory, 'sub'))
+            self.assertEqual(stow.join(dir1, 'file1'), os.path.join(directory, 'sub', 'file1'))
+
     def test_put(self):
 
         with tempfile.TemporaryDirectory() as source, tempfile.TemporaryDirectory() as destination:

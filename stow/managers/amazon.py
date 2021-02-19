@@ -297,7 +297,7 @@ class Amazon(RemoteManager):
             "region_name": queryData.get("region_name", [None])[0],
         }
 
-        return signature, url.path
+        return signature, (url.path or '/')
 
     def toConfig(self):
         return {

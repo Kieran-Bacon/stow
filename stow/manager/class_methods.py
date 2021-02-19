@@ -196,6 +196,9 @@ class ClassMethodManager:
         joined = ""  # Constructed path
 
         for segment in paths:
+            if isinstance(segment, Artefact):
+                # Convert artefacts to paths
+                segment = segment.path
 
             # Identify and record the last full
             presult = urllib.parse.urlparse(segment)

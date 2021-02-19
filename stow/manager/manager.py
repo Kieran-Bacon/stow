@@ -85,6 +85,7 @@ class Manager(AbstractManager, ClassMethodManager):
             path = path.replace("\\", "/")
 
         return path
+
     def _ensureDirectory(self, managerPath: str) -> Directory:
         """ Fetch the owning `container` for the manager relative path given. In the event that no `container` object
         exists for the path, create one and recursively find its owning `container` to add it to. The goal of this
@@ -117,10 +118,10 @@ class Manager(AbstractManager, ClassMethodManager):
         # Create a directory at this location, add it to the data store and return it
         art = self._identifyPath(managerPath)
         if art is None:
-            raise exceptions.ArtefactNotFound("No artefact found at location {}")
+            raise exceptions.ArtefactNotFound("No artefact found at location {}".format(managerPath))
 
         elif isinstance(art, File):
-            raise exceptions.ArtefactTypeError("Invalid path given {}. Path points to a file {}.".format(managerPath, directory))
+            raise exceptions.ArtefactTypeError("Invalid path given {}. Path points to a file {}.".format(managerPath, art))
 
         self._addArtefact(art)  # Link it with any owner + submanagers
         return art
@@ -819,7 +820,7 @@ class Manager(AbstractManager, ClassMethodManager):
 
         return set(artobj._contents)
 
-    def mkdir(self, path: str, ignoreExists: bool = True, overwrite: bool = False):
+    def mkdir(self, path: str, ignoreExists: bool = True, overwrite: bool = False) -> Directory:
         """ Make a directory at the location of the path provided. By default - do nothing in the event that the
         location is already a directory object.
 
@@ -827,14 +828,23 @@ class Manager(AbstractManager, ClassMethodManager):
             path (str): Relpath to the location where a directory is to be created
             ignoreExists (bool) = True: Whether to do nothing if a directory already exists
             overwrite (bool) = False: Whether to overwrite the directory with an empty directory
+
+        Returns:
+            Directory: The directory at the given location - it may have been created as per the call
+
+        Raises:
+            OperationNotPermitted: In the event that you try to overwrite a directory that already exists without
+                passing the overwrite flag
         """
 
         if path in self:
-            if isinstance(self[path], File):
+            art = self[path]
+
+            if isinstance(art, File):
                 raise exceptions.OperationNotPermitted("Cannot make a directory as location {} is a file object".format(path))
 
             if ignoreExists and not overwrite:
-                return
+                return art
 
         with tempfile.TemporaryDirectory() as directory:
             return self.put(directory, path, overwrite=overwrite)

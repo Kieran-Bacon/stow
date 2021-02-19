@@ -181,3 +181,12 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
 
         self.assertEqual(file2.content.decode(), "Content")
 
+
+    def test_stateless_listTopLevel(self):
+
+        os.environ["AWS_ACCESS_KEY_ID"] = self._config['aws_access_key_id']
+        os.environ["AWS_SECRET_ACCESS_KEY"] = self._config['aws_secret_access_key']
+
+        result = stow.ls('s3://{}'.format(self.bucket_name))
+
+        self.assertIsInstance(result, set)
