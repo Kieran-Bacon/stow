@@ -124,6 +124,9 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
 
     def test_sync_source(self):
 
+        os.environ["AWS_ACCESS_KEY_ID"] = self._config['aws_access_key_id']
+        os.environ["AWS_SECRET_ACCESS_KEY"] = self._config['aws_secret_access_key']
+
         self.setUpWithFiles()
 
         with tempfile.TemporaryDirectory() as directory:
