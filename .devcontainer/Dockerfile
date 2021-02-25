@@ -13,6 +13,8 @@ RUN apt-get update \
     && useradd -s /bin/bash --uid $USER_UID --gid $USER_GID -m $USERNAME \
     && apt-get install -y sudo \
     && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME\
-    && chmod 0440 /etc/sudoers.d/$USERNAME
+    && chmod 0440 /etc/sudoers.d/$USERNAME \
+    && apt-get -y install nano \
+    && git config --global core.editor "nano"
 
 ENV PATH="/home/${USERNAME}/.local/bin:${PATH}"

@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.0-alpha] - 2021-02-25
+
+### Added
+
+- Added all os.path methods to the manager and stateless interface
+- Updated and created documentation for the interface
+- Expanded test coverage
+- Tested system on windows
+- Made artefacts compatible with path-like interfaces (made the path-like)
 
 ## [0.2.0] - 2020-9-15
 
