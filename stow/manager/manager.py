@@ -74,7 +74,7 @@ class Manager(AbstractManager, ClassMethodManager):
             return "/"
 
         # Expand any environment variables but no home path and do not make absolute relative to local
-        path = self.join("/", self.normpath(self.expandvars(path)))
+        path = self.join("/", self.normpath(self.expandvars(path)), separator='/')
 
         if os.name == 'nt':
             # Make Windows paths (if provided) unix like
@@ -200,7 +200,7 @@ class Manager(AbstractManager, ClassMethodManager):
             result = urllib.parse.urlparse(source)
 
             # Find the manager that is correct for the protocol
-            if result.scheme:
+            if result.scheme and result.netloc:
                 manager = utils.find(result.scheme)
                 return manager._loadFromProtocol(result)[result.path]
 
@@ -229,7 +229,8 @@ class Manager(AbstractManager, ClassMethodManager):
         else:
             if require:
                 # The artefact must be collected
-                return self[artefact], artefact
+                obj = self[artefact]
+                return obj, obj.path
 
             # Clean and ensure the artefact path
             artefact = self._managerPath(artefact)
@@ -296,7 +297,7 @@ class Manager(AbstractManager, ClassMethodManager):
                 del self._paths[art.path]
 
                 # Update the object with it's new path
-                art._path = self.join(destPath, srcObj.relpath(art))
+                art._path = self.join(destPath, srcObj.relpath(art), separator='/')
 
                 # Update its membership
                 self._paths[art.path] = art
@@ -487,7 +488,7 @@ class Manager(AbstractManager, ClassMethodManager):
         obj, path = self._splitArtefactUnionForm(artefact)
 
         # Check to see if the artefact exists on disc still
-        check = self._identifyPath(path)
+        check = self._identifyPath(self._managerPath(path))
 
         # Check + update state if information about the object has changed
         if obj is not None:
@@ -720,7 +721,7 @@ class Manager(AbstractManager, ClassMethodManager):
             overwrite: Whether to overwrite directories my move
 
         Returns:
-            Artefact: The destination artefact object (source object updated if source waas on manager originally)
+            Artefact: The destination artefact object (source object updated if source was on manager originally)
         """
 
         # Ensure the destination - get the destination object
@@ -896,7 +897,7 @@ class Manager(AbstractManager, ClassMethodManager):
             # Look to see if there is a conflict
             if relpath not in destinationMapped:
                 # The file doesn't conflict so we will push to destination
-                self.put(sourceArtefact, self.join(destination.path, relpath))
+                self.put(sourceArtefact, self.join(destination.path, relpath, separator='/'))
 
             else:
                 # There is a conflict - lets compare local and destination
@@ -1008,7 +1009,10 @@ class SubManager(Manager):
 
     @classmethod
     def _relpath(cls, path: str, target: str):
-        return "/" + cls.relpath(path, target)
+        relpath = "/" + cls.relpath(path, target)
+        if os.name == 'nt':
+            relpath = relpath.replace("\\", "/")
+        return relpath
 
     def _join(self, *paths):
         """ Join manager paths with this base manager path for full concrete manager path
@@ -1264,7 +1268,7 @@ class RemoteManager(Manager):
                     put, delete = self._compareHierarhy(checksum, self._parseHierarchy(local_path))
 
                     # Define the method for converting the abspath back to the manager relative path
-                    contexualise = lambda x: self.join(path, x[len(local_path)+1:])
+                    contexualise = lambda x: self.join(path, x[len(local_path)+1:], separator='/')
 
                     # Put/delete the affected artefacts
                     for abspath in put: self.put(abspath, contexualise(abspath))

@@ -39,7 +39,14 @@ class Test_Stateless(unittest.TestCase):
             # Get the manager and path of the directory
             fsManager, path = stow.parseURL(directory)
             self.assertIsInstance(fsManager, stow.managers.FS)
-            self.assertEqual(directory, path)
+
+            if os.name == 'nt':
+                # remove the leading drive letter - it becomes lower for some reason
+                self.assertEqual(directory[1:], path[1:])
+
+            else:
+                self.assertEqual(directory, path)
+
 
 
     def test_findManagers(self):
@@ -69,7 +76,11 @@ class Test_Stateless(unittest.TestCase):
 
             self.assertEqual(datetime.datetime.utcfromtimestamp(stats.st_ctime), artefact.createdTime.replace(tzinfo=None))
             self.assertEqual(datetime.datetime.utcfromtimestamp(stats.st_mtime), artefact.modifiedTime.replace(tzinfo=None))
-            self.assertEqual(datetime.datetime.utcfromtimestamp(stats.st_atime), artefact.accessedTime.replace(tzinfo=None))
+            self.assertAlmostEqual(
+                datetime.datetime.utcfromtimestamp(stats.st_atime),
+                artefact.accessedTime.replace(tzinfo=None),
+                delta=datetime.timedelta(milliseconds=5)
+            )
 
     def test_abspath(self):
 
@@ -77,7 +88,7 @@ class Test_Stateless(unittest.TestCase):
         self.assertEqual(os.path.abspath("filename"), stow.abspath("filename"))
         self.assertEqual(os.path.abspath(".."), stow.abspath(".."))
 
-        self.assertEqual(stow.abspath("/hello/there"), "/hello/there")
+        self.assertEqual(stow.abspath("/hello/there"), os.path.abspath("/hello/there"))
         self.assertEqual(stow.abspath("hello/there"), os.path.abspath("hello/there"))
 
         testfile = stow.artefact(__file__)
@@ -85,7 +96,11 @@ class Test_Stateless(unittest.TestCase):
 
     def test_commonpath(self):
 
-        self.assertEqual(stow.commonpath(["/hello/there", "/hello/there/buddy", "/hello/friend"]), "/hello")
+        self.assertEqual(
+            stow.commonpath(["/hello/there", "/hello/there/buddy", "/hello/friend"]),
+            os.path.commonpath(["/hello/there", "/hello/there/buddy", "/hello/friend"]),
+            # "/hello"
+        )
 
         # List the directory and check out the common path
         testDirectory = os.path.dirname(os.path.abspath(__file__))
@@ -171,9 +186,12 @@ class Test_Stateless(unittest.TestCase):
 
     def test_relpath(self):
 
-        self.assertEqual(stow.relpath("/hello/there/buddy", "/hello/there"), "buddy")
-        self.assertEqual(stow.relpath("/hello/buddy", "/hello/there"), "../buddy")
-        self.assertEqual(stow.relpath("/hello/there", "/hello/there"), ".")
+        for s in [
+            ["/hello/there/buddy", "/hello/there"], # buddy
+            ["/hello/buddy", "/hello/there"],  # ../buddy
+            ["/hello/there", "/hello/there"], # .
+        ]:
+            self.assertEqual(stow.relpath(*s), os.path.relpath(*s))
 
     def test_samefile(self):
 
@@ -227,10 +245,20 @@ class Test_Stateless(unittest.TestCase):
 
     def test_split(self):
 
-        self.assertEqual(stow.split("/hello/there/buddy.txt"), ("/hello/there", "buddy.txt"))
-        self.assertEqual(stow.split("hello/there/buddy.txt"), ("hello/there", "buddy.txt"))
+        for s in [
+            "/hello/there/buddy.txt"
+            "hello/there/buddy.txt"
+        ]:
+            self.assertEqual(stow.split(s), os.path.split(s))
 
-        self.assertEqual(stow.split(stow.artefact(__file__)), os.path.split(os.path.abspath(__file__)))
+        if os.name == 'nt':
+            a, b = stow.split(stow.artefact(__file__))
+            A, B = os.path.split(os.path.abspath(__file__))
+
+            self.assertEqual(stow.abspath(a)[1:], A[1:])
+            self.assertEqual(b, B)
+        else:
+            self.assertEqual(stow.split(stow.artefact(__file__)), os.path.split(os.path.abspath(__file__)))
 
     def test_splitdirve(self):
 
@@ -410,6 +438,9 @@ class Test_Stateless(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
 
+            if os.name == 'nt':
+                directory = directory[0].lower() + directory[1:]
+
             with stow.localise(directory) as abspath:
                 self.assertEqual(directory, abspath)
 
@@ -423,35 +454,52 @@ class Test_Stateless(unittest.TestCase):
         self.assertEqual(arts, files)
 
     def test_join(self):
-        self.assertEqual(stow.join(), "")
-        self.assertEqual(stow.join("hello//there", "buddy/"), "hello//there/buddy/")
-        self.assertEqual(stow.join("hello", "/", "there"), "/there")
-        self.assertEqual(stow.join("hello"), "hello")
-        self.assertEqual(stow.join("", "hello"), "hello")
-        self.assertEqual(stow.join("/", "/hello", "/"), "/")
-        self.assertEqual(stow.join("/", "/", "/"), "/")
-        self.assertEqual(stow.join("./example", "there"), "./example/there")
-        self.assertEqual(stow.join("example", "there"), "example/there")
-        self.assertEqual(stow.join("example", "/there"), "/there")
-        self.assertEqual(stow.join('/', '/directory'), "/directory")
-        self.assertEqual(stow.join('/', 'directory'), "/directory")
-        self.assertEqual(stow.join('s3://example-bucket/a/b', 'hello', 'there'), "s3://example-bucket/a/b/hello/there")
-        self.assertEqual(stow.join('s3://example-bucket/a/b', '/hello', 'there'), "s3://example-bucket/hello/there")
-        self.assertEqual(stow.join('s3://example-bucket/a/b', 'c:/hello', 'there'), "c:/hello/there")
-        self.assertEqual(stow.join("s3://example-location/directory", "filename.txt"), "s3://example-location/directory/filename.txt")
+
+        for s in [
+            ("hello//there", "buddy/"),
+            ("hello", "/", "there"),
+            ("hello"),
+            ("", "hello"),
+            ("/", "/hello", "/"),
+            ("/", "/", "/"),
+            ("./example", "there"),
+            ("example", "there"),
+            ("example", "/there"),
+            ('/', '/directory'),
+            ('/', 'directory'),
+        ]:
+            self.assertEqual(stow.join(*s), os.path.join(*s))
+
+        for s, t in [
+            (('s3://example-bucket/a/b', 'hello', 'there'), 's3://example-bucket/a/b/hello/there'),
+            (('s3://example-bucket/a/b', '/hello', 'there'), 's3://example-bucket/hello/there'),
+            (('s3://example-bucket/a/b', 'c:/hello', 'there'), 'c:/hello/there'),
+            (("s3://example-location/directory", "filename.txt"), "s3://example-location/directory/filename.txt"),
+        ]:
+            self.assertEqual(stow.join(*s), t)
 
     def test_joinAbsolute(self):
 
-        self.assertEqual(stow.join("/hello", "/there", "/buddy", joinAbsolutes=True), "/hello/there/buddy")
-        self.assertEqual(stow.join('s3://example-bucket/a/b', 'c:/hello', 'there', joinAbsolutes=True), "c:/a/b/hello/there")
-        self.assertEqual(stow.join('s3://example-bucket/a/b', 'hello', 'there', joinAbsolutes=True), "s3://example-bucket/a/b/hello/there")
+        for s in [
+            [["/hello", "/there", "/buddy"], "/hello/there/buddy", "/hello\\there\\buddy"],
+            [['s3://example-bucket/a/b', 'c:/hello', 'there'], "c:/a/b/hello/there", "c:/a/b\hello\\there"],
+            [['s3://example-bucket/a/b', 'hello', 'there'], "s3://example-bucket/a/b/hello/there", "s3://example-bucket/a/b\\hello\\there"],
+        ]:
+
+            target = s[2] if os.name == "nt" else s[1]
+
+            self.assertEqual(stow.join(*s[0], joinAbsolutes=True), target)
 
     def test_joiningWithArtefacts(self):
 
         with tempfile.TemporaryDirectory() as directory:
 
             dir1 = stow.mkdir(stow.join(directory, 'sub'))
-            self.assertEqual(stow.join(dir1, 'file1'), os.path.join(directory, 'sub', 'file1'))
+
+            if os.name == 'nt':
+                self.assertEqual(stow.abspath(stow.join(dir1, 'file1'))[1:], os.path.join(directory, 'sub', 'file1')[1:])
+            else:
+                self.assertEqual(stow.join(dir1, 'file1'), os.path.join(directory, 'sub', 'file1'))
 
     def test_put(self):
 
@@ -463,7 +511,10 @@ class Test_Stateless(unittest.TestCase):
 
             file = stow.put(sourceFile, stow.join(destination, stow.basename(sourceFile)))
 
-            self.assertEqual(file.path, os.path.join(destination, "file1.txt"))
+            if os.name == 'nt':
+                self.assertEqual(os.path.abspath(file.path)[1:], os.path.join(destination, "file1.txt")[1:])
+            else:
+                self.assertEqual(file.path, os.path.join(destination, "file1.txt"))
 
             self.assertEqual(
                 set(os.listdir(destination)),
@@ -489,7 +540,10 @@ class Test_Stateless(unittest.TestCase):
 
                     file = stow.put(relpath, stow.join(destination, "file{}.txt".format(i)))
 
-                    self.assertEqual(file.path, os.path.join(destination, "file{}.txt".format(i)))
+                    if os.name == 'nt':
+                        self.assertEqual(os.path.abspath(file.path)[1:], os.path.join(destination, "file{}.txt".format(i))[1:])
+                    else:
+                        self.assertEqual(file.path, os.path.join(destination, "file{}.txt".format(i)))
 
                 self.assertEqual(
                     set(os.listdir(destination)),

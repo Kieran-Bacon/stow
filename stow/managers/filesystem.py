@@ -130,7 +130,7 @@ class FS(LocalManager):
         for art in os.listdir(abspath):
             self._addArtefact(
                 self._identifyPath(
-                    self.join(directory, art)
+                    self.join(directory, art, separator='/')
                 )
             )
 

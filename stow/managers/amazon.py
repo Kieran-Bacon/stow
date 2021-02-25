@@ -174,11 +174,11 @@ class Amazon(RemoteManager):
 
             for root, dirs, files in os.walk(source):
 
-                dRoot = self.join(destination, root[sourcePathLength:])
+                dRoot = self.join(destination, root[sourcePathLength:], separator='/')
 
                 if not (dirs or files):
                     # There are no sub-directories or files to be uploaded
-                    placeholder_path = self.join(dRoot, self._PLACEHOLDER)
+                    placeholder_path = self.join(dRoot, self._PLACEHOLDER, separator='/')
                     self._bucket.put_object(Key=placeholder_path, Body=b'')
                     continue
 
@@ -186,7 +186,7 @@ class Amazon(RemoteManager):
                 for file in files:
                     self._bucket.upload_file(
                         os.path.join(root, file),
-                        self.join(dRoot, file)
+                        self.join(dRoot, file, separator='/')
                     )
 
         else:
@@ -208,7 +208,7 @@ class Amazon(RemoteManager):
         if isinstance(self[source], Directory):
             # Source is director - loop through and copy each file object
             for obj in self._bucket.objects.filter(Prefix=sourcePath):
-                self._cpFile(obj.key, self.join(destinationPath, self.relpath(obj.key, sourcePath)))
+                self._cpFile(obj.key, self.join(destinationPath, self.relpath(obj.key, sourcePath), separator='/'))
 
         else:
             # Source is a file - copy directly to location
@@ -223,7 +223,7 @@ class Amazon(RemoteManager):
         if isinstance(self[source], Directory):
             # Source is director - loop through and copy each file object
             for obj in self._bucket.objects.filter(Prefix=sourcePath):
-                self._cpFile(obj.key, self.join(destinationPath, self.relpath(obj.key, sourcePath)))
+                self._cpFile(obj.key, self.join(destinationPath, self.relpath(obj.key, sourcePath), separator='/'))
                 obj.delete()
 
         else:

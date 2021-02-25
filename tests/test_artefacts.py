@@ -128,7 +128,6 @@ class Test_Artefacts(BasicSetup, unittest.TestCase):
         )
 
         # Directory changes
-
         directory = self.manager.mkdir("/another_directory")
 
         self.assertEqual(directory.basename, "another_directory")

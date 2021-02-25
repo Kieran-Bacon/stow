@@ -85,7 +85,7 @@ class Artefact:
         return self._manager.basename(self.path)
     @basename.setter
     def basename(self, basename: str):
-        self.manager.mv(self, self._manager.join(self._manager.dirname(self.path), basename))
+        self.manager.mv(self, self._manager.join(self._manager.dirname(self.path), basename, separator='/'))
 
     @property
     def name(self):
@@ -323,7 +323,7 @@ class Directory(Artefact):
         if isinstance(artefact, Artefact):
             return artefact.manager is self.manager and artefact in self._contents
         else:
-            return self.manager.join(self._path, artefact) in self.manager
+            return self.manager.join(self._path, artefact, separator='/') in self.manager
 
     def _add(self, artefact: Artefact) -> None:
         assert isinstance(artefact, (File, Directory)) and not isinstance(artefact, (SubDirectory))
@@ -366,7 +366,7 @@ class Directory(Artefact):
         Returns:
             Directory: The newly created directory object
         """
-        return self.manager.mkdir(self.manager.join(self._path, path, joinAbsolutes=True))
+        return self.manager.mkdir(self.manager.join(self._path, path, separator='/', joinAbsolutes=True))
 
     def touch(self, path: str) -> File:
         """ Touch a file at given location relative to this Directory
@@ -377,7 +377,7 @@ class Directory(Artefact):
         Returns:
             File: The newly created file object
         """
-        return self.manager.touch(self.manager.join(self._path, path, joinAbsolutes=True))
+        return self.manager.touch(self.manager.join(self._path, path, separator='/', joinAbsolutes=True))
 
     def relpath(self, artefact: typing.Union[Artefact, str]) -> str:
         """ Assuming the artefact is a member of this directory, return a filepath which is relative to this directory
@@ -417,7 +417,7 @@ class Directory(Artefact):
         Returns:
             str: the absolute local path to the manager path
         """
-        with self.manager.localise(self if path is None else self.manager.join(self._path, path)) as abspath:
+        with self.manager.localise(self if path is None else self.manager.join(self._path, path, separator='/')) as abspath:
             yield abspath
 
     @contextlib.contextmanager
@@ -432,7 +432,7 @@ class Directory(Artefact):
         Yields:
             io.IOBase: An IO object depending on the mode for interacting with the file
         """
-        with self.manager.open(self.manager.join(self._path, self.manager._managerPath(path)[1:]), mode, **kwargs) as handle:
+        with self.manager.open(self.manager.join(self._path, self.manager._managerPath(path)[1:], separator='/'), mode, **kwargs) as handle:
             yield handle
 
     def rm(self, path: str = None, recursive: bool = False):
@@ -445,7 +445,7 @@ class Directory(Artefact):
         Raises:
             OperationNotPermitted: In the even the target is a directory and recursive has not been toggled
         """
-        return self.manager.rm(self.manager.join(self.path, path, joinAbsolutes=True), recursive)
+        return self.manager.rm(self.manager.join(self.path, path, separator='/', joinAbsolutes=True), recursive)
 
     def _ls(self, recursive: bool = False):
         """ Get the current contents from this directory, do not update or edit state """
@@ -475,7 +475,7 @@ class Directory(Artefact):
         Returns:
             typing.Set[Artefact]: The collection of objects within the targeted directory
         """
-        return self._manager.ls(self.path if not path else self.manager.join(self.path, path), recursive=recursive)
+        return self._manager.ls(self.path if not path else self.manager.join(self.path, path, separator='/'), recursive=recursive)
 
     def isEmpty(self) -> bool:
         """ Check whether the directory has contents
