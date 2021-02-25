@@ -1,4 +1,22 @@
-site_name: warehouse
+site_name: Stow
 theme: readthedocs
 markdown_extensions:
     - tables
+    - attr_list
+extra_css: [static/css/main.css]
+nav:
+    - Home: index.md
+    - Managers: managers.md
+    - Extending: extending.md
+    - Changelog: changelog.md
+    - Example: examples.md
+    - CLI: cli.md
+    - FAQ: faq.md
+    - Reference:
+        - stow: reference/stow.md
+        - stow.artefacts: reference/stow.artefacts.md
+        - stow.manager: reference/stow.manager.md
+        - stow.exceptions: reference/stow.exceptions.md
+plugins:
+    - search # necessary for search to work
+    - mkapi

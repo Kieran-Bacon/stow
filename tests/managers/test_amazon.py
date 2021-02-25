@@ -7,8 +7,8 @@ from botocore.exceptions import ClientError
 import uuid
 import tempfile
 
-import warehouse
-from warehouse.managers import Amazon
+import stow
+from stow.managers import Amazon
 
 from .. import ETC_DIR
 from .manager import ManagerTests, SubManagerTests
@@ -16,7 +16,7 @@ from .manager import ManagerTests, SubManagerTests
 CONFIG_PATH = os.path.join(ETC_DIR, 'aws_credentials.ini')
 BUCKET_NAME_INCLUDE = 'pykb-storage-test-bucket'
 
-@unittest.skipIf(not os.path.exists(CONFIG_PATH), 'No credentials at {} to connect to aws'.format(CONFIG_PATH))
+@unittest.skipIf(False or not os.path.exists(CONFIG_PATH), 'No credentials at {} to connect to aws'.format(CONFIG_PATH))
 class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
 
     @classmethod
@@ -30,7 +30,7 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
             's3',
             aws_access_key_id=cls._config['aws_access_key_id'],
             aws_secret_access_key=cls._config['aws_secret_access_key'],
-            # region_name=cls._config['region_name']
+            region_name=cls._config['region_name']
         )
 
         for bucket in cls.s3.buckets.all():
@@ -71,7 +71,7 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
             bucket=self.bucket_name,
             aws_access_key_id=self._config['aws_access_key_id'],
             aws_secret_access_key=self._config['aws_secret_access_key'],
-            # region_name=self._config['region_name']
+            region_name=self._config['region_name']
         )
 
     def setUpWithFiles(self):
@@ -107,52 +107,11 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
     def tearDown(self):
         self.s3.Bucket(self.bucket_name).objects.delete()
 
-    def test_abspath(self):
-
-        paths = [
-            ('/hello/kieran', 'hello/kieran'),
-            ('/hello/kieran', 'hello/kieran'),
-            (r'\what\the\hell', 'what/the/hell'),
-            (r'C:\\what\\the\\something', 'what/the/something'),
-            ('s3://path/like/this', 'path/like/this')
-        ]
-
-
-        for i, o in paths:
-            self.assertEqual(self.manager.abspath(i), o)
-    def test_relPath(self):
-
-        paths = [
-            ('/hello/kieran', '/hello/kieran'),
-            ('/hello/kieran/', '/hello/kieran'),
-            (r'\what\the\hell', '/what/the/hell'),
-            (r'C:\\what\\the\\hell', '/what/the/hell'),
-            ('s3://path/like/this', '/path/like/this')
-        ]
-
-
-        for i, o in paths:
-            self.assertEqual(self.manager.relpath(i), o)
-
-    def test_basename(self):
-
-        paths = [
-            ('/hello/kieran', 'kieran'),
-            ('/hello/', 'hello'),
-            (r'\what\the\hell', 'hell'),
-            (r'C:\\what\\the\\something', 'something'),
-            ('s3://path/like/this', 'this')
-        ]
-
-
-        for i, o in paths:
-            self.assertEqual(self.manager.basename(i), o)
-
     def test_connect_submanager(self):
 
         self.setUpWithFiles()
 
-        sub_manager = warehouse.connect(
+        sub_manager = stow.connect(
             "s3",
             submanager="/initial_directory",
             bucket=self.bucket_name,
@@ -160,5 +119,77 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
             aws_secret_access_key=self._config['aws_secret_access_key']
         )
 
-        self.assertIsInstance(sub_manager, warehouse.manager.SubManager)
+        self.assertIsInstance(sub_manager, stow.SubManager)
         self.assertEqual(len(sub_manager.ls()), 1)
+
+    def test_sync_source(self):
+
+        os.environ["AWS_ACCESS_KEY_ID"] = self._config['aws_access_key_id']
+        os.environ["AWS_SECRET_ACCESS_KEY"] = self._config['aws_secret_access_key']
+
+        self.setUpWithFiles()
+
+        with tempfile.TemporaryDirectory() as directory:
+            stow.sync("s3://{}".format(self.bucket_name), directory)
+
+    def test_stateless_put_file_with_manager(self):
+        # Test that when putting with the stateless interface that put actually works
+
+        os.environ["AWS_ACCESS_KEY_ID"] = self._config['aws_access_key_id']
+        os.environ["AWS_SECRET_ACCESS_KEY"] = self._config['aws_secret_access_key']
+
+        path = "s3://{}/{}".format(self.bucket_name, "file_put.txt")
+
+        with tempfile.TemporaryDirectory() as directory:
+            with open(os.path.join(directory, "file.txt"), "w") as handle:
+                handle.write("hello")
+
+            stow.put(
+                os.path.join(directory, "file.txt"),
+                path
+            )
+
+        self.assertEqual(
+            self.manager["/file_put.txt"].content.decode(), "hello"
+        )
+
+
+    def test_stateless_put_bytes_with_manager(self):
+        # Test that when putting with the stateless interface that put actually works
+
+        os.environ["AWS_ACCESS_KEY_ID"] = self._config['aws_access_key_id']
+        os.environ["AWS_SECRET_ACCESS_KEY"] = self._config['aws_secret_access_key']
+
+        path = "s3://{}/{}".format(self.bucket_name, "bytes_put.txt")
+
+        stow.put(
+            b"hello",
+            path
+        )
+
+        self.assertEqual(
+            self.manager["/bytes_put.txt"].content.decode(), "hello"
+        )
+
+    def test_relative_path(self):
+
+
+        self.setUpWithFiles()
+
+        file = self.manager["initial_directory/initial_file2.txt"]
+
+        self.assertEqual(file.content.decode(), "Content")
+
+        file2 = self.manager["/initial_directory/initial_file2.txt"]
+
+        self.assertEqual(file2.content.decode(), "Content")
+
+
+    def test_stateless_listTopLevel(self):
+
+        os.environ["AWS_ACCESS_KEY_ID"] = self._config['aws_access_key_id']
+        os.environ["AWS_SECRET_ACCESS_KEY"] = self._config['aws_secret_access_key']
+
+        result = stow.ls('s3://{}'.format(self.bucket_name))
+
+        self.assertIsInstance(result, set)

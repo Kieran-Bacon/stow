@@ -3,9 +3,12 @@ import unittest
 import os
 import tempfile
 import shutil
+import random
+import string
+import time
 
-import warehouse
-from warehouse.managers import FS
+import stow
+from stow.managers import FS
 
 from .manager import ManagerTests, SubManagerTests
 
@@ -42,49 +45,54 @@ class Test_Filesystem(unittest.TestCase, ManagerTests, SubManagerTests):
         # Delete the directory and all it's contents
         shutil.rmtree(self.directory)
 
-    def test_abspath(self):
+    def test_relativePath(self):
 
-        # Make a file
-        with self.manager.open('/directory/file.txt', 'w') as handle:
-            handle.write('content')
+        filename = "test-filename.txt"
 
-        file = self.manager['/directory/file.txt']
+        while os.path.exists(filename):
+            filename = "".join([random.choice(string.ascii_letters) for _ in range(10)])
 
-        # Assert that it's full path
-        self.assertEqual(
-            os.path.join(self.directory, "directory", "file.txt"),
-            self.manager._abspath(file)
-        )
+        #
+        try:
+            with open(filename, "w") as handle:
+                handle.write("Content")
 
-        self.assertEqual(open(os.path.join(self.directory, "directory", "file.txt"), "r").read(), "content")
+            file = stow.artefact(filename)
 
-    def test_dirname(self):
-        pass
+            self.assertEqual(file.content.decode(), "Content")
 
-    def test_basename(self):
-        pass
+        finally:
+            os.remove(filename)
 
 
-    def test_abspath(self):
+    def test_config(self):
 
-        paths = [
-            ('/hello/kieran', os.path.join(self.directory, 'hello/kieran')),
-            ('/hello/kieran/', os.path.join(self.directory, 'hello/kieran')),
-        ]
+        self.assertEqual(self.manager.toConfig(), {"manager": "FS", "path": self.directory})
+
+    def test_speed(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            targets = ['{}.txt'.format(i) for i in range(100000)]
+
+            for t in targets:
+                open(os.path.join(directory, t), 'w').close()
 
 
-        for i, o in paths:
-            self.assertEqual(self.manager.abspath(i), o)
-    def test_relPath(self):
 
-        paths = [
-            ('/hello/kieran', '/hello/kieran'),
-            (os.path.join(self.directory, 'hello/kieran'), '/hello/kieran'),
-            ('/hello/kieran/', '/hello/kieran'),
-            (r'\what\the\hell', '/what/the/hell'),
-            (r'C:\\what\\the\\hell', '/what/the/hell'),
-            ('s3://path/like/this', '/path/like/this')
-        ]
+            start = time.time()
+            for t in targets:
+                os.path.exists(os.path.join(directory, t))
+            rawTotal = time.time() - start
 
-        for i, o in paths:
-            self.assertEqual(self.manager.relpath(i), o)
+            directoryArtefact = stow.artefact(directory)
+
+            start = time.time()
+            for t in targets:
+                t in directoryArtefact
+
+            stowTotal = time.time() - start
+
+            self.assertAlmostEqual(rawTotal, stowTotal)
+
+

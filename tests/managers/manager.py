@@ -6,13 +6,15 @@ import tempfile
 import shutil
 import contextlib
 import abc
+import time
+import datetime
 
-import warehouse
+import stow
 
 class ManagerTests:
 
     def setUp(self):
-        self.manager = warehouse.manager.Manager
+        self.manager = stow.manager.Manager
 
     @abc.abstractmethod
     def setUpWithFiles(self): pass
@@ -31,8 +33,41 @@ class ManagerTests:
         self.assertEqual(len(self.manager.ls(recursive=True)), 1)
 
         directory = self.manager['/directory']
-        self.assertIsInstance(directory, warehouse.Directory)
+        self.assertIsInstance(directory, stow.Directory)
         self.assertTrue(len(directory) == 0)
+
+    def test_mkdir_ignore_exists(self):
+
+        self.manager.mkdir("/directory")
+
+        # Does not through error
+        self.manager.mkdir("/directory")
+
+        self.manager.touch("/directory/file1.txt")
+
+        # Again doesn't through error
+        self.manager.mkdir("/directory")
+
+        self.assertEqual(
+            {art.path for art in self.manager.ls(recursive=True)},
+            {"/directory", "/directory/file1.txt"}
+        )
+
+        with pytest.raises(stow.exceptions.OperationNotPermitted):
+            self.manager.mkdir("/directory", ignoreExists=False)
+
+    def test_mkdir_overwrite(self):
+
+
+        self.manager.touch("/directory/file1.txt")
+
+        # Again doesn't through error
+        self.manager.mkdir("/directory", overwrite=True)
+
+        self.assertEqual(
+            {art.path for art in self.manager.ls(recursive=True)},
+            {"/directory"}
+        )
 
     def test_touch(self):
 
@@ -45,6 +80,62 @@ class ManagerTests:
         self.assertEqual(len(self.manager.ls(recursive=True)), 5)
         self.assertIn(self.manager['/directory/file2.txt'], self.manager['/directory'])
         self.assertIn(self.manager['/otherdir/file3.txt'], self.manager['/otherdir'])
+
+
+    def test_contains(self):
+
+        file1 = self.manager.touch('/file1.txt')
+
+        # Check that the file exists in the manager
+        self.assertTrue('/file1.txt' in self.manager)
+        self.assertTrue(file1 in self.manager)
+
+        # Esure that non existent files doesn't exist
+        self.assertFalse('/file-non-existent.txt' in self.manager)
+        self.assertFalse(stow.File(None, '/file-non-existent.txt', 10, datetime.datetime.utcnow()) in self.manager)
+
+    def test_touchByName(self):
+
+        file = self.manager.touch("/file.txt")
+
+        self.assertIs(file, self.manager["file.txt"])
+
+        file2 = self.manager.touch("file2.txt")
+        self.assertIs(file2, self.manager["file2.txt"])
+
+    def test_getEnsuresDirectories(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            file = self.manager.touch("/file1.txt")
+            contentbytes = b"here is some content"
+            file.content = contentbytes
+
+            # Get the file
+            filepath = os.path.join(directory, "some_dir", "another dir", "file.1.txt")
+            self.manager.get("/file1.txt", filepath)
+
+            with open(filepath, "rb") as handle:
+                self.assertEqual(handle.read(), contentbytes)
+
+    def test_getWontOverwriteDirectory(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            filepath = os.path.join(directory, "some_dir", "another dir", "file.1.txt")
+            os.makedirs(os.path.dirname(filepath))
+
+            file = self.manager.touch("/file1.txt")
+            contentbytes = b"here is some content"
+            file.content = contentbytes
+
+            with pytest.raises(stow.exceptions.OperationNotPermitted):
+                self.manager.get("/file1.txt", os.path.join(directory, "some_dir"))
+
+            self.manager.get("/file1.txt", os.path.join(directory, "some_dir"), overwrite=True)
+
+            with open(os.path.join(directory, "some_dir"), "rb") as handle:
+                self.assertEqual(handle.read(), contentbytes)
 
     def test_put_and_get(self):
 
@@ -63,7 +154,7 @@ class ManagerTests:
             file = self.manager.put(localInFP, '/test1.txt')
 
             # Assert that the pushed item is a file
-            self.assertIsInstance(file, warehouse.artefacts.File)
+            self.assertIsInstance(file, stow.artefacts.File)
 
             # Pull the file down again
             self.manager.get('/test1.txt', localOutFP)
@@ -108,7 +199,7 @@ class ManagerTests:
             file_b = self.manager.put(localInFP, file)
 
             # Assert its a file and that its the same file object as before
-            self.assertIsInstance(file_b, warehouse.artefacts.File)
+            self.assertIsInstance(file_b, stow.artefacts.File)
             self.assertIs(file, file_b)
 
             # Pull the file down again - using the file object
@@ -139,7 +230,7 @@ class ManagerTests:
 
             art = self.manager.put(d, '/testdir')
 
-            self.assertIsInstance(art, warehouse.artefacts.Directory)
+            self.assertIsInstance(art, stow.artefacts.Directory)
 
     def test_putting_directories_overwrites(self):
 
@@ -154,16 +245,74 @@ class ManagerTests:
             open(os.path.join(path, 'file2.txt'), 'w').close()
 
             # Put the local directory into the machine, ensure that its overwritten
-            self.manager.put(path, '/directory')
+            self.manager.put(path, '/directory', overwrite=True)
 
             folder = self.manager['/directory']
 
             self.assertEqual(len(folder), 1)
 
-            with pytest.raises(warehouse.exceptions.ArtefactNotFound):
+            with pytest.raises(stow.exceptions.ArtefactNotFound):
                 self.manager['/directory/file1.txt']
 
             self.manager['/directory/file2.txt']
+
+    def test_putting_directories_overwrite_throws_error(self):
+        """ Test that when putting a directory onto another that the system throws an error warning about the possible
+        loss of data
+        """
+
+        # Create a file
+        self.manager.touch("/directory/file1.txt")
+
+        # Create and try and put a directory
+        with tempfile.TemporaryDirectory() as directory:
+
+            # Create a file in the directory
+            open(os.path.join(directory, "file2.txt"), "w").close()
+
+            with pytest.raises(stow.exceptions.OperationNotPermitted):
+                self.manager.put(directory, "/directory")
+
+    def test_putting_directories_strategy_overwrite(self):
+        """ Test that when putting a directory onto another that the system throws an error warning about the possible
+        loss of data
+        """
+
+        # Create a file
+        self.manager.touch("/directory/file1.txt")
+
+        # Create and try and put a directory
+        with tempfile.TemporaryDirectory() as directory:
+
+            # Create a file in the directory
+            open(os.path.join(directory, "file2.txt"), "w").close()
+
+            # Signal that it is okay to overwrite the directory
+            self.manager.put(directory, "/directory", overwrite=True)
+
+        # Get the directory
+        remoteDirectory = self.manager["/directory"]
+
+        # Assert that the directory object only has the uploaded file in it
+        self.assertEqual({a.basename for a in remoteDirectory.ls()}, {"file2.txt"})
+
+    def test_getBytes(self):
+
+        file = self.manager.touch("/A/a.txt")
+        file.content = b"content"
+
+        self.assertEqual(self.manager.get("/A/a.txt"), b"content")
+
+    def test_cp(self):
+
+        file = self.manager.touch("/A/a.txt")
+        file.content = b"content"
+
+        self.manager.cp(file, "/A/b.txt")
+
+        file2 = self.manager["/A/b.txt"]
+
+        self.assertEqual(file2.content, b"content")
 
     def test_ls(self):
         """ Create a hierarchy of files and show that listing the
@@ -214,6 +363,21 @@ class ManagerTests:
         self.assertEqual(len(content), 1)
         self.assertEqual(content.pop().path, "/directory-stack/directory-stack/initial_file3.txt")
 
+    def test_mv_toplevel(self):
+        # Check moving files at the top level works correctly.
+
+        self.setUpWithFiles()
+
+        self.manager.mv('initial_file1.txt', 'initial_file2.txt')
+        self.manager.mv('/initial_file2.txt', '/initial_file3.txt')
+
+        f = self.manager['/initial_file3.txt']
+
+        self.manager.mv('initial_directory', 'initial_directory1')
+        self.manager.mv('/initial_directory1', '/initial_directory2')
+
+        d = self.manager['/initial_directory2']
+
     def test_mv_files(self):
 
         content = 'Here is some file content to be verified'
@@ -229,10 +393,10 @@ class ManagerTests:
         self.assertTrue(self.manager['/file1.txt'])
         self.assertTrue(self.manager['/file2.txt'])
 
-        with pytest.raises(warehouse.exceptions.ArtefactNotFound):
+        with pytest.raises(stow.exceptions.ArtefactNotFound):
             self.manager['/file3.txt']
 
-        with pytest.raises(warehouse.exceptions.ArtefactNotFound):
+        with pytest.raises(stow.exceptions.ArtefactNotFound):
             self.manager['/file4.txt']
 
         # Move the file
@@ -242,8 +406,8 @@ class ManagerTests:
         # Assert that the file exists
         self.assertTrue(self.manager['/file3.txt'])
         self.assertTrue(self.manager['/file4.txt'])
-        with pytest.raises(warehouse.exceptions.ArtefactNotFound): self.manager['/file1.txt']
-        with pytest.raises(warehouse.exceptions.ArtefactNotFound): self.manager['/file2.txt']
+        with pytest.raises(stow.exceptions.ArtefactNotFound): self.manager['/file1.txt']
+        with pytest.raises(stow.exceptions.ArtefactNotFound): self.manager['/file2.txt']
 
         # Open the new file and assert that its content matches
         with self.manager.open('/file3.txt', 'r') as handle:
@@ -296,14 +460,14 @@ class ManagerTests:
             self.manager.rm('/file1.txt')
 
             # Demonstrate that the file has been removed from the manager
-            with pytest.raises(warehouse.exceptions.ArtefactNotFound):
+            with pytest.raises(stow.exceptions.ArtefactNotFound):
                 self.manager['/file1.txt']
 
-            self.assertFalse(file._exists)
+            with pytest.raises(stow.exceptions.ArtefactNoLongerExists):
+                file._exists
 
-            with pytest.raises(warehouse.exceptions.ArtefactNotMember):
+            with pytest.raises(stow.exceptions.ArtefactNotFound):
                 self.manager.get('/file1.txt', os.path.join(directory, 'temp.txt'))
-                os.stat(os.path.join(directory, 'temp.txt'))
 
 
     def test_rm_empty_directory(self):
@@ -317,7 +481,8 @@ class ManagerTests:
         # Delete the directory
         self.manager.rm('/directory')
 
-        self.assertFalse(tempDir._exists)
+        with pytest.raises(stow.exceptions.ArtefactNoLongerExists):
+            tempDir._exists
 
 
     def test_rm_non_empty_directory(self):
@@ -344,7 +509,7 @@ class ManagerTests:
                 self.assertTrue(method(local_path))
 
             # Ensure that one cannot delete the directory while it still has contents
-            with pytest.raises(warehouse.exceptions.OperationNotPermitted):
+            with pytest.raises(stow.exceptions.OperationNotPermitted):
                 self.manager.rm(folder)
 
             # Remove recursively
@@ -353,10 +518,9 @@ class ManagerTests:
             # Assert that the items are not removed
             # Ensure that they exist
             for art in [folder, file]:
-                self.assertFalse(art._exists)
 
-                with pytest.raises(KeyError):
-                    self.manager[art.__dict__['path']]
+                with pytest.raises(stow.exceptions.ArtefactNoLongerExists):
+                    art._exists
 
             self.assertEqual(self.manager['/'].ls(), set())
 
@@ -423,7 +587,7 @@ class ManagerTests:
                     handle.write("Some content")
 
             file = self.manager['/another/file3.txt']
-            self.assertIsInstance(file, warehouse.artefacts.File)
+            self.assertIsInstance(file, stow.artefacts.File)
             self.assertEqual(file.path, "/another/file3.txt")
             with file.open("r") as handle:
                 self.assertEqual(handle.read(), "Some content")
@@ -498,7 +662,103 @@ class ManagerTests:
 
             self.assertEqual(len(os.listdir(abspath)), 0)
 
-        self.assertIsInstance(self.manager['/nonexistent'], warehouse.artefacts.Directory)
+        self.assertIsInstance(self.manager['/nonexistent'], stow.artefacts.Directory)
+
+    def test_put_bytest(self):
+        """ Put files with bytes
+        """
+
+        content = "Hello there"
+
+        self.manager.put(bytes(content, "utf8"), "/file1.txt")
+
+        self.assertEqual(self.manager["/file1.txt"].content.decode(), content)
+
+    def test_put_bytes_overwrite(self):
+        """ Put bytes overwriting a file that previously existed there
+        """
+
+        with self.manager.open("/file1.txt", "w") as handle:
+            handle.write("0123456789")
+
+        file = self.manager["/file1.txt"]
+        size = file.size
+
+        file = self.manager.put(bytes("hello world", "utf8"), "/file1.txt")
+
+        self.assertNotEqual(file.size, size)
+
+    def test_put_non_existent_file(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            with pytest.raises(FileNotFoundError):
+                file = self.manager.put(os.path.join(directory, "file1.txt"), "/file1.txt")
+
+
+    def test_sync_empty(self):
+        """ Test that syncing a directory with an empty location puts the directory """
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            # Create a local fs manager
+            fsManager = stow.connect(manager="FS", path=directory)
+
+            fsManager.touch("/file1.txt")
+            fsManager.touch("/nested/file2.txt")
+
+            folder = self.manager.mkdir("/sync_folder")
+            self.manager.sync(fsManager["/"], folder)
+
+            self.assertEqual(
+                {art.path for art in self.manager.ls(recursive=True)},
+                {"/sync_folder/file1.txt", "/sync_folder/nested", "/sync_folder/nested/file2.txt", "/sync_folder"}
+            )
+
+    def test_sync_update(self):
+        """ Test that syncing a directory with an empty location puts the directory """
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            # Create a local fs manager
+            fsManager = stow.connect(manager="FS", path=directory)
+
+            fsManager.touch("/file1.txt")
+            f2 = fsManager.touch("/file2.txt")
+            fsManager.touch("/nested/file3.txt")
+            f4 = fsManager.touch("/nested/file4.txt")
+
+            folder = self.manager.mkdir("/sync_folder")
+            self.manager.sync(fsManager["/"], folder)
+
+            # Have a calculate-able difference in time
+            time.sleep(1)
+
+            # Update the files at source
+            with fsManager.open(f2, "w") as handle:
+                handle.write("This file has been updated at source")
+
+            with fsManager.open(f4, "w") as handle:
+                handle.write("This file has been updated at source")
+
+            # Update the files at destination
+            with self.manager.open("/sync_folder/file1.txt", "w") as handle:
+                handle.write("This file has been updated at destination")
+
+            with self.manager.open("/sync_folder/nested/file3.txt", "w") as handle:
+                handle.write("This file has been updated at destination")
+
+            self.manager.sync(fsManager["/"], folder)
+
+            self.assertEqual(
+                {art.path for art in self.manager.ls(recursive=True)},
+                {"/sync_folder/file1.txt", "/sync_folder/file2.txt", "/sync_folder/nested", "/sync_folder/nested/file3.txt", "/sync_folder/nested/file4.txt", "/sync_folder"}
+            )
+
+            self.assertEqual(self.manager["/sync_folder/file1.txt"].content.decode(), "This file has been updated at destination")
+            self.assertEqual(self.manager["/sync_folder/file2.txt"].content.decode(), "This file has been updated at source")
+
+
 
 class SubManagerTests:
 
@@ -587,7 +847,7 @@ class SubManagerTests:
         self.assertEqual(mainfile.modifiedTime, subfile.modifiedTime)
         self.assertEqual(mainfile.size, subfile.size)
 
-    def test_submanager_sub_put_directories(self):
+    def test_submanager_sub_put_directories_overwrite(self):
 
         subManager = self.manager.submanager("/sub-directory")
 
@@ -607,7 +867,11 @@ class SubManagerTests:
 
         # Put and overwrite
         with self.get_dirpath(['file2.txt', 'file3.txt']) as directory:
-            subdir1 = subManager.put(directory, "/directory")
+
+            with pytest.raises(stow.exceptions.OperationNotPermitted):
+                subdir1 = subManager.put(directory, "/directory")
+
+            subdir1 = subManager.put(directory, "/directory", overwrite=True)
 
         maindir1 = self.manager["/sub-directory/directory"]
 
@@ -623,7 +887,7 @@ class SubManagerTests:
             self.assertEqual(main.modifiedTime, sub.modifiedTime)
             self.assertEqual(main.size, sub.size)
 
-    def test_submanager_main_put_directories(self):
+    def test_submanager_main_put_directories_overwrite(self):
 
         subManager = self.manager.submanager("/sub-directory")
 
@@ -643,7 +907,11 @@ class SubManagerTests:
 
         # Put and overwrite
         with self.get_dirpath(['file2.txt', 'file3.txt']) as directory:
-            maindir1 = self.manager.put(directory, "/sub-directory/directory")
+
+            with pytest.raises(stow.exceptions.OperationNotPermitted):
+                maindir1 = self.manager.put(directory, "/sub-directory/directory")
+
+            maindir1 = self.manager.put(directory, "/sub-directory/directory", overwrite=True)
 
         subdir1 = subManager["/directory"]
 
@@ -658,3 +926,47 @@ class SubManagerTests:
 
             self.assertEqual(main.modifiedTime, sub.modifiedTime)
             self.assertEqual(main.size, sub.size)
+
+    def test_write_fail_behaviour_for_files(self):
+        """ Test what happens when an error is produced in the writing of a file
+
+        The intended behaviour is that the writes up to the error are pushed to the file
+        """
+
+        try:
+            with self.manager.open("file.txt", "w") as handle:
+                handle.write("line 1")
+                raise ValueError("Error during write")
+                handle.write("line 2")
+
+        except ValueError:
+
+            file = self.manager["file.txt"]
+
+            self.assertEqual(file.size, 6)
+
+            with self.manager.open("file.txt", "r") as handle:
+                self.assertEqual(handle.read(), "line 1")
+
+    def test_write_fail_behaviour_for_files(self):
+        """ Test what happens when an error is produced in the writing of a file that has been localised
+
+        The intended behaviour is that the writes up to the error are pushed to the file
+        """
+
+        try:
+            with self.manager.localise("file.txt") as abspath:
+                with open(abspath, "w") as handle:
+                    handle.write("line 1")
+                raise ValueError("Error during write")
+                with open(abspath, "w") as handle:
+                    handle.write("line 2")
+
+        except ValueError:
+
+            file = self.manager["file.txt"]
+
+            self.assertEqual(file.size, 6)
+
+            with self.manager.open("file.txt", "r") as handle:
+                self.assertEqual(handle.read(), "line 1")

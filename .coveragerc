@@ -1,0 +1,16 @@
+[run]
+branch = True
+
+[report]
+# Regexes for lines to exclude from consideration
+exclude_lines =
+    pragma: no cover
+    pass
+    def __repr__
+    raise NotImplementedError
+    if os.name == 'nt':
+
+ignore_errors = True
+
+[html]
+directory = htmlcov

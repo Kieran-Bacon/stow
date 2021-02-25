@@ -6,7 +6,7 @@ import shutil
 
 from .manager import ManagerTests
 
-import warehouse
+import stow
 
 class Test_SubManager(unittest.TestCase, ManagerTests):
 
@@ -15,7 +15,7 @@ class Test_SubManager(unittest.TestCase, ManagerTests):
         self.directory = tempfile.mkdtemp()
 
         # Define the manager
-        self.mainManager = warehouse.connect(manager='FS', path=self.directory)
+        self.mainManager = stow.connect(manager='FS', path=self.directory)
         self.mainManager.mkdir("/demo")
         self.manager = self.mainManager.submanager("/demo")
 
@@ -38,7 +38,7 @@ class Test_SubManager(unittest.TestCase, ManagerTests):
             handle.write("Content")
 
         # Define the manager
-        self.mainManager = warehouse.connect(manager='FS', path=self.directory)
+        self.mainManager = stow.connect(manager='FS', path=self.directory)
         self.manager = self.mainManager.submanager("/demo")
 
     def tearDown(self):
@@ -81,3 +81,9 @@ class Test_SubManager(unittest.TestCase, ManagerTests):
 
                 self.assertEqual(main.modifiedTime, sub.modifiedTime)
                 self.assertEqual(main.size, sub.size)
+
+
+    def test_making_artefacts(self):
+
+        self.assertIsInstance(self.manager.touch("/subfile.txt"), stow.artefacts.SubFile)
+        self.assertIsInstance(self.manager.mkdir("/subdir"), stow.artefacts.SubDirectory)
