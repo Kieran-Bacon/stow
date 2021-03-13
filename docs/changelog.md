@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.1-alpha] - 2021-03-12
+
+### Added
+
+- Added `name` and `extension` to the stateless interface of the package
+
 ## [1.0.0-alpha] - 2021-02-25
 
 ### Added

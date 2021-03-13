@@ -63,6 +63,40 @@ class ClassMethodManager:
         return os.path.basename(path)
 
     @classmethod
+    def name(cls, artefact: typing.Union[Artefact, str]) -> str:
+        """ Return the name of an artefact or path (basename without extension).
+
+        Args:
+            artefact: The path or object whose path is to have its base name extracted
+
+        Returns:
+            str: the name e.g. /hello/there.txt => there
+        """
+        _, path = cls._splitArtefactUnionForm(artefact)
+        basename = os.path.basename(path)
+        index = basename.rfind('.')
+        if index != -1:
+            return basename[:index]
+        return basename
+
+    @classmethod
+    def extension(cls, artefact: typing.Union[Artefact, str]) -> str:
+        """ Return the extension of an artefact or path.
+
+        Args:
+            artefact: The path or object whose path is to have its base name extracted
+
+        Returns:
+            str: the extension e.g. /hello/there.txt => txt
+        """
+        _, path = cls._splitArtefactUnionForm(artefact)
+        basename = os.path.basename(path)
+        index = basename.rfind('.')
+        if index != -1:
+            return basename[index+1:]
+        return ''
+
+    @classmethod
     def commonpath(cls, paths: typing.Iterable[typing.Union[Artefact, str]]) -> str:
         """ Return the longest common sub-path of each pathname in the sequence paths
 

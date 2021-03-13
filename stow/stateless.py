@@ -60,6 +60,14 @@ def abspath(*args, **kwargs) -> str:
 def basename(*args, **kwargs) -> str:
     return Manager.basename(*args, **kwargs)
 
+@wraps(Manager.name)
+def name(*args, **kwargs) -> str:
+    return Manager.name(*args, **kwargs)
+
+@wraps(Manager.extension)
+def extension(*args, **kwargs) -> str:
+    return Manager.extension(*args, **kwargs)
+
 @wraps(Manager.commonpath)
 def commonpath(*args, **kwargs) -> str:
     return Manager.commonpath(*args, **kwargs)
