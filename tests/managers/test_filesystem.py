@@ -78,8 +78,6 @@ class Test_Filesystem(unittest.TestCase, ManagerTests, SubManagerTests):
             for t in targets:
                 open(os.path.join(directory, t), 'w').close()
 
-
-
             start = time.time()
             for t in targets:
                 os.path.exists(os.path.join(directory, t))

@@ -42,7 +42,7 @@ class AbstractManager(ABC):
         pass
 
     @abstractmethod
-    def _get(self, source: str, destination: str):
+    def _get(self, source: Artefact, destination: str):
         """ Fetch the artefact and downloads its data to the local destination path provided
 
         The existence of the file to collect has already been checked so this function can be written to assume its
@@ -55,7 +55,7 @@ class AbstractManager(ABC):
         pass
 
     @abstractmethod
-    def _getBytes(self, source: str) -> bytes:
+    def _getBytes(self, source: Artefact) -> bytes:
         """ Fetch the file artefact contents directly. This is to avoid having to write the contents of files to discs
         for some of the other operations.
 
@@ -102,7 +102,7 @@ class AbstractManager(ABC):
         pass
 
     @abstractmethod
-    def _cp(self, source: str, destination: str):
+    def _cp(self, source: Artefact, destination: str):
         """ Method for copying an artefact local to the manager to an another location on the manager. Implementation
         would avoid having to download data from a manager to re-upload that data.
 
@@ -118,7 +118,7 @@ class AbstractManager(ABC):
         pass
 
     @abstractmethod
-    def _mv(self, source: str, destination: str):
+    def _mv(self, source: Artefact, destination: str):
         """ Method for moving an artefact local to the manager to an another location on the manager. Implementation
         would avoid having to download data from a manager to re-upload that data.
 
@@ -159,7 +159,7 @@ class AbstractManager(ABC):
         pass
 
     @abstractmethod
-    def _rm(self, artefact: str):
+    def _rm(self, artefact: Artefact):
         """ Delete the underlying artefact data on the manager.
 
         To avoid possible user error in deleting directories, the user must have already indicated that they want to

@@ -22,7 +22,7 @@ class FS(LocalManager):
     def __repr__(self): return '<Manager(FS): {}>'.format(self._path)
 
     def _abspath(self, managerPath: str) -> str:
-        return os.path.abspath(os.path.join(self._path, managerPath[1:]))
+        return self.join(self._path, managerPath, joinAbsolutes=True)
 
     def _identifyPath(self, managerPath: str):
 
@@ -65,10 +65,10 @@ class FS(LocalManager):
 
         return None
 
-    def _get(self, source: str, destination: str):
+    def _get(self, source: Artefact, destination: str):
 
         # Convert source path
-        sourceAbspath = self._abspath(source)
+        sourceAbspath = self._abspath(source.path)
 
         # Identify download method
         method = shutil.copytree if os.path.isdir(sourceAbspath) else shutil.copy
@@ -76,9 +76,9 @@ class FS(LocalManager):
         # Download
         method(sourceAbspath, destination)
 
-    def _getBytes(self, source: str) -> bytes:
+    def _getBytes(self, source: Artefact) -> bytes:
 
-        with open(self._abspath(source), "rb") as handle:
+        with open(self._abspath(source.path), "rb") as handle:
             return handle.read()
 
     def _put(self, source: str, destination: str):
@@ -107,13 +107,13 @@ class FS(LocalManager):
         with open(destinationAbspath, "wb") as handle:
             handle.write(fileBytes)
 
-    def _cp(self, source: str, destination: str):
-        self._put(self._abspath(source), destination)
+    def _cp(self, source: Artefact, destination: str):
+        self._put(self._abspath(source.path), destination)
 
-    def _mv(self, source: str, destination: str):
+    def _mv(self, source: Artefact, destination: str):
 
         # Convert the source and destination
-        source, destination = self._abspath(source), self._abspath(destination)
+        source, destination = self._abspath(source.path), self._abspath(destination)
 
         # Ensure the destination location
         os.makedirs(os.path.dirname(destination), exist_ok=True)
@@ -134,10 +134,10 @@ class FS(LocalManager):
                 )
             )
 
-    def _rm(self, artefact: str):
+    def _rm(self, artefact: Artefact):
 
         # Convert the artefact
-        artefact = self._abspath(artefact)
+        artefact = self._abspath(artefact.path)
 
         # Select method for deleting
         method = shutil.rmtree if os.path.isdir(artefact) else os.remove
