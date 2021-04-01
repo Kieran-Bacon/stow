@@ -757,7 +757,7 @@ class Manager(AbstractManager, ClassMethodManager):
             self._delinkArtefactObjects(destinationObj)
 
         # Look to see if the source artefact is in the manager - if so we can try to be more efficient
-        sourceObject, sourcePath = self._artefactFormStandardise(source)
+        sourceObject, _ = self._artefactFormStandardise(source)
         if sourceObject is None or sourceObject.manager is not self:
             # The source isn't inside this manager - we must find it and use put. No speed up to be had in manager
 

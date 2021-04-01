@@ -52,8 +52,19 @@ class SSH(RemoteManager):
         password: The password for the user
         privateKey: The private key used for ssh authentication
         privateKeyFilePath: A path to the private key for ssh authentication
-
+        sshConfigs: Additional ssh config files for configurations lookup. Extending open ssh config locations.
+            Order of Read will be: passed configs, user config, global config.
     """
+
+    # Construct the base configs paths - only store them if they exists in the environment
+    BASE_CONFIGS = [
+        x
+        for x in [
+            os.path.expanduser(os.path.join('~', '.ssh', 'config')),
+            os.path.expandvars(os.path.join("$ProgramData", 'ssh', 'ssh_config')) if os.name == 'nt' else "/etc/ssh/ssh_config"
+        ]
+        if os.path.exists(x)
+    ]
 
     def __init__(
         self,
@@ -66,6 +77,7 @@ class SSH(RemoteManager):
         privateKeyFilePath: str = None,
         autoAddMissingHost: bool = True,
         timeout: float = 30,
+        sshConfigs: typing.Iterable[str] = None
         ):
         super().__init__()
 
@@ -77,6 +89,28 @@ class SSH(RemoteManager):
         self._autoAddMissingHost = autoAddMissingHost
         if autoAddMissingHost:
             self._sshClient.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+        # Load in the configuration files and check for the hostname
+        self._sshConfigs = (sshConfigs or [])
+        for path in self._sshConfigs + self.BASE_CONFIGS:
+
+            sshConfig = paramiko.SSHConfig()
+            sshConfig.parse(open(path))
+
+            for configHostname in sshConfig.get_hostnames():
+                if hostname == configHostname or hostname == configHostname.lower():
+                    # A configuration has been found
+
+                    # Fetch the config values
+                    config = sshConfig.lookup(configHostname)
+
+                    # Fetch the configuration values if they haven't been overwritten by the interface
+                    hostname = config['hostname']
+                    port = (port or config.get('port'))
+                    username = (username or config.get('user'))
+                    password = (password or config.get('password'))
+                    privateKeyFilePath = (privateKeyFilePath or config.get('identityfile', [None])[0])
+                    timeout = (timeout or config.get('timeout'))
 
         # Save connection information
         self._hostname = hostname
@@ -219,6 +253,9 @@ class SSH(RemoteManager):
 
     def _recursiveGetDirectory(self, path, destination):
 
+        # Create the directory at the desintation
+        os.mkdir(destination)
+
         # Get the files at this level
         artefacts = self._ftpClient.listdir_attr(path)
 
@@ -228,14 +265,11 @@ class SSH(RemoteManager):
             artefactDestinationPath = os.path.join(destination, artefact.filename)
 
             if stat.S_ISDIR(artefact.st_mode):
-                # The artefact is a directory - make the directory at the destination
-                os.makedirs(artefactDestinationPath)
-
-                # Recursively review and pull data from the directory
+                # The artefact is a directory - recursively create it and its children
                 self._recursiveGetDirectory(sourceFilepath, artefactDestinationPath)
 
             else:
-                # The item is a file
+                # The item is a file - pull and place the file in the newly created directory
                 self._ftpClient.get(sourceFilepath, artefactDestinationPath)
 
 
@@ -311,14 +345,10 @@ class SSH(RemoteManager):
 
     @_ensureConnection
     def _mv(self, source: Artefact, destination: str):
-        sourcePath = source.path
+        sourcePath = self._abspath(source.path)
         destination = self._abspath(destination)
 
-        if isinstance(source, Directory):
-            self._sshClient.exec_command(f'mv -R {sourcePath} {destination}')
-
-        else:
-            self._sshClient.exec_command(f'mv {sourcePath} {destination}')
+        self._sshClient.exec_command(f'mv {sourcePath} {destination}')
 
     @_ensureConnection
     def _rm(self, artefact: Artefact):
@@ -348,13 +378,14 @@ class SSH(RemoteManager):
 
         signature = {
             "hostname": url.hostname,
-            "port": url.port,
+            "port": (url.port or 22),
             "username": url.username,
             "password": url.password,
-            "privateKey": queryData.get("privateKey", None),
-            "privateKeyFilePath": queryData.get("privateKeyFilePath", None),
-            "autoAddMissingHost": queryData.get("autoAddMissingHost", True),
+            "privateKey": queryData.get("privateKey", [None])[0],
+            "privateKeyFilePath": queryData.get("privateKeyFilePath", [None])[0],
+            "autoAddMissingHost": queryData.get("autoAddMissingHost", [True])[0],
             "timeout": queryData.get("timeout", 30),
+            "sshConfigs": queryData.get("sshConfig"),
         }
 
         return signature, (url.path or '/')
@@ -370,4 +401,5 @@ class SSH(RemoteManager):
             "privateKeyFilePath": self._privateKeyFilePath,
             "autoAddMissingHost": self._autoAddMissingHost,
             "timeout": self._timeout,
+            "sshConfigs": self._sshConfigs
         }

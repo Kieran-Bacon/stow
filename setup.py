@@ -37,7 +37,8 @@ setup(
             'fs=stow.managers:FS',
             'lfs=stow.managers:FS',
             'aws=stow.managers:Amazon',
-            's3=stow.managers:Amazon'
+            's3=stow.managers:Amazon',
+            'ssh=stow.managers:SSH',
         ]
     }
 )

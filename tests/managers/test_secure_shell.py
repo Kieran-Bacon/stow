@@ -71,3 +71,38 @@ class Test_SecureShell(unittest.TestCase, ManagerTests, SubManagerTests):
             client.exec_command(f"rm -rf {self.config['root']}")
         except:
             pass
+
+    def test_signature(self):
+        pass
+
+
+@unittest.skipIf(False or not os.path.exists(CONFIG_PATH), 'No credentials at {} to connect to an SSH server'.format(CONFIG_PATH))
+class Test_SSHStatelessInterface(unittest.TestCase):
+
+    def setUp(self):
+        self.config = pyini.ConfigParser().read(CONFIG_PATH)
+
+
+    def test_loadFromConfig(self):
+
+        name = "test_config_name"
+
+        sshConfig = f"""
+Host "{name}"
+  HostName {self.config['hostname']}
+  User {self.config['username']}
+  IdentityFile {self.config['privateKeyFilePath']}
+        """
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            configPath = stow.join(directory, 'config.txt')
+
+            with open(configPath, 'w') as handle:
+                handle.write(sshConfig)
+
+            manager, path = stow.parseURL(f"ssh://{name}/hello/there?sshConfig={configPath}")
+
+            self.assertIsInstance(manager, SSH)
+            self.assertEqual(path, "/hello/there")
+
