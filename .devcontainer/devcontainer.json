@@ -33,7 +33,8 @@
 		"ms-python.vscode-pylance",
 		"mechatroner.rainbow-csv",
 		"redhat.vscode-yaml",
-		"mhutchie.git-graph"
+		"mhutchie.git-graph",
+		"brunnerh.file-properties-viewer"
 	],
 
 	"runArgs": [

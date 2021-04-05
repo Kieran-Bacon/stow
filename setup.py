@@ -1,8 +1,13 @@
 import os
 from setuptools import setup, find_packages
 
+# Read in package requirements
 with open(os.path.join(os.path.dirname(__file__), 'requirements.txt')) as fh:
     requires = fh.read().splitlines()
+
+# Read in package test requirements
+with open(os.path.join(os.path.dirname(__file__), 'test-requirements.txt')) as fh:
+    testRequires = fh.read().splitlines()
 
 def packageVersion(initpath: str) -> str:
     """ Get from the init of the source code the version string
@@ -23,9 +28,11 @@ def packageVersion(initpath: str) -> str:
 
 setup(
     name='stow',
-    install_requires=requires,
     version=packageVersion("stow/__init__.py"),
     description="",
+
+    install_requires=requires,
+    tests_require=testRequires,
 
     author="Kieran Bacon",
     author_email="kieran.bacon@outlook.com",

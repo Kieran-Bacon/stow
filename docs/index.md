@@ -45,11 +45,7 @@ print(reqs.name, reqs.size, reqs.extension)
 You can get stow by:
 ```bash
 $ pip install stow
-```
-
-You can get a specific verion of stow by:
-```sh
-$ pip install stow==0.2.0
+$ pip install stow==1.0.0
 ```
 
 To use `stow`, simply import the package and begin to use its rich interface
