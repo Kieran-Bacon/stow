@@ -1,8 +1,8 @@
 # Stow
 
-`Stow` is a package that enables the manipulation of local and remote artefacts seemlessly and effortlessly via a powerful and well defined interface. Importantly it provides you with the abstraction you want from storage implementations and solves compatibility issues and concerns.
+`stow` is a package that enables you to write filesystem agnostic code. With `stow` you can access and manipulate local and remote artefacts seamlessly with a rich and familiar interface. `stow` gives abstraction from storage implementations and solves compatibility issues, allowing code to be highly flexible.
 
-`stow` enables you to deploy solutions anywhere with any storage backend without concern, and without having to re-implement how you access your files and directories.
+`stow` is meant to be a drop in replacement for the `os.path` module, providing full coverage of its interface. Furthermore, `stow` extends the interface to work with remote files and directories and to include methods that follow conventional artefact manipulation paradigms like `put`, `get`, `ls`, `rm`, in a concise and highly functional manner.
 
 ```python
 import stow
@@ -30,287 +30,39 @@ with stow.open("s3://example-bucket/projects/stow/requirements.txt", "r") as han
 # pyini
 # boto3
 
-reqs = stow.artefact("s3://example-bucket/projects/stow/requirements.txt")
-reqs
-# <stow.File: s3://example-bucket/projects/stow/requirements.txt modified(2020-10-10 09:32:59.423165) size(16 bytes)>
-
-print(reqs.name, reqs.size, reqs.extension)
-# requirements 16 txt
+print(stow.getmtime("s3://example-bucket/projects/stow/requirements.txt"))
+# 1617381185.341602
 ```
 
-## Getting started
-
-### Installation
-
-You can get stow by:
-```bash
-$ pip install stow
-$ pip install stow==1.0.0
-```
-
-To use `stow`, simply import the package and begin to use its rich interface
-
-```python
-import stow
-
-stow.ls()
-```
-
-!!! Note
-    The latest development version can always be found on [GitHub](https://github.com/Kieran-Bacon/stow){target=_blank}.
-
-    For best results, please ensure your version of Python is up-to-date. For more information on how to get the latest version of Python, please refer to the official [Python documentation](https://www.python.org/downloads/){target=_blank}.
-
-### Paths, Artefacts and Managers
-
-<p role="list-header"> <code>stow</code> only defines two fundamental objects:</p>
-- `Artefact` and
-- `Manager`
-
-`Artefacts` represent a storage object like a file or directory (`stow.File`, `stow.Directory`) and it provides methods for accessing those objects contents and extracting relevant metadata. All `Artefact` objects belong to a `Manager` which orchestrates communication between your session and the storage medium.
-
-Each `Manager` is a backend for a specific storage medium, and all adhere to a rich `Manager` interface. This allows you to write storage medium agnostic code, and switch between (or use multiple varieties of) backends confidently.
-
-**`Artefacts` can be used more often than not in place of a path string on the stateless and manager interfaces.**
-
-```python
-reqFile = manager["/requirements.txt"]
-
-with reqFile.open("r") as handle:
-    ...
-
-with manager.open(reqFile, "r") as handle:
-    ...
-
-with stow.open(reqFile, "r") as handle:
-    ...
-
-with stow.open("/requirements.txt", "r") as handle:
-    ...
-```
-
-`Artefacts` use the expressive interface of the `Manager` object to perform their actions so inheriting from `Manager` to support a new storage backend is a breeze, and can be looked into [here](/extending).
-
-`Managers` use the unix filesystem syntax for their paths, across all mediums and platform implementations. These paths are translated to the medium specific paths when operations are executed.
-
-<p role="code-header">As such, the following will run for both <b>unix</b> and <b>windows</b> platforms:</p>
-
-```python
-stow.ls("~/Documents")
-manager["/directory/file1.txt"].size
-```
-
-Windows paths are accepted as part of the stow stateless interface, but, to truely be agnostic you should use the unix filesystem syntax.
-
-!!! Warning
-    A result of this choice is that for development on Windows the `Manager` and `Directory` objects will not accept windows relative paths. The local filesystem manager will act just like any other manager, as a unix filesystem.
-
-    The stateless interface can be dropped in without an issue into pre-existing code as a replacement for os, but, to use the Manager object you will need to be aware of its intolerance of windows.
-
-### Things to remember
-
-Listed below are a few things to remember about this package that may save you some head scratching.
-
-#### Don't hold onto things you don't need
-
-Words to live by, but especially here. As `Artefact` objects are created to provide a convenient means of accessing filesystem objects, their existence is tied intrinsically with those objects. Holding references to objects that are deleted will result in the `Artefact` objects raising existence errors when you next try to interact with them.
-
-If an object is actively deleted you should try and make sure you aren't holding a reference to it.
-
-That being said, updates to files, overwrites, copies and moves onto operations will not be an issue. The metadata for the the `Artefact` object will be updated accordingly.
-
-## Ways of working
-
-The package is intend to be as simple to use as the builtin `os.path` package but far more powerful. An important aspect of any powerful package is a good abstraction layer that means that the user doesn't have to cater to the package's implementation, but with any road paved with good intentions...
-
-Fortunately there isn't any special, or specific edge cases that will surprise you or break the intuitive nature of the package. Everything will work as you expect and as the interface states, however, the are paradigms for working with remote files that will aid (slightly) in the performance when in such a context that will have no impact/benefit to local file system `Manager`s. As such, it would be recommended to program as that were the context but I discuss below these subtleties more so you can decide for yourself.
-
-Furthermore, Managers may have performance quirks specific to them but these should be slight as compatibility is the primary focus, any such differences will be outlined [here](managers).
-
-Any third party package/plugin `Manager` is a of course untested, however if following the steps [here](extending) they should be highly effective.
-
-
-### Working with stow
-
-`stow` aims to replace `os.path` so automatically any example usage of `os.path` will be just as valid when replacing `os.path` with `stow`.
-
-```python
-import os
-import stow
-
-p1, p2 ,p3 = ...
-
-os.path.commonpath([p1, p2, p3]) == stow.commonpath([p1, p2 ,p3]) # True
-```
-
-There is an endless list of different scenarios and requirements you may have for working with files. Here we will illustrate a few that may give an insight into how you can incorporate stow to great affect in your own applications.
-
-#### working locally and then pushing
-
-Conventionally working with a remote destination, you would create your artefacts and then push/put them on the target using a bespoke package for the storage manager. It would look similar to below but more complicated on the pushing front.
-
-```python
-import os
-import stow
-
-LOCAL_DIRECTORY = "/path/..." # Or temporary directory
-REMOTE_DIRECTORY = "s3://example-bucket"
-
-# Do some work in a base directory
-for i in range(10):
-    with open(os.path.join(LOCAL_DIRECTORY, str(i)), "w") as handle:
-        handle.write(f"line {i}")
-
-# Put the directory into an s3 bucket
-stow.put(LOCAL_DIRECTORY, REMOTE_DIRECTORY)
-
-# Remove local artefacts that are now on remote (or keep them... that's up to you really)
-os.rmdir(LOCAL_DIRECTORY)
-```
-
-By `localising` a directory you can wrap your code without having to change it to immediately benefit writing to remote destinations
-
-```python
-import stow
-
-REMOTE_DIRECTORY = "s3://example-bucket"  # Could be a path to any remote
-
-with stow.localise(REMOTE_DIRECTORY) as LOCAL_DIRECTORY:
-    stow.mkdir(LOCAL_DIRECTORY)  # If the target location doesn't yet exist, we will create it as a directory now
-
-    # Do some work in a base directory
-    for i in range(10):
-        with open(os.path.join(LOCAL_DIRECTORY, str(i)), "w") as handle:
-            handle.write(f"line {i}")
-```
-
-Alternatively you can use stow to write directly to the manager, via the stow package interface or the manager interface
-
-```python
-import stow
-
-REMOTE_DIRECTORY = "s3://example-bucket"  # Could be a path to any remote
-
-# Do some work in a base directory
-for i in range(10):
-    with stow.open(stow.join(REMOTE_DIRECTORY, str(i)), "w") as handle:
-        handle.write(f"line {i}")
-```
-
-```python
-import stow
-
-s3 = stow.connect(manager="s3", bucket="example-bucket")
-
-# Do some work in a base directory
-for i in range(10):
-    with s3.open(i, "w") as handle:
-        handle.write(f"{i}")
-```
-
-!!! Note
-    `os` was not imported. For constructing files with depth `stow.join()` or a manager's `.join()` can be used to construct the manager relative path.
-
-
-!!! Note
-    AWS credentials were setup for the user via one of the methods that can be read about <a href="https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-quickstart.html" target="_blank">__*here*__</a>. This allows `stow` to able to communicate with s3 simply be using the qualified url for the artefacts. Otherwise, the IAM secret keys are required to be passed to the manager as keyword arguments which can be looked at in [managers](managers).
-
-#### merging directories
-
-Wanted to merge or synchronise two directory is rather a pain. You will need to setup a loop to fetch files metadata and do the comparison for each file. This method is even more difficult when considering fetching metadata from a remote source.
-
-```python
-import os
-import shutil
-
-source = "..."
-destination = "..."
-
-for file in os.listdir(source):
-    sourceStat = os.stat(os.path.join(source, file))
-    destinationStat = os.stat(os.path.join(destination, file))
-
-    if (
-        (destinationStat is None) or # There isn't a destination file
-        (sourceStat.st_mtime > destinationStat.st_mtime)  # Source has been updated
-        ):
-        # Update the destination
-        shutil.copyfile(os.path.join(source, file), os.path.join(destination, file))
-```
-`stow` makes this easy.
-```python
-import stow
-
-# paths to directories anywhere (local, aws, ssh, ...)
-source = "..."
-destination = "..."
-
-# Sync the directories
-stow.sync(source, destination)
-```
-
-### Writing manager agnostic code
+## Why use stow?
 
 The ultimate power that `stow` provides is the time saving and confidence brought by removing the need to write complicated methods for handling multiple backend storage solutions in your application.
 
-Importantly, time spent making your solution robust in multiple environments (e.g development and production) to then simple abandon the good work when only a subset of those environments is where your live application runs, can be saved.
+Importantly, time spent implementing these handlers while trying to cater to various environment nuances, can be saved. Especially when you consider effort spent supporting the various stages of an applications development cycle, to then simple abandon good work when only a particular implementation is used live. (Yes, preferably all those stages are identical, but, this is never the case).
 
-**You** shouldn't be focusing on storage management, you should be focusing on your solutions and be confident that artefacts needed will be available regardless where you are deploying and whatever storage method you are using.
+**You shouldn't be focusing on storage management, you should be focusing on your solutions**
 
-#### Current situation
+Consider the following scenario: As part of a development team, you have been asked to write the code that handles the loading of application configuration, and you've been sent a few json files. You create and test a method that reads in the configuration files, and passes them on to the next step in your application.
 
-Imagine we have the following method that loads in configuration information for our solution (please don't judge on the quality of the method, just for demonstration purposes only).
-```python
-import os
-import json
+This works perfectly fine locally, but, it turns out that the application is going to be deployed as a docker container running in AWS ecs. The configuration files will need to be hosted on s3 and accessed by the container on startup.
 
-def loadInConfigs(configDirectory: str) -> dict:
-    """ Open and parser the system configurations
+Well, you have to write a different method that uses `boto3` to connect to the bucket and pull them out. You setup a test bucket and an application IAM user with optimistic permissions to test your new method with, and get cracking.
 
-    Args:
-        configDirectory: The path to the config directory
+You'll then have to add in some logic before this section in the application to handle the possibility of reading the files locally or remotely. This may come in the form of changes to your cli, api, etc, so you do that.
 
-    Returns:
-        dict: A diction of configuration names to values
+Then from word up high, some of the configuration you are doing will need to change dynamically while the application is running. Your team has decided that the app will monitor one of the configuration files for changes and reload it when it does.
 
-    Raises:
-        FileNotFoundError: if the configDirectory path does not exist
-    """
+To maintain the local and remote duality of your application, you get to work updating both methods to check for updates, and then test.
 
-    with open(os.path.join(configDirectory, "config1.json"), "r") as handle:
-        config1 = json.load(handle)
+**so what have you achieved?** Sad to say, very little. You've spent a lot of time getting up to speed with `boto3` (or re-implementing work from another project), and then you dived back into the deep end trying to understand how to get the modified time of files out. You've supported two methods for the same thing, when only one is going to be used. **You've loaded in some files.**
 
-    with open(os.path.join(configDirectory, "config2.json"), "r") as handle:
-        config2 = json.load(handle)
+<p role="code-header">An example solution using <code>stow</code></p>
 
-    with open(os.path.join(configDirectory, "config3.json"), "r") as handle:
-        config3 = json.load(handle)
-
-    combined = {"lazers": config1, "cannons": config2, "doors": config3}
-
-    return combined
-```
-
-This works perfectly fine locally, but, the target of your work is an docker container running in AWS ecs and the configs need to be configurable from a distance so they will actually be hosted on s3...
-
-Well... I guess we are going to have to write a different method that uses boto3 to connect to the bucket and pull them out. We'll write this code but not test it until we deploy to our testing/staging environment as that looks a lot more like production with similar polices and the like, and for now we will continue with this method!
-
-Great! will still need to write some sort of toggle for this and that method and fit that in to our cli, api, etc, so we do that. Or as the over-engineers will inevitably do, create a function to parse the `configDirectory` path and decide the best method for accessing the data.
-
-Then from word up high, we want to update the running solution on the fly by changing some of these configs and (I can't image a use case where you'd have to handle it like this) to do so you want to check the update time of the file to trigger a change.
-
-You'd need implemented this for both your AWS backend solution and your local development directory.
-
-Then we write tests! (of if you are better than I, you've done this first and you've finished now because the methods work).
-
-**but what have you achieved?** Sad to say, nothing. You've loaded in some files. And made a questionable decision about how your program flows logically. What can we do about this?
-
-#### Use stow methods and paths
-
-First off lets remove the requirement for os and make this as similar to the original method as possible
 ```python
 import stow
 import json
+import datetime
+import typing
 
 def loadInConfigs(configDirectory: str) -> dict:
     """ Open and parser the system configurations
@@ -337,64 +89,193 @@ def loadInConfigs(configDirectory: str) -> dict:
     combined = {"lazers": config1, "cannons": config2, "doors": config3}
 
     return combined
+
+def reloadConfigIfUpdated(configPath: str, time: datetime = None) -> typing.Union[dict, None]:
+    """ Fetch and return config if it has been updated """
+
+    if time is None or stow.artefact(configPath).modifiedTime > time:
+        with stow.open(configPath) as handle:
+            return json.load(handle)
+
+# Demonstrate how the function is called with different managers
+configs = loadInConfigs('/local/app/configs')  # local
+configs = loadInConfigs('s3://organisation/project/team/live/app/configs')  # S3
+configs = loadInConfigs('ssh://admin:password@.../configs')  # SSH
 ```
 
-Almost identical code but the consequence is that you can pass in a stow path such as `/home/kieran/configs`, `s3://example-bucket/configs` or `ssh://kieran@ec2.../home/ubuntu/configs` and have the same behaviour.
+And with that you can handle configurations files being stored locally, on s3, on another container. Simple yet powerful.
 
-You can write a test for this function and be done with it. Nothing complicated but highly functional.
+## Installation
 
-#### Use a stow object
+You can get stow by:
+```bash
+$ pip install stow
+$ pip install stow==1.0.0
+```
 
-Useful when you have a structure of nested related items, you may make absolute paths which will become relative to the manager. A result is that this structure could be moved and the code would continue to work perfectly, now with the benefit of the manager interface to use inside the function, and a clear indication of what is going on in the interface.
+To use `stow`, simply import the package and begin to use its rich interface
 
 ```python
 import stow
-import json
 
-#def loadInConfigs(configDirectory: stow.Manager) -> dict:
-def loadInConfigs(configDirectory: stow.Directory) -> dict:
-    """ Open and parser the system configurations
-
-    Args:
-        configDirectory: directory holding config files
-
-    Returns:
-        dict: A diction of configuration names to values
-
-    Raises:
-        FileNotFoundError: if the configDirectory path does not exist
-    """
-
-    with configDirectory["/config1.json"].open("r") as handle:
-        config1 = json.load(handle)
-
-    with configDirectory["/config2.json"].open("r") as handle:
-        config2 = json.load(handle)
-
-    with configDirectory["/config3.json"].open("r") as handle:
-        config3 = json.load(handle)
-
-    combined = {"lazers": config1, "cannons": config2, "doors": config3}
-
-    return combined
+stow.ls()
 ```
-written elsewhere
+
+!!! Note
+    The latest development version can always be found on [GitHub](https://github.com/Kieran-Bacon/stow){target=_blank}.
+
+    For best results, please ensure your version of Python is up-to-date. For more information on how to get the latest version of Python, please refer to the official [Python documentation](https://www.python.org/downloads/){target=_blank}.
+
+## Paths, Artefacts, and Managers
+
+<p role="list-header"> Conceptually, <code>stow</code> defines two fundamental objects:</p>
+- `Artefact` - A storage object such as a file or directory; and
+- `Manager` - An orchestration object for a storage implementation such as s3
+
+**_Paths_** do not have their own object, paths are represented as strings. `Artefacts` wraps files and directories and provides an interface to interact with storage items directly. `Managers` privately define how certain actions will be carried out on a given storage implementation, which is then accced through a generic public interface. This provides the necessary level of abstraction so that your application code can be data agnostic.
+
+### Paths
+
+`stow` doesn't implement a __*path*__ object and instead uses strings just as any `os.path` method would. However, `Artefact` objects are [**path-like**](https://docs.python.org/3/glossary.html#term-path-like-object){target=_blank} which means they will be compatible with `os` methods just as a path object from `pathlib` would be.
+
 ```python
-import os
+>>> import os
+>>> import stow
+>>> stow.join('/workspace', 'stow')
+'/workspace/stow'
+>>> os.path.join(stow.artefact('/workspace'), 'stow')
+'/workspace/stow'
+
+# On windows
+>>> os.path.join(stow.artefact(), 'bin')
+'c:\\Users\\kieran\\Projects\\Personal\\stow\\bin'
+```
+
+!!! Warning
+    Remote artefacts will not be _available_ for use by `os` methods (hence this package) so you are encouraged to use `stow` methods. All `os.path` methods are available on the top level of `stow`
+
+Importantly, `stow` handles paths to remote files just as smoothly as any local file, power you cannot get anywhere else.
+
+```python
+>>> stow.join('s3://example-bucket/data', 'data.csv')
+'s3://example-bucket/data/data.csv'
+>>> stow.getmtime('s3://example-bucket/data/data.csv')
+1617381185.341602
+```
+
+### Artefacts
+
+An `Artefact` represents a storage object which is then subclassed into `stow.File` and `stow.Directory`. These objects provides convenient methods for accessing their contents and extracting relevant metadata. `Artefact` objects are created just in time to serve a request and act as pointers to the local/remote objects. File contents is not downloaded until a explicit method to do so is called.
+
+```python
+for artefact in stow.ls('~'):
+    if isinstance(artefact, stow.Directory):
+        for file in artefact.ls():
+            print(file)
+
+    else:
+        print(artefact)
+
+home = stow.artefact('~')
+print(home['file.txt'].content)  # Explicit call to get the file's contents
+```
+
+All `Artefact` objects belong to a `Manager` which orchestrates communication between your session and the storage medium. `Artefacts` are not storage implementation aware, and draw on the public interface of the manager object they belong to to provide their functionality. This point will become importantly when considering extending stow to an additional storage implementation.
+
+!!! Important
+    `Artefact` objects are not guaranteed to exist! Read below
+
+As you can hold onto references to `Artefacts` after they have been deleted (either via the stow interface or another method), you can end up attempting to access information for items that no longer exist. Any interaction with an `Artefact` will inform you if that is the case.
+
+```python
+>>> file = stow.artefact('~/file.txt')
+>>> file.delete()
+>>> file.content
+Traceback (most recent call last):
+  File "<stdin>", line 1, in <module>
+  File "C:\Users\kieran\Projects\Personal\stow\stow\artefacts.py", line 35, in __getattribute__
+    raise exceptions.ArtefactNoLongerExists(
+stow.exceptions.ArtefactNoLongerExists: Artefact <class 'stow.artefacts.File'> /Users/kieran/file.txt no longer exists
+```
+### Managers
+
+`Manager` objects represent a specific storage medium, and they will orchestrate communication between your active interpreter and the storage provider. They all adhere to a rich `Manager` interface which includes definitions for all of the `os.path` methods.
+
+`Manager` objects are created behind the scene for many of `stows` stateless methods to process those calls. To avoid multiple definitions for the same storage providers, `Manager` objects are cached. `Managers` initialised directly will not be cached. It is encouraged to make use of the `Manager` cache by initialising `Managers` using  the following methods `stow.find`, `stow.connect`, and `stow.parseURL`.
+
+`Managers` do not expect to process protocols and path params when they are being used directly. `Managers` will internally use the unix style path standard for displaying and creating `artefacts` paths. This means that a valid path is valid for all `Managers`.
+
+```python
+>>> manager = stow.connect(manager='s3', bucket='example-bucket')
+>>> manager['/directory/file1.txt']
+<stow.File: /directory/file1.txt modified(2021-04-07 18:14:11.473302+00:00) size(0 bytes)>
+>>> stow.artefact('s3://example-bucket/directory/file1.txt')
+<stow.File: /directory/file1.txt modified(2021-04-07 18:14:11.473302+00:00) size(0 bytes)>
+```
+
+!!! Note
+    You can completely forget about `Managers`! The stateless interface is sufficiently expressive to do everything you would need, without having to create a `Manager` object. From a users perspective, they have a very limited beneficial use case, one such use case is shown below.
+
+Since `Managers` hold information about their storage provider and want to use valid paths, you can define methods to use the `Manager` objects with the simplified path and have that work across multiple backends.
+
+```python
+def managerAgnosticMethod(manager: stow.Manager):
+
+    # do stuff
+
+    with manager.open('/specific/file/path') as handle:
+        # do more stuff..
+
+
+s3 = stow.connect(manager='s3', bucket='example-bucket')
+ssh = stow.connect(manager='ssh', host='ec2....', username='ubuntu', ...)
+
+managerAgnosticMethod(s3)
+managerAgnosticMethod(ssh)
+```
+
+In the example, we have specified a path inside our function and given no consideration to what backend we may be using. The `Manager` passed will interpret the path relative to itself. This would be as opposed to simply constructing that path with the stateless interface.
+
+```python
+def managerAgnosticMethod(base: str):
+
+    # do stuff
+
+    with stow.open(stow.join(base, 'specific/file/path')) as handle:
+        # do more stuff..
+
+managerAgnosticMethod("s3://example-bucket")
+managerAgnosticMethod("ssh://ubuntu:***@ec2...../home/ubuntu")
+```
+
+As the `Managers` interface is just as extensive and feature full as the stateless interface, either method would be would be appropriate. The `Manager` method as described will likely lead to fewer lines being written in the general case, but, it comes with the cost of having to understand what a `Manager` object is.
+
+## Ways of working
+
+### Ensuring artefacts
+
+Conventionally working with a remote destination, you would create your artefacts and then push/put them on the target using a bespoke package for the storage manager. It would look similar to below but more complicated on the pushing front.
+
+By `localising` a directory you can wrap your code without having to change it to immediately benefit writing to remote destinations
+
+```python
 import stow
 
-manager = stow.manager(os.environ.get("DATA_DIRECTORY", "s3://example-bucket/application_data"))
+REMOTE_DIRECTORY = "s3://example-bucket"  # Could be a path to any remote
 
-#configs = loadInConfigs(manager)
-configs = loadInConfigs(manager["/configs"])
+with stow.localise(REMOTE_DIRECTORY) as LOCAL_DIRECTORY:
+    stow.mkdir(LOCAL_DIRECTORY)  # If the target location doesn't yet exist, we will create it as a directory now
 
+    # Do some work in a base directory
+    for i in range(10):
+        with open(os.path.join(LOCAL_DIRECTORY, str(i)), "w") as handle:
+            handle.write(f"line {i}")
 ```
 
-This change has altered the method quite a bit and now requires that interactions be handled via the manager object. However, you've gained a lot in terms of compatibility with an storage backend and functionality provided on the interface of the `Manager` object.
+!!! Note
+    AWS credentials were setup for the user via one of the methods that can be read about <a href="https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-quickstart.html" target="_blank">__*here*__</a>. This allows `stow` to able to communicate with s3 simply be using the qualified url for the artefacts. Otherwise, the IAM secret keys are required to be passed to the manager as keyword arguments which can be looked at in [managers](managers).
 
-### Considerations for remote file systems
-
-#### Orchestrating managers
+### Communication between two remote managers
 
 If moving artefacts between multiple remote file systems, it is extremely likely that the `Manager`s will require the artefacts be pulled to your local machine and pushed to the target destination. As such your local machine will be orchestrating the communication between the remote file systems and may need to hold in memory, or use storage to hold artefact information as it is being pushed up to the target.
 
@@ -408,7 +289,7 @@ for art in stow.ls("ssh://ubuntu@ec2../files/here"):
         stow.put(art, "s3://example-bucket/instance/")
 ```
 
-#### Dealing with added latency
+### Dealing with added latency
 
 Working with remote file systems will incur noticeable amounts of latency (in comparison to local artefacts) which many pose a problem for a system. Unfortunately this kind of lag, when reading and writing to files and directories, can only really be solved by improving your connectivity to the remote, and by cutting down on the number of operations you are performing.
 
@@ -444,3 +325,11 @@ Caveats to this approach:
 
 !!! Note
     The behaviour for local file systems is exactly the same for both approaches as they both will access the artefacts directly. There is no negative impact locally.
+
+### Don't hold onto things you don't need
+
+Words to live by, but especially here. As `Artefact` objects are created to provide a convenient means of accessing filesystem objects, their existence is tied intrinsically with those objects. Holding references to objects that are deleted will result in the `Artefact` objects raising existence errors when you next try to interact with them.
+
+If an object is actively deleted you should try and make sure you aren't holding a reference to it.
+
+That being said, updates to files, overwrites, copies and moves onto operations will not be an issue. The metadata for the the `Artefact` object will be updated accordingly.

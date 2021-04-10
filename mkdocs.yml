@@ -10,7 +10,7 @@ nav:
     - Extending: extending.md
     - Changelog: changelog.md
     - Examples: examples.md
-    - CLI: cli.md
+    # - CLI: cli.md
     - FAQ: faq.md
     - Reference:
         - stow: reference/stow.md

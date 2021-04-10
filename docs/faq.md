@@ -1,5 +1,9 @@
 # Frequently asked questions
 
+## Can files and managers be seralised
+
+Yes.
+
 ## How to put into things into a directory
 
 The put method takes the source artefact and puts it directly at the location given by destination. If you'd like to move things by bulk into a destination and keep the same name you can write the following
