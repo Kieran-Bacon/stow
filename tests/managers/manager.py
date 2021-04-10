@@ -8,6 +8,7 @@ import contextlib
 import abc
 import time
 import datetime
+import pickle
 
 import stow
 
@@ -464,7 +465,7 @@ class ManagerTests:
                 self.manager['/file1.txt']
 
             with pytest.raises(stow.exceptions.ArtefactNoLongerExists):
-                file._exists
+                file.name
 
             with pytest.raises(stow.exceptions.ArtefactNotFound):
                 self.manager.get('/file1.txt', os.path.join(directory, 'temp.txt'))
@@ -482,7 +483,7 @@ class ManagerTests:
         self.manager.rm('/directory')
 
         with pytest.raises(stow.exceptions.ArtefactNoLongerExists):
-            tempDir._exists
+            tempDir.basename
 
 
     def test_rm_non_empty_directory(self):
@@ -520,7 +521,7 @@ class ManagerTests:
             for art in [folder, file]:
 
                 with pytest.raises(stow.exceptions.ArtefactNoLongerExists):
-                    art._exists
+                    art.basename
 
             self.assertEqual(self.manager['/'].ls(), set())
 
@@ -758,7 +759,21 @@ class ManagerTests:
             self.assertEqual(self.manager["/sync_folder/file1.txt"].content.decode(), "This file has been updated at destination")
             self.assertEqual(self.manager["/sync_folder/file2.txt"].content.decode(), "This file has been updated at source")
 
+    def test_serialisation_is_equal(self):
+        """ If a manager (directly initialised is created) can we recreated it """
 
+        hydrated = pickle.loads(pickle.dumps(self.manager))
+
+        self.assertEqual(type(hydrated), type(self.manager))
+        self.assertDictEqual(hydrated.toConfig(), self.manager.toConfig())
+
+    def test_serialisation_uses_cache(self):
+
+        manager = stow.connect(**self.manager.toConfig())
+
+        hydrated = pickle.loads(pickle.dumps(self.manager))
+
+        self.assertIs(manager, hydrated)
 
 class SubManagerTests:
 

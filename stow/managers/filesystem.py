@@ -22,7 +22,12 @@ class FS(LocalManager):
     def __repr__(self): return '<Manager(FS): {}>'.format(self._path)
 
     def _abspath(self, managerPath: str) -> str:
-        return self.join(self._path, managerPath, joinAbsolutes=True)
+        path = self.join(self._path, managerPath, joinAbsolutes=True)
+
+        if os.name == 'nt':
+            path = path.replace('/', '\\')
+
+        return path
 
     def _identifyPath(self, managerPath: str):
 

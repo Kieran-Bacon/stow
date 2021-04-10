@@ -199,3 +199,13 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
         result = stow.ls('s3://{}'.format(self.bucket_name))
 
         self.assertIsInstance(result, set)
+
+    def test_parseURL(self):
+
+        os.environ["AWS_ACCESS_KEY_ID"] = self._config['aws_access_key_id']
+        os.environ["AWS_SECRET_ACCESS_KEY"] = self._config['aws_secret_access_key']
+
+        manager, path = stow.parseURL('s3://{}/directory/path'.format(self.bucket_name))
+
+        self.assertIsInstance(manager, Amazon)
+        self.assertEqual(path, "/directory/path")

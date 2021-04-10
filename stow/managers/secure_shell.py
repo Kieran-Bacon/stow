@@ -393,6 +393,7 @@ class SSH(RemoteManager):
     def toConfig(self):
 
         return {
+            "manager": "ssh",
             "hostname": self._hostname,
             "port": self._port,
             "username": self._username,

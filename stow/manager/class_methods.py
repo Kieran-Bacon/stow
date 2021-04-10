@@ -12,6 +12,8 @@ class ClassMethodManager:
     """ Class method namespace for the Manager
     """
 
+    SEPARATORS = ['\\', '/']
+
     @staticmethod
     def _splitArtefactUnionForm(artefact: typing.Union[Artefact, str]) -> typing.Tuple[typing.Union[Artefact, None], str]:
         """ Take an artefact or a string and return in a strict format the object and string representation. This allows
@@ -242,23 +244,20 @@ class ClassMethodManager:
 
             if joined:
                 # A path is in the midst of being created
-                if cls.isabs(segment):
-                    # The segment we are adding is an absolute path and as such we have to adjust
+
+                if any(segment.startswith(sep) for sep in cls.SEPARATORS):
                     if joinAbsolutes:
-                        # We are joining absolute paths - remove the absolute beginning character
-                        segment = segment[1:]
+                        joined = joined.rstrip('\\/') + segment
 
                     else:
-                        # Remove current constructed path
                         joined = segment
-                        continue
-
-                # Append the next path item into the joined path
-                if joined[-1] == separator:
-                    joined += segment
 
                 else:
-                    joined += separator + segment
+                    if any(joined.endswith(sep) for sep in cls.SEPARATORS):
+                        joined += segment
+
+                    else:
+                        joined += separator + segment
 
             else:
                 joined = segment

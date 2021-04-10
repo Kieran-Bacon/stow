@@ -23,6 +23,7 @@ class Test_SecureShell(unittest.TestCase, ManagerTests, SubManagerTests):
     def setUp(self):
 
         self.config = pyini.ConfigParser().read(CONFIG_PATH)
+        self.config['privateKeyFilePath'] = stow.expanduser(self.config['privateKeyFilePath'])
 
         self.manager = SSH(**self.config)
 

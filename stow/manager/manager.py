@@ -10,7 +10,9 @@ import contextlib
 
 from .abstract_methods import AbstractManager
 from .class_methods import ClassMethodManager
+from .reloader import ManagerSeralisable
 
+from ..class_interfaces import ManagerInterface, LocalInterface, RemoteInterface
 from ..artefacts import Artefact, File, Directory, SubFile, SubDirectory
 from .. import utils
 from .. import exceptions
@@ -18,7 +20,7 @@ from .. import exceptions
 import logging
 log = logging.getLogger(__name__)
 
-class Manager(AbstractManager, ClassMethodManager):
+class Manager(AbstractManager, ClassMethodManager, ManagerInterface, ManagerSeralisable):
     """ Manager Abstract base class - expressed the interface of a Manager which governs a storage option and allows
     extraction and placement of files in that storage container
 
@@ -1149,7 +1151,7 @@ class SubManager(Manager):
 
         return config
 
-class LocalManager(Manager, abc.ABC):
+class LocalManager(Manager, abc.ABC, LocalInterface):
     """ Abstract Base Class for managers that will be working with local artefacts.
     """
 
@@ -1177,7 +1179,7 @@ class LocalManager(Manager, abc.ABC):
         if exception:
             raise exception
 
-class RemoteManager(Manager):
+class RemoteManager(Manager, RemoteInterface):
     """ Abstract Base Class for managers that will be working with remote artefacts so efficiency with fetching and
     pushing files is important for time and bandwidth
     """
