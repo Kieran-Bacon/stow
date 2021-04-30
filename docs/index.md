@@ -197,6 +197,8 @@ Traceback (most recent call last):
     raise exceptions.ArtefactNoLongerExists(
 stow.exceptions.ArtefactNoLongerExists: Artefact <class 'stow.artefacts.File'> /Users/kieran/file.txt no longer exists
 ```
+
+That being said, updates, overwrites, copies, and move operations will update the `artefact` object accordingly, assuming the path exists and the locations is of the same type.
 ### Managers
 
 `Manager` objects represent a specific storage medium, and they will orchestrate communication between your active interpreter and the storage provider. They all adhere to a rich `Manager` interface which includes definitions for all of the `os.path` methods.
@@ -254,30 +256,45 @@ As the `Managers` interface is just as extensive and feature full as the statele
 
 ### Ensuring artefacts
 
-Conventionally working with a remote destination, you would create your artefacts and then push/put them on the target using a bespoke package for the storage manager. It would look similar to below but more complicated on the pushing front.
+A lot of packages in python require that artefacts be local, because they interact with them directly. `stow` can provide you the ability to use these methods with remote objects by `localising` the objects before their use.
 
-By `localising` a directory you can wrap your code without having to change it to immediately benefit writing to remote destinations
+```python
+with stow.localise('/home/ubuntu/image.jpg') as abspath:
+    cv2.imwrite(abspath, framedata)
+
+with stow.localise('s3://bucket/image.jpg') as abspath:
+    cv2.imwrite(abspath, framedata)
+
+with stow.localise('ssh://Host/bucket/image.jpg') as abspath:
+    cv2.imwrite(abspath, framedata)
+```
+
+A `localised` object will be addressable on disk, and any changes to the object will be pushed to the remote instance when the context is closed. For local artefacts, the context value will simply be the absolute path to that artefact.
+
+**It may be better to think about localising as setting a link between a local path and a remote one**, because the remote path does not have to exist at the point of `localisation`. `stow` will inspect the artefact once the context is closed and handle is accordingly.
 
 ```python
 import stow
 
-REMOTE_DIRECTORY = "s3://example-bucket"  # Could be a path to any remote
-
-with stow.localise(REMOTE_DIRECTORY) as LOCAL_DIRECTORY:
-    stow.mkdir(LOCAL_DIRECTORY)  # If the target location doesn't yet exist, we will create it as a directory now
+with stow.localise("s3://example-bucket") as abspath:
+    stow.mkdir(abspath)  # make path a directory iff path does not exist
 
     # Do some work in a base directory
     for i in range(10):
-        with open(os.path.join(LOCAL_DIRECTORY, str(i)), "w") as handle:
+        with open(os.path.join(abspath, str(i)), "w") as handle:
             handle.write(f"line {i}")
 ```
 
 !!! Note
     AWS credentials were setup for the user via one of the methods that can be read about <a href="https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-quickstart.html" target="_blank">__*here*__</a>. This allows `stow` to able to communicate with s3 simply be using the qualified url for the artefacts. Otherwise, the IAM secret keys are required to be passed to the manager as keyword arguments which can be looked at in [managers](managers).
 
-### Communication between two remote managers
+### No direct communication between remote managers
 
-If moving artefacts between multiple remote file systems, it is extremely likely that the `Manager`s will require the artefacts be pulled to your local machine and pushed to the target destination. As such your local machine will be orchestrating the communication between the remote file systems and may need to hold in memory, or use storage to hold artefact information as it is being pushed up to the target.
+`Artefacts` that are being moved between different remote managers, will be downloaded and then pushed up onto the destination manager. Though you might imagine that some managers (`ssh`) could directly write to the destination, it is not currently supported (and most managers never will be able to do this).
+
+When moving `Artefacts` around a single remote manager, operations such as `mv` and `cp` shouldn't be downloaded, but, this will be down the to the api of the storage medium.
+
+**Be aware that you will need to have storage available for these types of transfers**.
 
 ```python
 import stow
@@ -291,16 +308,16 @@ for art in stow.ls("ssh://ubuntu@ec2../files/here"):
 
 ### Dealing with added latency
 
-Working with remote file systems will incur noticeable amounts of latency (in comparison to local artefacts) which many pose a problem for a system. Unfortunately this kind of lag, when reading and writing to files and directories, can only really be solved by improving your connectivity to the remote, and by cutting down on the number of operations you are performing.
+Working with remote file systems will incur noticeable amounts of latency (in comparison to local artefacts) which many pose a problem for a system. To reduce this increased IO time, you will need to improve your connectivity to the remote manager, and cut down on the number of operations you are performing.
 
-This second point is something we can address in our programs, and its a good habit even when working explicitly with local files. You should try to minimise the number of read write functions you have to make, and program to make updates in bulk whenever possible.
+This second point is something we can address in our programs directly, and its a good habit even when working explicitly with local files. You should try to minimise the number of read write functions you have to make, and program to push and pull data from the remote as little as possible.
 
 !!! Note
     Read and write operations are not the same as reading metadata/listing directories. These operations are extremely cheap to execute and values are cached whenever possible.
 
-Bulking updates/changes is akin to working on directories rather than files. To open and read from a `File` the contents will need to be fetched. Inversely, if you are writing to a file, when the `File` handle is closed, the new contents needs to be pushed onto the remote.
+Some managers may be able to push and pull multiple `artefacts` more efficiently if they can do it in a single request. By `localising` directories, we can effectively bulk download and upload `artefacts`.
 
-Instead of working on files individually, we can work within a directory and pull/push the directory all at once.
+Furthermore, once `localised`, interactions with `files` and `directories` is lightening fast as they will be local objects. Reading from, writing to and appending won't require communication to the remote manager.
 
 ```python
 import stow
@@ -322,14 +339,3 @@ Caveats to this approach:
 - This bulking method requires the files you are working on to touch the local file system before they are pushed to the remote, so if local storage is a scarce resource then this approach may not be feasible.
 - The performance of the bulk upload is dependent on the availability of the underlying backend. If the storage provider doesn't provide a utility for bulk uploading then there isn't an improvement to be had.
 - Network usage will be grouped at a single point (exiting of the localise context) in your program flow.
-
-!!! Note
-    The behaviour for local file systems is exactly the same for both approaches as they both will access the artefacts directly. There is no negative impact locally.
-
-### Don't hold onto things you don't need
-
-Words to live by, but especially here. As `Artefact` objects are created to provide a convenient means of accessing filesystem objects, their existence is tied intrinsically with those objects. Holding references to objects that are deleted will result in the `Artefact` objects raising existence errors when you next try to interact with them.
-
-If an object is actively deleted you should try and make sure you aren't holding a reference to it.
-
-That being said, updates to files, overwrites, copies and moves onto operations will not be an issue. The metadata for the the `Artefact` object will be updated accordingly.

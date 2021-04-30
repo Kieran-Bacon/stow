@@ -15,23 +15,28 @@ class AbstractManager(ABC):
     def _abspath(self, managerPath: str) -> str:
         """ Return the absolute path on the backend provider from the standardised manager path.
 
-        examples:
-            local managers shall convert a relative path to its full absolute os compatible filepath
-            s3 shall convert the relative path to a s3 valid key
-
         Args:
             managerPath: The manager relative path which is to be converted to an absolute path
 
         Returns:
             str: The manager absolute path
+
+        Examples:
+            For the filesystem, this will be the full absolute path to the object. For s3 this is the key of the object.
+
+            >>> stow.connect(manager='FS', path='/home/ubuntu')._abspath('/hello/there')
+            '/home/ubuntu/hello/there'
+            >>> stow.connect(manager='s3', bucket='bucket-example')._abspath('/hello/there')
+            'hello/there'
+
         """
         pass
 
 
     @abstractmethod
     def _identifyPath(self, managerPath: str) -> typing.Union[Artefact, None]:
-        """ Look at the underying implementation and get an artefact that represents the object at th path given if it
-        exists. If no object could be found, return None
+        """ For the path givem, create an `Artefact` for the object at the location on the manager but do not add it
+        into the manager. If no object exists - return None
 
         Args:
             abspath: The path for artefact on disk
@@ -139,20 +144,6 @@ class AbstractManager(ABC):
     def _ls(self, directory: str):
         """ List all artefacts that are present at the directory objects location and add them into the manager.
 
-        The existence of the directory has already been confirmed.
-
-        TODO _loadArtefact
-        This method can be used in conjunction with self._makeFile and self._makeDirectory to great affect:
-
-        1. You can list the items in the directory and call makeFile and makeDirectory on them and collect
-        created objects to be returned or
-
-        1. Have ls add all files and directories when called (good when you can download multiple metadata at once for
-        no cost) and then have makeFile call ls on its parent directory before hand so that it can return the created
-        file object by ls.
-
-        Food for thought.
-
         Args:
             managerPath: the manager path to the directory whose content is to be indexed
         """
@@ -207,5 +198,12 @@ class AbstractManager(ABC):
 
     @abstractmethod
     def toConfig(self) -> dict:
-        """ TODO """
+        """ Generate a config which can be unpacked into the connect interface to initialise this manager. To be
+        used to seralise and de-seralise a manager object
+
+        NOTE Defaulted values or environment variables are not guaranteed to be saved
+
+        Returns:
+            dict: A dictionary of the kwargs of the init of the manager
+        """
         pass

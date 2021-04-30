@@ -113,7 +113,7 @@ class Amazon(RemoteManager):
             directory = self._ensureDirectory(self.dirname(managerPath))
 
         except (exceptions.ArtefactNotFound, exceptions.ArtefactTypeError) as e:
-            raise exceptions.ArtefactNotFound("Cannot locate atefact {}".format(managerPath)) from e
+            raise exceptions.ArtefactNotFound("Cannot locate artefact {}".format(managerPath)) from e
 
         # Add all artefacts of the directory into the manager - adding the target artefact at the same time
         self._ls(directory.path)

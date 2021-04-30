@@ -6,3 +6,4 @@
 # ![mkapi](stow.exceptions.ArtefactNoLongerExists)
 # ![mkapi](stow.exceptions.OperationNotPermitted)
 # ![mkapi](stow.exceptions.InvalidPath)
+# ![mkapi](stow.exceptions.ArtefactNotAvailable)

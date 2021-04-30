@@ -9,8 +9,12 @@ import abc
 import time
 import datetime
 import pickle
+import multiprocessing
 
 import stow
+
+def mpManagerLSFunc(manager):
+    return {x.name for x in manager.ls()}
 
 class ManagerTests:
 
@@ -774,6 +778,25 @@ class ManagerTests:
         hydrated = pickle.loads(pickle.dumps(self.manager))
 
         self.assertIs(manager, hydrated)
+
+
+    def test_multiprocessing_manager(self):
+
+        pool = multiprocessing.Pool(4)
+
+        result = pool.map(mpManagerLSFunc, [self.manager]*8)
+
+        self.assertEqual([{x.name for x in self.manager.ls()}]*8, result)
+
+
+    def test_multiprocessing_artefact(self):
+
+        pool = multiprocessing.Pool(4)
+
+        result = pool.map(lambda x: x.name, self.manager.ls())
+
+        self.assertEqual(set(x.name for x in self.manager.ls()), set(result))
+
 
 class SubManagerTests:
 

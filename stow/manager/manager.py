@@ -888,7 +888,7 @@ class Manager(AbstractManager, ClassMethodManager, ManagerInterface, ManagerSera
         source = self._findArtefact(source)
 
         # Ensure that the two passed artefacts are directories
-        if not (isinstance(source, Directory) and isinstance(destination, Directory)):
+        if not (isinstance(source, Directory) and isinstance(destObj, Directory)):
             raise exceptions.ArtefactTypeError("Cannot Synchronise non directory objects {} -> {} - must sync directories".format(source, destination))
 
         # Get the mappings of source artefacts and destination objects
@@ -899,8 +899,8 @@ class Manager(AbstractManager, ClassMethodManager, ManagerInterface, ManagerSera
         }
 
         destinationMapped = {
-            destination.relpath(artefact): artefact
-            for artefact in destination.ls(recursive=True)
+            destObj.relpath(artefact): artefact
+            for artefact in destObj.ls(recursive=True)
         }
 
         # Iterate over all the files in the source
@@ -909,7 +909,7 @@ class Manager(AbstractManager, ClassMethodManager, ManagerInterface, ManagerSera
             # Look to see if there is a conflict
             if relpath not in destinationMapped:
                 # The file doesn't conflict so we will push to destination
-                self.put(sourceArtefact, self.join(destination.path, relpath, separator='/'))
+                self.put(sourceArtefact, self.join(destObj.path, relpath, separator='/'))
 
             else:
                 # There is a conflict - lets compare local and destination

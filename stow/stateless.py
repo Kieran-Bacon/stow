@@ -250,7 +250,7 @@ def sync(src, dest, *args, **kwargs):
     destM, destP = _getManager(dest)
 
     # Call sync on the destination manager
-    destM.sync(srcM[srcP], destM[destP], *args, **kwargs)
+    destM.sync(srcM[srcP], destP, *args, **kwargs)
 
 @wraps(Manager.rm)
 def rm(artefact, *args, **kwargs):
