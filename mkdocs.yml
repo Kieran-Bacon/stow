@@ -14,8 +14,9 @@ nav:
     - FAQ: faq.md
     - Reference:
         - stow: reference/stow.md
-        - stow.artefacts: reference/stow.artefacts.md
         - stow.manager: reference/stow.manager.md
+        - stow.managers: reference/stow.managers.md
+        - stow.artefacts: reference/stow.artefacts.md
         - stow.exceptions: reference/stow.exceptions.md
 plugins:
     - search # necessary for search to work

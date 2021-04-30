@@ -257,4 +257,7 @@ def rm(artefact, *args, **kwargs):
     manger, relpath = _getManager(artefact)
     manger.rm(relpath, *args, **kwargs)
 
-supports_unicode_filenames = os.path.supports_unicode_filenames
+@property
+def supports_unicode_filenames():
+    """ True if arbitrary Unicode strings can be used as file names (within limitations imposed by the file system). """
+    return os.path.supports_unicode_filenames

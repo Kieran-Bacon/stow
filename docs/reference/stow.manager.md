@@ -7,4 +7,4 @@
 
     For extending the class for bespoke managers, you should import and extend either the `LocalManager` or the `RemoteManager`. Information on how to do that can be found [here](/extending).
 
-## ![mkapi](stow.manager.Manager)
+## ![mkapi](stow.manager.Manager|short)

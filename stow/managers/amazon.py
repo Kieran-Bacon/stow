@@ -12,6 +12,15 @@ from ..manager import RemoteManager
 from .. import exceptions
 
 class Amazon(RemoteManager):
+    """ Connect to an amazon s3 bucket using an IAM user credentials or environment variables
+
+    Params:
+        bucket: The s3 bucket name
+        aws_access_key_id (None): The access key for a IAM user that has permissions to the bucket
+        aws_secret_access_key (None): The secret key for a IAM user that has permissions to the bucket
+        region_name (None): The region of the user/bucket
+
+    """
 
     # Define regex for the object key
     _LINE_SEP = "/"
