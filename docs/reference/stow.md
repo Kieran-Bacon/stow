@@ -3,7 +3,6 @@
 ## Packages
 
 ### ![mkapi](stow.manager|plain|apilink)
-### ![mkapi](stow.managers|plain|apilink)
 
 ## Modules
 
