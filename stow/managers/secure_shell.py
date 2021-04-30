@@ -151,7 +151,7 @@ class SSH(RemoteManager):
         if self._root:
             # A root path has been set - everything must be done relative to this path
 
-            if managerPath is '/':
+            if managerPath == '/':
                 # Root path has been selected
                 return self._root
 
