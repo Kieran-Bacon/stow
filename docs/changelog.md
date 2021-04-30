@@ -1,11 +1,34 @@
 # Changelog
 
+## [1.0.1] - 2021-04-30
+
+### Added
+
+- `SSH` manager implementation and tests, giving stow the ability to communicate and connect with remote machines via the ssh protocol. Information about how to use the new `Manager` can be found in the [documentation](/managers)
+- `Manager` and `Artefact` seralisation has been introduced
+- `Directory` has method `empty` added to its interface
+- `ArtefactNotAvailable` exception added as a new possible situation for `SSH`. Occurs when
+
+### Changed
+
+- `Manager` objects not extend a `ManagerInterface` object which can be used by `Artefacts` for syntax highlighting.
+- `_get`, `_getBytes`, `_cp`, `_mv`, `_rm` have had their interfaces changed to take the object (that must exist) instead of its manager path.
+- Allowed `Manager` implementations to return `Artefact` objects during functions that typically create new objects to avoid subsequent calls to fetch object information already known to the implementation.
+- Updated documentation
+
+### Fixed
+
+- Issue with `join` not resolving separators correctly when on windows.
+- Fixed a hidden issue with `_updateArtefactObjects` - which was possibly not correctly identifying the right artefact to correct
+
+---
 ## [1.0.1-alpha] - 2021-03-12
 
 ### Added
 
 - Added `name` and `extension` to the stateless interface of the package
 
+---
 ## [1.0.0-alpha] - 2021-02-25
 
 ### Added
@@ -16,6 +39,7 @@
 - Tested system on windows
 - Made artefacts compatible with path-like interfaces (made the path-like)
 
+---
 ## [0.2.0] - 2020-9-15
 
 ### Added

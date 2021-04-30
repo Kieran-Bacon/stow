@@ -1,4 +1,4 @@
-__version__ = "1.0.1-alpha"
+__version__ = "1.0.1"
 
 from .artefacts import Artefact, File, Directory, SubFile, SubDirectory
 from .manager import Manager, SubManager
