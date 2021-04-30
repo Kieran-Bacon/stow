@@ -5,7 +5,7 @@ import functools
 import pkg_resources
 
 MANAGERS = {}
-INITALISED_MANAGERS = {}
+INITIALISED_MANAGERS = {}
 
 def initCache(function):
     """ Cache results and return previously created manager objects
@@ -16,12 +16,12 @@ def initCache(function):
 
         identifier = hash((manager, "-".join(["{}-{}".format(k,v) for k,v in sorted(kwargs.items(), key=lambda x: x[0])])))
 
-        if identifier in INITALISED_MANAGERS:
-            return INITALISED_MANAGERS[identifier]
+        if identifier in INITIALISED_MANAGERS:
+            return INITIALISED_MANAGERS[identifier]
 
         manager = function(manager, **kwargs)
 
-        INITALISED_MANAGERS[identifier] = manager
+        INITIALISED_MANAGERS[identifier] = manager
 
         return manager
 

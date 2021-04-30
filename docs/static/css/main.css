@@ -1,6 +1,7 @@
 table {
     width: 100%;
     text-align: center;
+    margin-bottom: 20px;
 }
 
 p[role="code-header"] {
@@ -19,4 +20,8 @@ div[role="main"] ol li {
 }
 div[role="main"] li::marker {
     font-size: large;
+}
+
+h3,h4,h5 {
+    color: rgba(0, 0, 0, 0.6)
 }

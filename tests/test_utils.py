@@ -89,14 +89,8 @@ class Test_UtilFunctions(unittest.TestCase):
             manager, relpath = stow.parseURL(directory)
 
             self.assertIsInstance(manager, FS)
-            self.assertEqual(manager._abspath(manager[relpath].path), directory)
+            if os.name == 'nt':
+                self.assertEqual(manager._abspath(manager[relpath].path)[1:], directory[1:])
+            else:
+                self.assertEqual(manager._abspath(manager[relpath].path), directory)
 
-    def test_parseURLAWS(self):
-
-
-
-        with tempfile.TemporaryDirectory() as directory:
-            manager, relpath = stow.parseURL(directory)
-
-            self.assertIsInstance(manager, FS)
-            self.assertEqual(manager._abspath(manager[relpath].path), directory)

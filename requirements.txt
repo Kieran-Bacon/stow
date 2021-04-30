@@ -1,4 +1,3 @@
-tqdm
-pyini
-boto3
 pytz
+boto3
+paramiko

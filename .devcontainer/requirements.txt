@@ -1,5 +1,6 @@
 awscli
 mkdocs
 mkapi
+pyini
 pytest
 pytest-cov

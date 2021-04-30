@@ -12,6 +12,8 @@ class ClassMethodManager:
     """ Class method namespace for the Manager
     """
 
+    SEPARATORS = ['\\', '/']
+
     @staticmethod
     def _splitArtefactUnionForm(artefact: typing.Union[Artefact, str]) -> typing.Tuple[typing.Union[Artefact, None], str]:
         """ Take an artefact or a string and return in a strict format the object and string representation. This allows
@@ -61,6 +63,40 @@ class ClassMethodManager:
         """
         _, path = cls._splitArtefactUnionForm(artefact)
         return os.path.basename(path)
+
+    @classmethod
+    def name(cls, artefact: typing.Union[Artefact, str]) -> str:
+        """ Return the name of an artefact or path (basename without extension).
+
+        Args:
+            artefact: The path or object whose path is to have its base name extracted
+
+        Returns:
+            str: the name e.g. /hello/there.txt => there
+        """
+        _, path = cls._splitArtefactUnionForm(artefact)
+        basename = os.path.basename(path)
+        index = basename.rfind('.')
+        if index != -1:
+            return basename[:index]
+        return basename
+
+    @classmethod
+    def extension(cls, artefact: typing.Union[Artefact, str]) -> str:
+        """ Return the extension of an artefact or path.
+
+        Args:
+            artefact: The path or object whose path is to have its base name extracted
+
+        Returns:
+            str: the extension e.g. /hello/there.txt => txt
+        """
+        _, path = cls._splitArtefactUnionForm(artefact)
+        basename = os.path.basename(path)
+        index = basename.rfind('.')
+        if index != -1:
+            return basename[index+1:]
+        return ''
 
     @classmethod
     def commonpath(cls, paths: typing.Iterable[typing.Union[Artefact, str]]) -> str:
@@ -208,23 +244,20 @@ class ClassMethodManager:
 
             if joined:
                 # A path is in the midst of being created
-                if cls.isabs(segment):
-                    # The segment we are adding is an absolute path and as such we have to adjust
+
+                if any(segment.startswith(sep) for sep in cls.SEPARATORS):
                     if joinAbsolutes:
-                        # We are joining absolute paths - remove the absolute beginning character
-                        segment = segment[1:]
+                        joined = joined.rstrip('\\/') + segment
 
                     else:
-                        # Remove current constructed path
                         joined = segment
-                        continue
-
-                # Append the next path item into the joined path
-                if joined[-1] == separator:
-                    joined += segment
 
                 else:
-                    joined += separator + segment
+                    if any(joined.endswith(sep) for sep in cls.SEPARATORS):
+                        joined += segment
+
+                    else:
+                        joined += separator + segment
 
             else:
                 joined = segment

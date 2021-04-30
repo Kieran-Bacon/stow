@@ -60,6 +60,14 @@ def abspath(*args, **kwargs) -> str:
 def basename(*args, **kwargs) -> str:
     return Manager.basename(*args, **kwargs)
 
+@wraps(Manager.name)
+def name(*args, **kwargs) -> str:
+    return Manager.name(*args, **kwargs)
+
+@wraps(Manager.extension)
+def extension(*args, **kwargs) -> str:
+    return Manager.extension(*args, **kwargs)
+
 @wraps(Manager.commonpath)
 def commonpath(*args, **kwargs) -> str:
     return Manager.commonpath(*args, **kwargs)
@@ -242,11 +250,14 @@ def sync(src, dest, *args, **kwargs):
     destM, destP = _getManager(dest)
 
     # Call sync on the destination manager
-    destM.sync(srcM[srcP], destM[destP], *args, **kwargs)
+    destM.sync(srcM[srcP], destP, *args, **kwargs)
 
 @wraps(Manager.rm)
 def rm(artefact, *args, **kwargs):
     manger, relpath = _getManager(artefact)
     manger.rm(relpath, *args, **kwargs)
 
-supports_unicode_filenames = os.path.supports_unicode_filenames
+@property
+def supports_unicode_filenames():
+    """ True if arbitrary Unicode strings can be used as file names (within limitations imposed by the file system). """
+    return os.path.supports_unicode_filenames

@@ -12,6 +12,15 @@ from ..manager import RemoteManager
 from .. import exceptions
 
 class Amazon(RemoteManager):
+    """ Connect to an amazon s3 bucket using an IAM user credentials or environment variables
+
+    Params:
+        bucket: The s3 bucket name
+        aws_access_key_id (None): The access key for a IAM user that has permissions to the bucket
+        aws_secret_access_key (None): The secret key for a IAM user that has permissions to the bucket
+        region_name (None): The region of the user/bucket
+
+    """
 
     # Define regex for the object key
     _LINE_SEP = "/"
@@ -113,7 +122,7 @@ class Amazon(RemoteManager):
             directory = self._ensureDirectory(self.dirname(managerPath))
 
         except (exceptions.ArtefactNotFound, exceptions.ArtefactTypeError) as e:
-            raise exceptions.ArtefactNotFound("Cannot locate atefact {}".format(managerPath)) from e
+            raise exceptions.ArtefactNotFound("Cannot locate artefact {}".format(managerPath)) from e
 
         # Add all artefacts of the directory into the manager - adding the target artefact at the same time
         self._ls(directory.path)
@@ -126,13 +135,13 @@ class Amazon(RemoteManager):
         else:
             raise exceptions.ArtefactNotFound("Cannot locate artefact {}".format(managerPath))
 
-    def _get(self, source: str, destination: str):
+    def _get(self, source: Artefact, destination: str):
 
         # Convert manager path to s3
-        keyName = self._abspath(source)
+        keyName = self._abspath(source.path)
 
         # If the source object is a directory
-        if isinstance(self[source], Directory):
+        if isinstance(source, Directory):
 
             # Loop through all objects in the bucket and create them locally
             for object in self._bucket.objects.filter(Prefix=keyName):
@@ -152,13 +161,13 @@ class Amazon(RemoteManager):
         else:
             self._bucket.download_file(keyName, destination)
 
-    def _getBytes(self, source: str) -> bytes:
+    def _getBytes(self, source: Artefact) -> bytes:
 
         # Get buffer to recieve bytes
         bytes_buffer = io.BytesIO()
 
         # Fetch the file bytes and write them to the buffer
-        self._s3Client.download_fileobj(Bucket=self._bucketName, Key=self._abspath(source), Fileobj=bytes_buffer)
+        self._s3Client.download_fileobj(Bucket=self._bucketName, Key=self._abspath(source.path), Fileobj=bytes_buffer)
 
         # Return the bytes stored in the buffer
         return bytes_buffer.getvalue()
@@ -199,13 +208,13 @@ class Amazon(RemoteManager):
     def _cpFile(self, source, destination):
         self._bucket.Object(destination).copy_from(CopySource={'Bucket': self._bucketName, 'Key': source})
 
-    def _cp(self, source: str, destination: str):
+    def _cp(self, source: Artefact, destination: str):
 
         # Convert the paths to s3 paths
-        sourcePath, destinationPath = self._abspath(source), self._abspath(destination)
+        sourcePath, destinationPath = self._abspath(source.path), self._abspath(destination)
 
         # Detemine how to handle the source
-        if isinstance(self[source], Directory):
+        if isinstance(source, Directory):
             # Source is director - loop through and copy each file object
             for obj in self._bucket.objects.filter(Prefix=sourcePath):
                 self._cpFile(obj.key, self.join(destinationPath, self.relpath(obj.key, sourcePath), separator='/'))
@@ -214,13 +223,13 @@ class Amazon(RemoteManager):
             # Source is a file - copy directly to location
             self._cpFile(sourcePath, destinationPath)
 
-    def _mv(self, source: str, destination: str):
+    def _mv(self, source: Artefact, destination: str):
 
         # Convert the paths to s3 paths
-        sourcePath, destinationPath = self._abspath(source), self._abspath(destination)
+        sourcePath, destinationPath = self._abspath(source.path), self._abspath(destination)
 
         # Detemine how to handle the source
-        if isinstance(self[source], Directory):
+        if isinstance(source, Directory):
             # Source is director - loop through and copy each file object
             for obj in self._bucket.objects.filter(Prefix=sourcePath):
                 self._cpFile(obj.key, self.join(destinationPath, self.relpath(obj.key, sourcePath), separator='/'))
@@ -273,11 +282,11 @@ class Amazon(RemoteManager):
                 for directory in page["CommonPrefixes"]:
                     self._addArtefact(Directory(self, "/" + directory["Prefix"][:-1]))
 
-    def _rm(self, artefact: str):
+    def _rm(self, artefact: Artefact):
 
-        key = self._abspath(artefact)
+        key = self._abspath(artefact.path)
 
-        if isinstance(self[artefact], Directory):
+        if isinstance(artefact, Directory):
             for obj in self._bucket.objects.filter(Prefix=key):
                 obj.delete()
 

@@ -10,7 +10,9 @@ import contextlib
 
 from .abstract_methods import AbstractManager
 from .class_methods import ClassMethodManager
+from .reloader import ManagerSeralisable
 
+from ..class_interfaces import ManagerInterface, LocalInterface, RemoteInterface
 from ..artefacts import Artefact, File, Directory, SubFile, SubDirectory
 from .. import utils
 from .. import exceptions
@@ -18,7 +20,7 @@ from .. import exceptions
 import logging
 log = logging.getLogger(__name__)
 
-class Manager(AbstractManager, ClassMethodManager):
+class Manager(AbstractManager, ClassMethodManager, ManagerInterface, ManagerSeralisable):
     """ Manager Abstract base class - expressed the interface of a Manager which governs a storage option and allows
     extraction and placement of files in that storage container
 
@@ -74,7 +76,7 @@ class Manager(AbstractManager, ClassMethodManager):
             return "/"
 
         # Expand any environment variables but no home path and do not make absolute relative to local
-        path = self.join("/", self.normpath(self.expandvars(path)), separator='/')
+        path = self.normpath(self.expandvars(path))
 
         if os.name == 'nt':
             # Make Windows paths (if provided) unix like
@@ -83,6 +85,9 @@ class Manager(AbstractManager, ClassMethodManager):
                 path = path[path.index(":")+1:]
 
             path = path.replace("\\", "/")
+
+        if not path.startswith('/'):
+            path = '/' + path
 
         return path
 
@@ -243,17 +248,18 @@ class Manager(AbstractManager, ClassMethodManager):
                 # The object doesn't exist on disk
                 return None, artefact
 
-    def _updateArtefactObjects(self, artefact: Artefact):
+    def _updateArtefactObjects(self, artefact: Artefact, identity: Artefact = None):
         """ Perform a update for the manager on the contents of a directory which has been editted on mass and whose
         content is likely inconsistent with the current state of the manager. Only previously known files are checked as
         new files are to be loaded JIT and can be added at that stage.
 
         Args:
             artobj (Directory): The directory to perform the refresh on
+            identity (Artefact) = None: The new object artefact info
         """
 
         if isinstance(artefact, File):
-            file = self._identifyPath(artefact.path)
+            file = (identity or self._identifyPath(artefact.path))
             if not isinstance(file, File):
                 # The object is no longer the same type - the original needs to be removed
                 return self._delinkArtefactObjects(artefact)
@@ -264,23 +270,23 @@ class Manager(AbstractManager, ClassMethodManager):
             artefact: Directory
 
             # For the artefacts we know about - check their membership
-            for artefact in list(artefact._contents):
+            for subArtefact in list(artefact._contents):
 
                 # Have the path checked
-                check = self._identifyPath(artefact.path)
+                check = self._identifyPath(subArtefact.path)
 
                 # Update the artefact according to its state on disc
-                if check is None or type(artefact) != type(check):
+                if check is None or type(subArtefact) != type(check):
                     # The artefact has been deleted or the type of the artefact has changed - it needs to be delinked
-                    self._delinkArtefactObjects(artefact)
+                    self._delinkArtefactObjects(subArtefact)
 
-                elif isinstance(artefact, File):
+                elif isinstance(subArtefact, File):
                     # Update the artefact with the informant as we've pulled it
-                    artefact._update(check)
+                    subArtefact._update(check)
 
                 else:
                     # The directory needs to be checked for issues
-                    self._updateArtefactObjects(artefact)
+                    self._updateArtefactObjects(subArtefact)
 
             # Cannot be sure that all of the contents has been collected due to change
             artefact._collected = False
@@ -544,10 +550,10 @@ class Manager(AbstractManager, ClassMethodManager):
 
         Returns:
             typing.Union[typing.Any, bytes]: Return user defined response for get if file written to destination else
-                return bytes if no desintation given
+                return bytes if no destination given
         """
 
-        # Ensure the detination - Remove or raise issue for a local artefact at the location where the get is called
+        # Ensure the destination - Remove or raise issue for a local artefact at the location where the get is called
         if destination is not None:
             if os.path.exists(destination):
                 if os.path.isdir(destination):
@@ -573,13 +579,13 @@ class Manager(AbstractManager, ClassMethodManager):
 
         # Fetch the object and place it at the location
         if destination is not None:
-            return self._get(path, destination)
+            return self._get(obj, destination)
 
         else:
             if not isinstance(obj, File):
                 raise exceptions.ArtefactTypeError("Cannot get file bytes of {}".format(obj))
 
-            return self._getBytes(path)
+            return self._getBytes(obj)
 
     def put(
         self,
@@ -609,7 +615,7 @@ class Manager(AbstractManager, ClassMethodManager):
             # Delete the object to make space for new object
             if overwrite or isinstance(destinationObj, File) :
                 # Remove the destination object
-                self._rm(destinationObj.path)
+                self._rm(destinationObj)
 
             else:
                 raise exceptions.OperationNotPermitted(
@@ -617,9 +623,10 @@ class Manager(AbstractManager, ClassMethodManager):
                 )
 
         # Process the source and put it onto the manager
+        putArtefact = None
         if isinstance(source, bytes):
             # Source is file bytes - pass to manager implementation
-            self._putBytes(source, destinationPath)
+            putArtefact = self._putBytes(source, destinationPath)
 
         else:
             # Source is a artefact in persisted storage
@@ -630,7 +637,7 @@ class Manager(AbstractManager, ClassMethodManager):
             # Ensure that the artefact can be put by localising it
             with source.localise() as abspath:
                 # Put the artefact into the destination
-                self._put(abspath, destinationPath)
+                putArtefact = self._put(abspath, destinationPath)
 
         # Post put cleanup - process the destination object
         if destinationObj is not None:
@@ -639,7 +646,7 @@ class Manager(AbstractManager, ClassMethodManager):
             # Check where the type of the source is the same as the type of the destination object
             if isinstance(source, (bytes, File)) == isinstance(destinationObj, File):
                 # The source placed is the same type as the established destination object - can update
-                self._updateArtefactObjects(destinationObj)
+                self._updateArtefactObjects(destinationObj, identity=putArtefact)
 
                 # Return the original and updated destination object
                 return destinationObj
@@ -649,7 +656,12 @@ class Manager(AbstractManager, ClassMethodManager):
                 self._delinkArtefactObjects(destinationObj)
 
         # Create a new artefact object and return
-        return self._loadArtefact(destinationPath)
+        if putArtefact is not None:
+            self._addArtefact(putArtefact)
+            return putArtefact
+
+        else:
+            return self._loadArtefact(destinationPath)
 
     def cp(
         self,
@@ -703,7 +715,7 @@ class Manager(AbstractManager, ClassMethodManager):
             return self.put(sourceObject, destinationPath)
 
         # We must be an artefact on the box copying to another location on the box - destination is clear
-        self._cp(sourcePath, destinationPath)
+        self._cp(sourceObject, destinationPath)
         return self[destinationPath]
 
     def mv(
@@ -747,7 +759,7 @@ class Manager(AbstractManager, ClassMethodManager):
             self._delinkArtefactObjects(destinationObj)
 
         # Look to see if the source artefact is in the manager - if so we can try to be more efficient
-        sourceObject, sourcePath = self._artefactFormStandardise(source)
+        sourceObject, _ = self._artefactFormStandardise(source)
         if sourceObject is None or sourceObject.manager is not self:
             # The source isn't inside this manager - we must find it and use put. No speed up to be had in manager
 
@@ -760,7 +772,7 @@ class Manager(AbstractManager, ClassMethodManager):
             return artefact
 
         # The source is on the manager and can be moved with the underlying infrastructure
-        self._mv(sourcePath, destinationPath)
+        self._mv(sourceObject, destinationPath)
         self._moveArtefactObjects(sourceObject, destinationPath)
         return self[destinationPath]
 
@@ -784,7 +796,7 @@ class Manager(AbstractManager, ClassMethodManager):
             )
 
         # Remove the artefact from the manager
-        self._rm(obj.path)  # Remove the underlying data objects
+        self._rm(obj)  # Remove the underlying data objects
         self._delinkArtefactObjects(obj)  # Remove references in the manager and set the objects._exist = False
 
     def ls(self, art: typing.Union[Directory, str] = '/', recursive: bool = False) -> typing.Set[Artefact]:
@@ -876,7 +888,7 @@ class Manager(AbstractManager, ClassMethodManager):
         source = self._findArtefact(source)
 
         # Ensure that the two passed artefacts are directories
-        if not (isinstance(source, Directory) and isinstance(destination, Directory)):
+        if not (isinstance(source, Directory) and isinstance(destObj, Directory)):
             raise exceptions.ArtefactTypeError("Cannot Synchronise non directory objects {} -> {} - must sync directories".format(source, destination))
 
         # Get the mappings of source artefacts and destination objects
@@ -887,8 +899,8 @@ class Manager(AbstractManager, ClassMethodManager):
         }
 
         destinationMapped = {
-            destination.relpath(artefact): artefact
-            for artefact in destination.ls(recursive=True)
+            destObj.relpath(artefact): artefact
+            for artefact in destObj.ls(recursive=True)
         }
 
         # Iterate over all the files in the source
@@ -897,7 +909,7 @@ class Manager(AbstractManager, ClassMethodManager):
             # Look to see if there is a conflict
             if relpath not in destinationMapped:
                 # The file doesn't conflict so we will push to destination
-                self.put(sourceArtefact, self.join(destination.path, relpath, separator='/'))
+                self.put(sourceArtefact, self.join(destObj.path, relpath, separator='/'))
 
             else:
                 # There is a conflict - lets compare local and destination
@@ -1045,8 +1057,8 @@ class SubManager(Manager):
         super()._addArtefact(subArtefact)
 
     # Overload the update method - there is no cascade as child artefacts will pull from updated parents
-    def _updateArtefactObjects(self, artefact: Artefact):
-        return self._owner._updateArtefactObjects(artefact._concrete)
+    def _updateArtefactObjects(self, artefact: Artefact, identity: Artefact = None):
+        return self._owner._updateArtefactObjects(artefact._concrete, identity=identity)
 
     # Overload the move method
     def _moveArtefactObjects(self, source: Artefact, destination: str):
@@ -1095,11 +1107,11 @@ class SubManager(Manager):
         super()._addArtefact(artefact)
         self._owner._addArtefact(artefact._concrete)
 
-    def _get(self, source: str, destination: str):
-        return self._owner._get(self._join(source), destination)
+    def _get(self, source: Artefact, destination: str):
+        return self._owner._get(source._concrete, destination)
 
-    def _getBytes(self, source: str) -> bytes:
-        return self._owner._getBytes(self._join(source))
+    def _getBytes(self, source: Artefact) -> bytes:
+        return self._owner._getBytes(source._concrete)
 
     def _put(self, source: str, destination: str):
         self._owner._put(source, self._join(destination))
@@ -1107,14 +1119,14 @@ class SubManager(Manager):
     def _putBytes(self, fileBytes: bytes, destination: str):
         self._owner._putBytes(fileBytes, self._join(destination))
 
-    def _cp(self, source: str, destination: str):
-        return self._owner._cp(self._join(source), self._join(destination))
+    def _cp(self, source: Artefact, destination: str):
+        return self._owner._cp(source._concrete, self._join(destination))
 
-    def _mv(self, source: str, destination: str):
-        return self._owner._mv(self._join(source), self._join(destination))
+    def _mv(self, source: Artefact, destination: str):
+        return self._owner._mv(source._concrete, self._join(destination))
 
-    def _rm(self, artefact: str):
-        self._owner._rm(self._join(artefact))
+    def _rm(self, artefact: Artefact):
+        self._owner._rm(artefact._concrete)
 
     def _ls(self, directory: str):
         return self._owner._ls(self._join(directory))
@@ -1139,7 +1151,7 @@ class SubManager(Manager):
 
         return config
 
-class LocalManager(Manager, abc.ABC):
+class LocalManager(Manager, abc.ABC, LocalInterface):
     """ Abstract Base Class for managers that will be working with local artefacts.
     """
 
@@ -1167,7 +1179,7 @@ class LocalManager(Manager, abc.ABC):
         if exception:
             raise exception
 
-class RemoteManager(Manager):
+class RemoteManager(Manager, RemoteInterface):
     """ Abstract Base Class for managers that will be working with remote artefacts so efficiency with fetching and
     pushing files is important for time and bandwidth
     """
@@ -1240,7 +1252,7 @@ class RemoteManager(Manager):
             local_path = os.path.join(directory, self.basename(path))
 
             # Get the contents and put it into the temporay directory
-            if obj:
+            if obj is not None:
                 self.get(path, local_path)
 
                 if os.path.isdir(local_path):

@@ -1,4 +1,4 @@
-__version__ = "1.0.0-alpha"
+__version__ = "1.0.1-alpha"
 
 from .artefacts import Artefact, File, Directory, SubFile, SubDirectory
 from .manager import Manager, SubManager
@@ -11,6 +11,8 @@ from .stateless import (
     artefact,
     abspath,
     basename,
+    name,
+    extension,
     commonpath,
     commonprefix,
     dirname,
