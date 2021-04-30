@@ -460,7 +460,6 @@ class Test_Directories(unittest.TestCase):
         with self.assertRaises(stow.exceptions.ArtefactNotMember):
             directory.relpath("/somethingelse/here")
 
-
     def test_privateLS(self):
 
         dir1 = self.manager["/dir1"]
@@ -589,6 +588,17 @@ class Test_Directories(unittest.TestCase):
         _dir = self.manager.mkdir("/empty_dir")
 
         self.assertTrue(_dir.isEmpty())
+
+    def test_empty(self):
+
+        self.manager.touch('/dir1/subdir/file1.txt')
+
+        self.assertEqual(len(self.manager.ls('/dir1')), 2)
+
+        self.manager['/dir1'].empty()
+
+        self.assertEqual(len(self.manager.ls('/dir1')), 0)
+
 
     def test_update(self):
 

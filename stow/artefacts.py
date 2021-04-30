@@ -501,6 +501,11 @@ class Directory(Artefact):
         """
         return not (bool(self._contents) or bool(len(self)))
 
+    def empty(self):
+        """ Empty the directory of contents """
+        for artefact in self.ls():
+            self._manager.rm(artefact, recursive=True)
+
     def _update(self, other: 'Directory'):
 
         self._contents = self._contents.union(other._contents)
