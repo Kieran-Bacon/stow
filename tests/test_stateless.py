@@ -476,13 +476,13 @@ class Test_Stateless(unittest.TestCase):
             (('s3://example-bucket/a/b', 'c:/hello', 'there'), 'c:/hello/there'),
             (("s3://example-location/directory", "filename.txt"), "s3://example-location/directory/filename.txt"),
         ]:
-            self.assertEqual(stow.join(*s), t)
+            self.assertEqual(stow.join(*s, separator='/'), t)
 
     def test_joinAbsolute(self):
 
         for s in [
-            [["/hello", "/there", "/buddy"], "/hello/there/buddy", "/hello\\there\\buddy"],
-            [['s3://example-bucket/a/b', 'c:/hello', 'there'], "c:/a/b/hello/there", "c:/a/b\hello\\there"],
+            [["/hello", "/there", "/buddy"], "/hello/there/buddy", "/hello/there/buddy"],
+            [['s3://example-bucket/a/b', 'c:/hello', 'there'], "c:/a/b/hello/there", "c:/a/b/hello\\there"],
             [['s3://example-bucket/a/b', 'hello', 'there'], "s3://example-bucket/a/b/hello/there", "s3://example-bucket/a/b\\hello\\there"],
         ]:
 

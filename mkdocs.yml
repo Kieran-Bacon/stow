@@ -9,13 +9,14 @@ nav:
     - Managers: managers.md
     - Extending: extending.md
     - Changelog: changelog.md
-    - Example: examples.md
-    - CLI: cli.md
+    - Examples: examples.md
+    # - CLI: cli.md
     - FAQ: faq.md
     - Reference:
         - stow: reference/stow.md
-        - stow.artefacts: reference/stow.artefacts.md
         - stow.manager: reference/stow.manager.md
+        - stow.managers: reference/stow.managers.md
+        - stow.artefacts: reference/stow.artefacts.md
         - stow.exceptions: reference/stow.exceptions.md
 plugins:
     - search # necessary for search to work

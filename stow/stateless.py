@@ -250,11 +250,14 @@ def sync(src, dest, *args, **kwargs):
     destM, destP = _getManager(dest)
 
     # Call sync on the destination manager
-    destM.sync(srcM[srcP], destM[destP], *args, **kwargs)
+    destM.sync(srcM[srcP], destP, *args, **kwargs)
 
 @wraps(Manager.rm)
 def rm(artefact, *args, **kwargs):
     manger, relpath = _getManager(artefact)
     manger.rm(relpath, *args, **kwargs)
 
-supports_unicode_filenames = os.path.supports_unicode_filenames
+@property
+def supports_unicode_filenames():
+    """ True if arbitrary Unicode strings can be used as file names (within limitations imposed by the file system). """
+    return os.path.supports_unicode_filenames

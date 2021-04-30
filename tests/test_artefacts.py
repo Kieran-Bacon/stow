@@ -8,6 +8,7 @@ import tempfile
 import datetime
 import time
 import shutil
+import pickle
 
 import stow
 
@@ -146,8 +147,6 @@ class Test_Artefacts(BasicSetup, unittest.TestCase):
             {"/directory1", "/file1-changed.txt", '/something_else_again', "/something_else_again/with_level"}
         )
 
-
-
     def test_manager(self):
 
         file = self.manager['/file1']
@@ -158,7 +157,6 @@ class Test_Artefacts(BasicSetup, unittest.TestCase):
 
         with pytest.raises(AttributeError):
             file.manager = None
-
 
 class Test_Files(BasicSetup, unittest.TestCase):
 
@@ -347,6 +345,15 @@ class Test_Files(BasicSetup, unittest.TestCase):
         self.assertEqual(file.createdTime, created)
         self.assertEqual(file.accessedTime, accessed)
 
+    def test_serialised(self):
+
+        file = self.manager['/file1']
+
+        hydrated = pickle.loads(pickle.dumps(file))
+
+        self.assertEqual(hydrated._manager, self.manager)
+        self.assertEqual(file, hydrated)
+
 class Test_SubFiles(Test_Files):
 
     def setUp(self):
@@ -452,7 +459,6 @@ class Test_Directories(unittest.TestCase):
 
         with self.assertRaises(stow.exceptions.ArtefactNotMember):
             directory.relpath("/somethingelse/here")
-
 
     def test_privateLS(self):
 
@@ -583,6 +589,17 @@ class Test_Directories(unittest.TestCase):
 
         self.assertTrue(_dir.isEmpty())
 
+    def test_empty(self):
+
+        self.manager.touch('/dir1/subdir/file1.txt')
+
+        self.assertEqual(len(self.manager.ls('/dir1')), 2)
+
+        self.manager['/dir1'].empty()
+
+        self.assertEqual(len(self.manager.ls('/dir1')), 0)
+
+
     def test_update(self):
 
         directory = self.manager["/dir1"]
@@ -592,6 +609,15 @@ class Test_Directories(unittest.TestCase):
         directory._update(stow.Directory(self.manager, directory.path, createdTime=created))
 
         self.assertEqual(directory.createdTime, created)
+
+    def test_serialised(self):
+
+        directory = self.manager['/dir1']
+
+        hydrated = pickle.loads(pickle.dumps(directory))
+
+        self.assertEqual(hydrated._manager, self.manager)
+        self.assertEqual(directory, hydrated)
 
 class Test_Subdirectories(Test_Directories):
 

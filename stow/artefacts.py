@@ -5,7 +5,13 @@ import contextlib
 import typing
 import weakref
 
+from .class_interfaces import ManagerInterface, LocalInterface, RemoteInterface
+from . import utils
 from . import exceptions
+
+class ArtefactReloader:
+    def __new__(self, config, path):
+        return utils.connect(**config)[path]
 
 class Artefact:
     """ Artefacts are the items that are being stored - it is possible that through another mechanism that these items
@@ -18,7 +24,7 @@ class Artefact:
 
     def __init__(
         self,
-        manager,
+        manager: ManagerInterface,
         path: str
         ):
 
@@ -26,21 +32,31 @@ class Artefact:
         self._path = path  # Relative path on manager
         self._exists = True # As you are created you are assumed to exist
 
-    def __getattribute__(self, attr):
+    def __getattribute__(self, attr: str):
 
-        if object.__getattribute__(self, '_exists'):
+        if attr.startswith("_") or object.__getattribute__(self, '_exists'):
             return object.__getattribute__(self, attr)
         else:
             raise exceptions.ArtefactNoLongerExists(
                 "Artefact {} {} no longer exists".format(type(self), object.__getattribute__(self, "_path"))
             )
 
+    def __reduce__(self):
+        return (ArtefactReloader, (self._manager.toConfig(), self._path))
+
     def __hash__(self): return hash(id(self))
     def __eq__(self, other): return hash(self) == hash(other)
 
     def __fspath__(self):
-        with self.localise() as path:
-            return path
+        if isinstance(self._manager, LocalInterface):
+            # Get the filepath for the object - no protection for when the file is editted by os
+            return self._manager._abspath(self._path)
+
+        else:
+            raise exceptions.ArtefactNotAvailable(
+                "Cannot get filesystem path for {} as it is a remote object - "
+                "we suggest that you open a localise context for this object and use the absolute path returned"
+            )
 
     @property
     def manager(self):
@@ -149,7 +165,7 @@ class File(Artefact):
         self._modifiedTime = modifiedTime  # Time the artefact was last modified via the os
         self._accessedTime = accessedTime  # Time the artefact was last accessed
 
-    def __len__(self): return self._size
+    def __len__(self): return self.size
     def __repr__(self):
         return '<stow.File: {} modified({}) size({} bytes)>'.format(self._path, self._modifiedTime, self._size)
 
@@ -484,6 +500,11 @@ class Directory(Artefact):
             bool: True when there is at least one item in the directory False when the directory is empty
         """
         return not (bool(self._contents) or bool(len(self)))
+
+    def empty(self):
+        """ Empty the directory of contents """
+        for artefact in self.ls():
+            self._manager.rm(artefact, recursive=True)
 
     def _update(self, other: 'Directory'):
 

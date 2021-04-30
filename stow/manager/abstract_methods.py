@@ -15,23 +15,28 @@ class AbstractManager(ABC):
     def _abspath(self, managerPath: str) -> str:
         """ Return the absolute path on the backend provider from the standardised manager path.
 
-        examples:
-            local managers shall convert a relative path to its full absolute os compatible filepath
-            s3 shall convert the relative path to a s3 valid key
-
         Args:
             managerPath: The manager relative path which is to be converted to an absolute path
 
         Returns:
             str: The manager absolute path
+
+        Examples:
+            For the filesystem, this will be the full absolute path to the object. For s3 this is the key of the object.
+
+            >>> stow.connect(manager='FS', path='/home/ubuntu')._abspath('/hello/there')
+            '/home/ubuntu/hello/there'
+            >>> stow.connect(manager='s3', bucket='bucket-example')._abspath('/hello/there')
+            'hello/there'
+
         """
         pass
 
 
     @abstractmethod
     def _identifyPath(self, managerPath: str) -> typing.Union[Artefact, None]:
-        """ Look at the underying implementation and get an artefact that represents the object at th path given if it
-        exists. If no object could be found, return None
+        """ For the path givem, create an `Artefact` for the object at the location on the manager but do not add it
+        into the manager. If no object exists - return None
 
         Args:
             abspath: The path for artefact on disk
@@ -42,7 +47,7 @@ class AbstractManager(ABC):
         pass
 
     @abstractmethod
-    def _get(self, source: str, destination: str):
+    def _get(self, source: Artefact, destination: str):
         """ Fetch the artefact and downloads its data to the local destination path provided
 
         The existence of the file to collect has already been checked so this function can be written to assume its
@@ -55,7 +60,7 @@ class AbstractManager(ABC):
         pass
 
     @abstractmethod
-    def _getBytes(self, source: str) -> bytes:
+    def _getBytes(self, source: Artefact) -> bytes:
         """ Fetch the file artefact contents directly. This is to avoid having to write the contents of files to discs
         for some of the other operations.
 
@@ -102,7 +107,7 @@ class AbstractManager(ABC):
         pass
 
     @abstractmethod
-    def _cp(self, source: str, destination: str):
+    def _cp(self, source: Artefact, destination: str):
         """ Method for copying an artefact local to the manager to an another location on the manager. Implementation
         would avoid having to download data from a manager to re-upload that data.
 
@@ -118,7 +123,7 @@ class AbstractManager(ABC):
         pass
 
     @abstractmethod
-    def _mv(self, source: str, destination: str):
+    def _mv(self, source: Artefact, destination: str):
         """ Method for moving an artefact local to the manager to an another location on the manager. Implementation
         would avoid having to download data from a manager to re-upload that data.
 
@@ -139,27 +144,13 @@ class AbstractManager(ABC):
     def _ls(self, directory: str):
         """ List all artefacts that are present at the directory objects location and add them into the manager.
 
-        The existence of the directory has already been confirmed.
-
-        TODO _loadArtefact
-        This method can be used in conjunction with self._makeFile and self._makeDirectory to great affect:
-
-        1. You can list the items in the directory and call makeFile and makeDirectory on them and collect
-        created objects to be returned or
-
-        1. Have ls add all files and directories when called (good when you can download multiple metadata at once for
-        no cost) and then have makeFile call ls on its parent directory before hand so that it can return the created
-        file object by ls.
-
-        Food for thought.
-
         Args:
             managerPath: the manager path to the directory whose content is to be indexed
         """
         pass
 
     @abstractmethod
-    def _rm(self, artefact: str):
+    def _rm(self, artefact: Artefact):
         """ Delete the underlying artefact data on the manager.
 
         To avoid possible user error in deleting directories, the user must have already indicated that they want to
@@ -207,5 +198,12 @@ class AbstractManager(ABC):
 
     @abstractmethod
     def toConfig(self) -> dict:
-        """ TODO """
+        """ Generate a config which can be unpacked into the connect interface to initialise this manager. To be
+        used to seralise and de-seralise a manager object
+
+        NOTE Defaulted values or environment variables are not guaranteed to be saved
+
+        Returns:
+            dict: A dictionary of the kwargs of the init of the manager
+        """
         pass

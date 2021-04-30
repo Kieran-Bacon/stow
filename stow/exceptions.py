@@ -21,3 +21,7 @@ class OperationNotPermitted(Exception):
 class InvalidPath(ValueError):
     """ Path given is not a valid stow path. See documentation """
     pass
+
+class ArtefactNotAvailable(Exception):
+    """ The artefact is not available to be able to fulfil the requested operation """
+    pass

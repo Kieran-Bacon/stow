@@ -74,6 +74,8 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
             region_name=self._config['region_name']
         )
 
+        stow.utils.INITALISED_MANAGERS = {}
+
     def setUpWithFiles(self):
         # Make the managers local space to store files
         self.directory = tempfile.mkdtemp()
@@ -107,6 +109,7 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
     def tearDown(self):
         self.s3.Bucket(self.bucket_name).objects.delete()
 
+
     def test_connect_submanager(self):
 
         self.setUpWithFiles()
@@ -128,6 +131,9 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
         os.environ["AWS_SECRET_ACCESS_KEY"] = self._config['aws_secret_access_key']
 
         self.setUpWithFiles()
+
+        import time
+        time.sleep(10)
 
         with tempfile.TemporaryDirectory() as directory:
             stow.sync("s3://{}".format(self.bucket_name), directory)
@@ -193,3 +199,13 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
         result = stow.ls('s3://{}'.format(self.bucket_name))
 
         self.assertIsInstance(result, set)
+
+    def test_parseURL(self):
+
+        os.environ["AWS_ACCESS_KEY_ID"] = self._config['aws_access_key_id']
+        os.environ["AWS_SECRET_ACCESS_KEY"] = self._config['aws_secret_access_key']
+
+        manager, path = stow.parseURL('s3://{}/directory/path'.format(self.bucket_name))
+
+        self.assertIsInstance(manager, Amazon)
+        self.assertEqual(path, "/directory/path")
