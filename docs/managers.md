@@ -9,9 +9,9 @@ Every manager presents the same interface so that code can be abstracted from th
 
 `stow.connect` will cache created managers so as to avoid re-initialising a connection. Having multiple managers may lead to having conflicting versions of the manager's files/directories. **As a result it is the recommended method for creating a specific manager object.**
 
-Each `Manager` will need to be configured and they will have their own configuration. This configuration can be passed either in the `__init__` for the `Manager` or via its urlencoded string. A url encoded string holds the protocol for the manager and its parameters, each manager will have a different method for how these are to be passed.
+Each `Manager` will need to be configured and they will have their own configuration. This configuration can be passed either in the `__init__` for the `Manager` or via its url encoded string. A url encoded string holds the protocol for the manager and its parameters, each manager will have a different method for how these are to be passed.
 
-Any `Manager` can create a `SubManager` that wraps a sub-directory in the interface of the `Manager`. This `SubManager` can then behavior like a fully implemented manager, with its own `Files` and `Directories`. `SubManagers` use the concrete manager to fulfill its operations and will update the concrete `Manager` with changes.
+Any `Manager` can create a `SubManager` that wraps a sub-directory in the interface of the `Manager`. This `SubManager` can then behave like a fully implemented manager, with its own `Files` and `Directories`. `SubManagers` use the concrete manager to fulfill its operations and will update the concrete `Manager` with changes.
 
 Managers | import path | protocol
 --- | --- | ---

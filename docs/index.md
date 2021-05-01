@@ -38,7 +38,7 @@ print(stow.getmtime("s3://example-bucket/projects/stow/requirements.txt"))
 
 The ultimate power that `stow` provides is the time saving and confidence brought by removing the need to write complicated methods for handling multiple backend storage solutions in your application.
 
-Importantly, time spent implementing these handlers while trying to cater to various environment nuances, can be saved. Especially when you consider effort spent supporting the various stages of an applications development cycle, to then simple abandon good work when only a particular implementation is used live. (Yes, preferably all those stages are identical, but, this is never the case).
+Importantly, time spent implementing these handlers while trying to cater to various environment nuances, can be saved. Especially when you consider effort spent supporting the various stages of an applications development cycle, to then simply abandon good work when only a particular implementation is used live. (Yes, preferably all those stages are identical, but, this is never the case).
 
 **You shouldn't be focusing on storage management, you should be focusing on your solutions**
 
@@ -50,7 +50,7 @@ Well, you have to write a different method that uses `boto3` to connect to the b
 
 You'll then have to add in some logic before this section in the application to handle the possibility of reading the files locally or remotely. This may come in the form of changes to your cli, api, etc, so you do that.
 
-Then from word up high, some of the configuration you are doing will need to change dynamically while the application is running. Your team has decided that the app will monitor one of the configuration files for changes and reload it when it does.
+Then from up high, word comes that some of the configuration you are doing will need to change dynamically while the application is running. Your team has decided that the app will monitor one of the configuration files for changes and reload it when it does.
 
 To maintain the local and remote duality of your application, you get to work updating both methods to check for updates, and then test.
 
@@ -108,6 +108,7 @@ And with that you can handle configurations files being stored locally, on s3, o
 ## Installation
 
 You can get stow by:
+
 ```bash
 $ pip install stow
 $ pip install stow==1.0.0
@@ -165,7 +166,7 @@ Importantly, `stow` handles paths to remote files just as smoothly as any local 
 
 ### Artefacts
 
-An `Artefact` represents a storage object which is then subclassed into `stow.File` and `stow.Directory`. These objects provides convenient methods for accessing their contents and extracting relevant metadata. `Artefact` objects are created just in time to serve a request and act as pointers to the local/remote objects. File contents is not downloaded until a explicit method to do so is called.
+An `Artefact` represents a storage object which is then subclassed into `stow.File` and `stow.Directory`. These objects provide convenient methods for accessing their contents and extracting relevant metadata. `Artefact` objects are created just in time to serve a request and act as pointers to the local/remote objects. File contents is not downloaded until a explicit method to do so is called.
 
 ```python
 for artefact in stow.ls('~'):
@@ -180,7 +181,7 @@ home = stow.artefact('~')
 print(home['file.txt'].content)  # Explicit call to get the file's contents
 ```
 
-All `Artefact` objects belong to a `Manager` which orchestrates communication between your session and the storage medium. `Artefacts` are not storage implementation aware, and draw on the public interface of the manager object they belong to to provide their functionality. This point will become importantly when considering extending stow to an additional storage implementation.
+All `Artefact` objects belong to a `Manager` which orchestrates communication between your session and the storage medium. `Artefacts` are not storage implementation aware, and draw on the public interface of the manager object they belong to to provide their functionality. This point will become important when considering extending stow to an additional storage implementation.
 
 !!! Important
     `Artefact` objects are not guaranteed to exist! Read below
@@ -198,14 +199,14 @@ Traceback (most recent call last):
 stow.exceptions.ArtefactNoLongerExists: Artefact <class 'stow.artefacts.File'> /Users/kieran/file.txt no longer exists
 ```
 
-That being said, updates, overwrites, copies, and move operations will update the `artefact` object accordingly, assuming the path exists and the locations is of the same type.
+That being said, updates, overwrites, copies, and move operations will update the `Artefact` object accordingly, assuming the path exists and the locations is of the same type.
 ### Managers
 
 `Manager` objects represent a specific storage medium, and they will orchestrate communication between your active interpreter and the storage provider. They all adhere to a rich `Manager` interface which includes definitions for all of the `os.path` methods.
 
 `Manager` objects are created behind the scene for many of `stows` stateless methods to process those calls. To avoid multiple definitions for the same storage providers, `Manager` objects are cached. `Managers` initialised directly will not be cached. It is encouraged to make use of the `Manager` cache by initialising `Managers` using  the following methods `stow.find`, `stow.connect`, and `stow.parseURL`.
 
-`Managers` do not expect to process protocols and path params when they are being used directly. `Managers` will internally use the unix style path standard for displaying and creating `artefacts` paths. This means that a valid path is valid for all `Managers`.
+`Managers` do not expect to process protocols and path params when they are being used directly. `Managers` will internally use the unix style path standard for displaying and creating `Artefacts` paths. This means that a valid path is valid for all `Managers`.
 
 ```python
 >>> manager = stow.connect(manager='s3', bucket='example-bucket')
@@ -250,13 +251,13 @@ managerAgnosticMethod("s3://example-bucket")
 managerAgnosticMethod("ssh://ubuntu:***@ec2...../home/ubuntu")
 ```
 
-As the `Managers` interface is just as extensive and feature full as the stateless interface, either method would be would be appropriate. The `Manager` method as described will likely lead to fewer lines being written in the general case, but, it comes with the cost of having to understand what a `Manager` object is.
+As the `Managers` interface is just as extensive and feature-full as the stateless interface, either method would be appropriate. The `Manager` method as described will likely lead to fewer lines being written in the general case, but, it comes with the cost of having to understand what a `Manager` object is.
 
 ## Ways of working
 
 ### Ensuring artefacts
 
-A lot of packages in python require that artefacts be local, because they interact with them directly. `stow` can provide you the ability to use these methods with remote objects by `localising` the objects before their use.
+A lot of packages in python require that artefacts be local, because they interact with them directly. `stow` provides you with the ability to use these methods with remote objects by `localising` the objects before their use.
 
 ```python
 with stow.localise('/home/ubuntu/image.jpg') as abspath:
@@ -271,7 +272,7 @@ with stow.localise('ssh://Host/bucket/image.jpg') as abspath:
 
 A `localised` object will be addressable on disk, and any changes to the object will be pushed to the remote instance when the context is closed. For local artefacts, the context value will simply be the absolute path to that artefact.
 
-**It may be better to think about localising as setting a link between a local path and a remote one**, because the remote path does not have to exist at the point of `localisation`. `stow` will inspect the artefact once the context is closed and handle is accordingly.
+**It may be better to think about localising as setting a link between a local path and a remote one**, because the remote path does not have to exist at the point of `localisation`. `stow` will inspect the artefact once the context is closed and handle it accordingly.
 
 ```python
 import stow
@@ -286,13 +287,13 @@ with stow.localise("s3://example-bucket") as abspath:
 ```
 
 !!! Note
-    AWS credentials were setup for the user via one of the methods that can be read about <a href="https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-quickstart.html" target="_blank">__*here*__</a>. This allows `stow` to able to communicate with s3 simply be using the qualified url for the artefacts. Otherwise, the IAM secret keys are required to be passed to the manager as keyword arguments which can be looked at in [managers](managers).
+    AWS credentials were setup for the user via one of the methods that can be read about <a href="https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-quickstart.html" target="_blank">__*here*__</a>. This allows `stow` to be able to communicate with s3 simply by using the qualified url for the artefacts. Otherwise, the IAM secret keys are required to be passed to the manager as keyword arguments which can be looked at in [managers](managers).
 
 ### No direct communication between remote managers
 
 `Artefacts` that are being moved between different remote managers, will be downloaded and then pushed up onto the destination manager. Though you might imagine that some managers (`ssh`) could directly write to the destination, it is not currently supported (and most managers never will be able to do this).
 
-When moving `Artefacts` around a single remote manager, operations such as `mv` and `cp` shouldn't be downloaded, but, this will be down the to the api of the storage medium.
+When moving `Artefacts` around a single remote manager, operations such as `mv` and `cp` should take place solely on the remote machine and should not be downloaded, but, this will be down to the api of the storage medium.
 
 **Be aware that you will need to have storage available for these types of transfers**.
 
@@ -310,12 +311,12 @@ for art in stow.ls("ssh://ubuntu@ec2../files/here"):
 
 Working with remote file systems will incur noticeable amounts of latency (in comparison to local artefacts) which many pose a problem for a system. To reduce this increased IO time, you will need to improve your connectivity to the remote manager, and cut down on the number of operations you are performing.
 
-This second point is something we can address in our programs directly, and its a good habit even when working explicitly with local files. You should try to minimise the number of read write functions you have to make, and program to push and pull data from the remote as little as possible.
+This second point is something we can address in our programs directly, and it's a good habit even when working explicitly with local files. You should try to minimise the number of read write functions you have to make, and program to push and pull data from the remote as little as possible.
 
 !!! Note
     Read and write operations are not the same as reading metadata/listing directories. These operations are extremely cheap to execute and values are cached whenever possible.
 
-Some managers may be able to push and pull multiple `artefacts` more efficiently if they can do it in a single request. By `localising` directories, we can effectively bulk download and upload `artefacts`.
+Some `managers` may be able to push and pull multiple `artefacts` more efficiently if they can do it in a single request. By `localising` directories, we can effectively bulk download and upload `artefacts`.
 
 Furthermore, once `localised`, interactions with `files` and `directories` is lightening fast as they will be local objects. Reading from, writing to and appending won't require communication to the remote manager.
 
