@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.1.0] - 2021-05-08
+
+### Added
+
+- Metadata to the package deployment (information viable on pypi)
+- Add `StorageClass` selection and functionality to the `Amazon` manager. This allows stow to put objects into s3 in not just in the 'STANDARD' type.
+
+### Changed
+
+- Updated documentation
+
+---
 ## [1.0.1] - 2021-04-30
 
 ### Added
