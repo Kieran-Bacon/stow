@@ -1,6 +1,6 @@
 # Stow
 
-`stow` is a package that enables you to write filesystem agnostic code. With `stow` you can access and manipulate local and remote artefacts seamlessly with a rich and familiar interface. `stow` gives abstraction from storage implementations and solves compatibility issues, allowing code to be highly flexible.
+`stow` is a package that supercharges your interactions with files and directories, and enables you to write filesystem agnostic code. With `stow` you can access and manipulate local and remote artefacts seamlessly with a rich and familiar interface. `stow` gives abstraction from storage implementations and solves compatibility issues, allowing code to be highly flexible.
 
 `stow` is meant to be a drop in replacement for the `os.path` module, providing full coverage of its interface. Furthermore, `stow` extends the interface to work with remote files and directories and to include methods that follow conventional artefact manipulation paradigms like `put`, `get`, `ls`, `rm`, in a concise and highly functional manner.
 
@@ -36,9 +36,47 @@ print(stow.getmtime("s3://example-bucket/projects/stow/requirements.txt"))
 
 ## Why use stow?
 
-The ultimate power that `stow` provides is the time saving and confidence brought by removing the need to write complicated methods for handling multiple backend storage solutions in your application.
+`stow` offers advantages for developers who work locally, and those that work remotely. `stow` aims to simply and empower all interactions with files and directories, solving many of the problems that you see project to project. Tasks such as filtering directories, accessing file metadata, recursively searching for files, are now as easy as you'd expect them to be.
 
-Importantly, time spent implementing these handlers while trying to cater to various environment nuances, can be saved. Especially when you consider effort spent supporting the various stages of an applications development cycle, to then simply abandon good work when only a particular implementation is used live. (Yes, preferably all those stages are identical, but, this is never the case).
+<p role="code-header">For example, this...</p>
+
+```python
+import os
+import shutil
+import datetime
+
+source = 'path'
+destination = 'path'
+recent = datetime.datetime(2021, 5, 4)
+
+for root, dirs, files in os.walk(source):
+
+   for name in files:
+      filepath = os.path.join(root, name)
+      modifiedTime = datetime.datetime.fromtimestamp(os.path.getmtime(filepath))
+
+      if modifiedTime > recent:
+          shutil.cp(filepath, os.path.join(destination, os.path.relpath(filepath, source))
+```
+
+<p role="code-header">will become this...</p>
+
+```python
+import stow
+import datetime
+
+source = 'path'
+destination = 'path'
+recent = datetime.datetime(2021, 5, 4)
+
+for file in stow.ls(source, recursive=True):
+    if isinstance(file, stow.File) and file.modifiedTime > recent:
+        stow.cp(file, stow.join(destination, stow.relpath(file, source)))
+```
+
+**However**, the ultimate power that `stow` provides is the time saving and confidence brought by removing the need to write complicated methods for handling multiple backend storage solutions in your application.
+
+Especially when you consider effort spent supporting the various stages of an applications development cycle, to then simply abandon good work when only a particular implementation is used live. (Yes, preferably all those stages are identical, but, this is never the case).
 
 **You shouldn't be focusing on storage management, you should be focusing on your solutions**
 
