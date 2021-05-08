@@ -6,6 +6,7 @@ import re
 import io
 import typing
 import urllib.parse
+import enum
 
 from ..artefacts import Artefact, File, Directory
 from ..manager import RemoteManager
@@ -19,6 +20,7 @@ class Amazon(RemoteManager):
         aws_access_key_id (None): The access key for a IAM user that has permissions to the bucket
         aws_secret_access_key (None): The secret key for a IAM user that has permissions to the bucket
         region_name (None): The region of the user/bucket
+        storage_class (STANDARD): The storage class type name e.g. STANDARD, REDUCED_REDUDANCY
 
     """
 
@@ -26,18 +28,30 @@ class Amazon(RemoteManager):
     _LINE_SEP = "/"
     _S3_OBJECT_KEY = re.compile(r"^[a-zA-Z0-9!_.*'()-]+(/[a-zA-Z0-9!_.*'()-]+)*$")
 
+    class StorageClass(enum.Enum):
+        STANDARD = 'STANDARD'
+        REDUCED_REDUNDANCY = 'REDUCED_REDUNDANCY'
+        STANDARD_IA = 'STANDARD_IA'
+        ONEZONE_IA = 'ONEZONE_IA'
+        INTELLIGENT_TIERING = 'INTELLIGENT_TIERING'
+        GLACIER = 'GLACIER'
+        DEEP_ARCHIVE = 'DEEP_ARCHIVE'
+        OUTPOSTS = 'OUTPOSTS'
+
     def __init__(
         self,
         bucket: str,
         aws_access_key_id: str = None,
         aws_secret_access_key: str = None,
-        region_name: str = None
+        region_name: str = None,
+        storage_class: str = 'STANDARD'
     ):
 
         self._bucketName = bucket
         self._aws_access_key_id = aws_access_key_id
         self._aws_secret_access_key = aws_secret_access_key
         self._region_name = region_name
+        self._storageClass = self.StorageClass(storage_class)
 
         self._s3Client = boto3.client(
             "s3",
@@ -188,22 +202,23 @@ class Amazon(RemoteManager):
                 if not (dirs or files):
                     # There are no sub-directories or files to be uploaded
                     placeholder_path = self.join(dRoot, self._PLACEHOLDER, separator='/')
-                    self._bucket.put_object(Key=placeholder_path, Body=b'')
+                    self._bucket.put_object(Key=placeholder_path, Body=b'', StorageClass=self._storageClass.value)
                     continue
 
                 # For each file at this point - construct their local absolute path and their relative remote path
                 for file in files:
                     self._bucket.upload_file(
                         os.path.join(root, file),
-                        self.join(dRoot, file, separator='/')
+                        self.join(dRoot, file, separator='/'),
+                        ExtraArgs = {'StorageClass': self._storageClass.value}
                     )
 
         else:
             # Putting a file
-            self._bucket.upload_file(source, destination)
+            self._bucket.upload_file(source, destination, ExtraArgs = {'StorageClass': self._storageClass.value})
 
     def _putBytes(self, fileBytes: bytes, destination: str):
-        self._bucket.put_object(Key=self._abspath(destination), Body=fileBytes)
+        self._bucket.put_object(Key=self._abspath(destination), Body=fileBytes, StorageClass=self._storageClass.value)
 
     def _cpFile(self, source, destination):
         self._bucket.Object(destination).copy_from(CopySource={'Bucket': self._bucketName, 'Key': source})
@@ -304,6 +319,7 @@ class Amazon(RemoteManager):
             "aws_access_key_id": queryData.get("aws_access_key_id", [None])[0],
             "aws_secret_access_key": queryData.get("aws_secret_access_key", [None])[0],
             "region_name": queryData.get("region_name", [None])[0],
+            "storage_class": queryData.get("region_name", ['STANDARD'])[0],
         }
 
         return signature, (url.path or '/')
@@ -314,5 +330,6 @@ class Amazon(RemoteManager):
             'bucket': self._bucketName,
             'aws_access_key_id': self._aws_access_key_id,
             'aws_secret_access_key': self._aws_secret_access_key,
-            'region_name': self._region_name
+            'region_name': self._region_name,
+            'storage_class': self._storageClass.value
         }
