@@ -1,6 +1,10 @@
 import os
 from setuptools import setup, find_packages
 
+# Read the index.md
+with open(os.path.join(os.path.dirname(__file__), 'docs', 'index.md')) as fh:
+    description = fh.read()
+
 # Read in package requirements
 with open(os.path.join(os.path.dirname(__file__), 'requirements.txt')) as fh:
     requires = fh.read().splitlines()
@@ -29,7 +33,21 @@ def packageVersion(initpath: str) -> str:
 setup(
     name='stow',
     version=packageVersion("stow/__init__.py"),
-    description="",
+    description="stow artefacts anywhere, with ease",
+    long_description=description,
+    long_description_content_type="text/markdown",
+    classifiers=[
+        "Operating System :: MacOS :: MacOS X",
+        "Operating System :: Microsoft :: Windows",
+        "Operating System :: POSIX",
+        "Programming Language :: Python :: 3",
+        "License :: OSI Approved :: MIT License"
+    ],
+
+    url="https://github.com/Kieran-Bacon/stow",
+    project_urls={
+        "Documentation": "https://stow.readthedocs.io/en/latest/",
+    },
 
     install_requires=requires,
     tests_require=testRequires,

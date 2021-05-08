@@ -35,7 +35,7 @@ class AbstractManager(ABC):
 
     @abstractmethod
     def _identifyPath(self, managerPath: str) -> typing.Union[Artefact, None]:
-        """ For the path givem, create an `Artefact` for the object at the location on the manager but do not add it
+        """ For the path given, create an `Artefact` for the object at the location on the manager but do not add it
         into the manager. If no object exists - return None
 
         Args:
@@ -83,7 +83,7 @@ class AbstractManager(ABC):
         which is False by default. This should protect them from accidentally deleting a directory.
 
         In the event that they want to do so - the deletion of the directory will be handled before operating this
-        function. Therefore their is no need to check/protect against it. (famous last words)
+        function. Therefore there is no need to check/protect against it. (famous last words)
 
         Args:
             source: A local absolute path to an artefact (File or Directory)
@@ -97,7 +97,7 @@ class AbstractManager(ABC):
 
         This function allows processes to avoid writing files to disc for speedier transfers.
 
-        If its not possible to transmit bytes - I'd recommend writing the bytes to a tempfile and then operating the
+        If it's not possible to transmit bytes - I'd recommend writing the bytes to a tempfile and then operating the
         put method.
 
         Args:
@@ -108,7 +108,7 @@ class AbstractManager(ABC):
 
     @abstractmethod
     def _cp(self, source: Artefact, destination: str):
-        """ Method for copying an artefact local to the manager to an another location on the manager. Implementation
+        """ Method for copying an artefact local to the manager to another location on the manager. Implementation
         would avoid having to download data from a manager to re-upload that data.
 
         If there isn't a method of duplicating the data on the manager, you can call
@@ -124,7 +124,7 @@ class AbstractManager(ABC):
 
     @abstractmethod
     def _mv(self, source: Artefact, destination: str):
-        """ Method for moving an artefact local to the manager to an another location on the manager. Implementation
+        """ Method for moving an artefact local to the manager to another location on the manager. Implementation
         would avoid having to download data from a manager to re-upload that data.
 
         If there isn't a method of duplicating the data on the manager, you can call
@@ -198,8 +198,8 @@ class AbstractManager(ABC):
 
     @abstractmethod
     def toConfig(self) -> dict:
-        """ Generate a config which can be unpacked into the connect interface to initialise this manager. To be
-        used to seralise and de-seralise a manager object
+        """ Generate a config which can be unpacked into the `connect` interface to initialise this manager. To be
+        used to seralise and de-seralise a manager object.
 
         NOTE Defaulted values or environment variables are not guaranteed to be saved
 

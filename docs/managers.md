@@ -9,9 +9,9 @@ Every manager presents the same interface so that code can be abstracted from th
 
 `stow.connect` will cache created managers so as to avoid re-initialising a connection. Having multiple managers may lead to having conflicting versions of the manager's files/directories. **As a result it is the recommended method for creating a specific manager object.**
 
-Each `Manager` will need to be configured and they will have their own configuration. This configuration can be passed either in the `__init__` for the `Manager` or via its urlencoded string. A url encoded string holds the protocol for the manager and its parameters, each manager will have a different method for how these are to be passed.
+Each `Manager` will need to be configured and they will have their own configuration. This configuration can be passed either in the `__init__` for the `Manager` or via its url encoded string. A url encoded string holds the protocol for the manager and its parameters, each manager will have a different method for how these are to be passed.
 
-Any `Manager` can create a `SubManager` that wraps a sub-directory in the interface of the `Manager`. This `SubManager` can then behavior like a fully implemented manager, with its own `Files` and `Directories`. `SubManagers` use the concrete manager to fulfill its operations and will update the concrete `Manager` with changes.
+Any `Manager` can create a `SubManager` that wraps a sub-directory in the interface of the `Manager`. This `SubManager` can then behave like a fully implemented manager, with its own `Files` and `Directories`. `SubManagers` use the concrete manager to fulfill its operations and will update the concrete `Manager` with changes.
 
 Managers | import path | protocol
 --- | --- | ---
@@ -65,13 +65,16 @@ stow.ls("s3://bucket-name/data")
 s3 = stow.connect(manager="s3", bucket="bucket-name")
 s3.ls()
 
-s3 = stow.managers.S3(
+s3 = stow.managers.Amazon(
     bucket="bucket-name"
     aws_access_key_id = "***",
     aws_secret_access_key = "***",
-    region_name = "***"
+    region_name = "***",
+    # storage_class = 'STANDARD'
 )
 s3.ls()
+
+s3ReducedRedundancy = stow.managers.Amazon(bucket='bucket-name', storage_class='REDUCED_REDUNDANCY')
 ```
 
 Creates a connection to a s3 bucket with the credentials that are provided. If no credentials are provided during initialisation, credentials will be loaded as per [amazon's documentation](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-quickstart.html){target=_blank}
@@ -87,8 +90,30 @@ path | yes | The artefact path in the bucket
 aws_access_key_id | no | The IAM user access key to perform the connection with
 aws_secret_access_key | no | The IAM user secret access key to perform the connection with
 region_name | no | The region for the connection to use.
+storage_class | no | The storage class to put objects into s3.
 
+### Storage classes
 
+```python
+stow.managers.Amazon.StorageClass.STANDARD
+```
+
+Storage class | arg string | Designed for | Durability (designed for) | Availability (designed for) | Min storage duration
+--- | --- | --- | --- | --- | ---
+S3 Standard | STANDARD | Frequently accessed data | 100.00% | 99.99% | None
+S3 Standard-IA | STANDARD_IA | Long-lived,  infrequently accessed data | 100.00% | 99.90% | 30 days
+S3 Intelligent-Tiering | INTELLIGENT_TIERING | Long-lived data with changing or unknown access patterns | 100.00% | 99.90% | 30 days
+S3 One Zone-IA | ONEZONE_IA | Long-lived, infrequently accessed |  non-critical data" | 100.00% | 99.50% | 30 days
+S3 Glacier | GLACIER | Long-term data archiving with retrieval times ranging from minutes to hours | 100.00% | 99.99% (after you restore objects) | 90 days
+S3 Glacier Deep Archive | DEEP_ARCHIVE | Archiving rarely accessed data with a default retrieval time of 12 hours | 100.00% | 99.99% (after you restore objects) | 180 days
+RRS (not recommended) | REDUCED_REDUNDANCY | Frequently accessed, non-critical data | 99.99% | 99.99% | None
+
+You can configure how stow will write new object's storage class into a bucket by setting the `storage_class` argument. Accessible via the init or the url encoded string. More information on how storage classes affect object storage can be found at [amazon's documentation](https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html){target=_blank}
+
+### Additional Considerations
+
+- s3 objects do not have a `created_time`, so an `Artefact's` created time will always equal the modified time of the object.
+- Communication with the bucket uses all default values storage parameters. Options to set the encryption, ACL and other parameters will be coming soon when a strategy for displaying/accessing this information is fleshed out.
 
 ## Secure shell
 
