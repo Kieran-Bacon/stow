@@ -209,3 +209,30 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
 
         self.assertIsInstance(manager, Amazon)
         self.assertEqual(path, "/directory/path")
+
+    def test_parseURLAWSCreds(self):
+
+        # os.environ["AWS_ACCESS_KEY_ID"] = self._config['aws_access_key_id']
+        # os.environ["AWS_SECRET_ACCESS_KEY"] = self._config['aws_secret_access_key']
+
+        manager, path = stow.parseURL('s3://{}/directory/path?aws_access_key_id={}&aws_secret_access_key={}'.format(
+            self.bucket_name, self._config['aws_access_key_id'], self._config['aws_secret_access_key']
+        ))
+
+        self.assertEqual(path, "/directory/path")
+        file = manager.touch(path)
+
+    def test_storageClass(self):
+
+        os.environ["AWS_ACCESS_KEY_ID"] = self._config['aws_access_key_id']
+        os.environ["AWS_SECRET_ACCESS_KEY"] = self._config['aws_secret_access_key']
+
+        manager = stow.connect(manager='S3', bucket=self.bucket_name, storage_class='REDUCED_REDUNDANCY')
+
+        with manager.open('/dir1/file1', 'w') as handle:
+            handle.write("Content")
+
+        self.assertEqual(manager['/dir1/file1'].content, b'Content')
+        self.assertEqual(self.s3.Object(key='dir1/file1', bucket_name=self.bucket_name).storage_class, 'REDUCED_REDUNDANCY')
+
+

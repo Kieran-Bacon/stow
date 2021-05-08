@@ -18,7 +18,7 @@ Managers should be implemented as either a `LocalManager` or `RemoteManager`
 from stow.manager import LocalManager, RemoteManager
 ```
 
-The main functions on `Manager` use a method `localise` to get an absolute path to the artefacts they want to interact with. This method is responsible for ensuring the artefacts availability for the other methods and it is the key difference between the `LocalManager` and `RemoteManager`.
+The main functions on `Manager` use a method `localise` to get an absolute path to artefacts with which they want to interact. This method is responsible for ensuring the artefacts availability for the other methods and it is the key difference between the `LocalManager` and `RemoteManager`.
 
 **A `LocalManager` can access their artefacts directly and a `RemoteManager` must retrieve their artefacts before they can work with them.**
 
