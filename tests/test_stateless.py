@@ -490,6 +490,14 @@ class Test_Stateless(unittest.TestCase):
 
             self.assertEqual(stow.join(*s[0], joinAbsolutes=True), target)
 
+    def test_joinURLs(self):
+
+        for s in [
+            [['s3://bucket/here?storage_class=STANDARD_IA', 'there'], 's3://bucket/here/there?storage_class=STANDARD_IA']
+        ]:
+
+            self.assertEqual(stow.join(*s[0], joinAbsolutes=True, separator='/'), s[1])
+
     def test_joiningWithArtefacts(self):
 
         with tempfile.TemporaryDirectory() as directory:

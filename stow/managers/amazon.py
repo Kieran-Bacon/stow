@@ -319,7 +319,7 @@ class Amazon(RemoteManager):
             "aws_access_key_id": queryData.get("aws_access_key_id", [None])[0],
             "aws_secret_access_key": queryData.get("aws_secret_access_key", [None])[0],
             "region_name": queryData.get("region_name", [None])[0],
-            "storage_class": queryData.get("region_name", ['STANDARD'])[0],
+            "storage_class": queryData.get("storage_class", ['STANDARD'])[0],
         }
 
         return signature, (url.path or '/')

@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.1] - 2021-05-13
+
+### Fixed
+
+- Bug on storage class in signature where the value wasn't being read for initialising new managers. Couldn't set storage class using stateless interface.
+
+---
+
 ## [1.1.0] - 2021-05-08
 
 ### Added
