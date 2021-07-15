@@ -591,6 +591,8 @@ class Manager(AbstractManager, ClassMethodManager, ManagerInterface, ManagerSera
         self,
         source: typing.Union[Artefact, str, bytes],
         destination: typing.Union[Artefact, str],
+        *,
+        content_type: str = None,
         overwrite: bool = False,
         ) -> Artefact:
         """ Put a local artefact onto the remote at the location given.
@@ -599,6 +601,8 @@ class Manager(AbstractManager, ClassMethodManager, ManagerInterface, ManagerSera
             src_local (str): The path to the local artefact that is to be put on the remote
             dest_remote (Artefact/str): A file object to overwrite or the relative path to a destination on the
                 remote
+            *,
+            content_type (str): The type of content being put - indicates to the manager how the data is to be used.
             overwrite (bool) = False: Whether to accept the overwriting of a target destination when it is a directory
         """
 
@@ -626,7 +630,7 @@ class Manager(AbstractManager, ClassMethodManager, ManagerInterface, ManagerSera
         putArtefact = None
         if isinstance(source, bytes):
             # Source is file bytes - pass to manager implementation
-            putArtefact = self._putBytes(source, destinationPath)
+            putArtefact = self._putBytes(source, destinationPath, content_type=content_type)
 
         else:
             # Source is a artefact in persisted storage
@@ -637,7 +641,7 @@ class Manager(AbstractManager, ClassMethodManager, ManagerInterface, ManagerSera
             # Ensure that the artefact can be put by localising it
             with source.localise() as abspath:
                 # Put the artefact into the destination
-                putArtefact = self._put(abspath, destinationPath)
+                putArtefact = self._put(abspath, destinationPath, content_type=content_type)
 
         # Post put cleanup - process the destination object
         if destinationObj is not None:

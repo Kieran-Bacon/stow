@@ -76,7 +76,7 @@ class AbstractManager(ABC):
         pass
 
     @abstractmethod
-    def _put(self, source: str, destination: str):
+    def _put(self, source: str, destination: str, *, content_type: typing.Union[str, typing.Dict[str, str]] = None):
         """ Put the local filesystem object onto the underlying manager implementation using the absolute paths given.
 
         To avoid user error - an artefact cannot be placed onto a Directory unless an overwrite toggle has been passed
@@ -88,6 +88,9 @@ class AbstractManager(ABC):
         Args:
             source: A local absolute path to an artefact (File or Directory)
             destination: A manager abspath path for the artefact
+            *
+            content_type: The content type of the artefact(s) being put onto the manager. Dict maps extensions to
+                content types. If not given infer content type.
         """
         pass
 
