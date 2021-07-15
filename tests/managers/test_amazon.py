@@ -235,4 +235,19 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
         self.assertEqual(manager['/dir1/file1'].content, b'Content')
         self.assertEqual(self.s3.Object(key='dir1/file1', bucket_name=self.bucket_name).storage_class, 'REDUCED_REDUNDANCY')
 
+    def test_contentType(self):
+        # Check that a file uploaded with a given extension has the appriopriate content type
+
+        csvfile = self.manager.touch('/content-type/file.csv')
+        mp4file = self.manager.touch('/content-type/file.mp4')
+
+        for art, expected_type in [
+                (csvfile, 'text/csv'),
+                (mp4file, 'video/mp4')
+            ]:
+            obj = self.s3.Object(self.bucket_name, self.manager._abspath(art.path))
+            obj.load()
+
+            self.assertEqual(obj.content_type, expected_type)
+
 

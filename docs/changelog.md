@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.2] - 2021-07-15
+
+### Fixed
+
+- Content-type for artefacts uploaded to Amazon via stow were not being inferred from the extension. This change is an immediate fix for the issue of having incorrect content-types. content-type feature now in works
+
+---
+
 ## [1.1.1] - 2021-05-13
 
 ### Fixed

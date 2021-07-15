@@ -7,6 +7,7 @@ import io
 import typing
 import urllib.parse
 import enum
+import mimetypes
 
 from ..artefacts import Artefact, File, Directory
 from ..manager import RemoteManager
@@ -210,18 +211,36 @@ class Amazon(RemoteManager):
                     self._bucket.upload_file(
                         os.path.join(root, file),
                         self.join(dRoot, file, separator='/'),
-                        ExtraArgs = {'StorageClass': self._storageClass.value}
+                        ExtraArgs = {
+                            'StorageClass': self._storageClass.value,
+                            'ContentType': mimetypes.guess_type(file)[0]
+                        }
                     )
 
         else:
             # Putting a file
-            self._bucket.upload_file(source, destination, ExtraArgs = {'StorageClass': self._storageClass.value})
+            self._bucket.upload_file(
+                source,
+                destination,
+                ExtraArgs = {
+                    'StorageClass': self._storageClass.value,
+                    'ContentType': mimetypes.guess_type(source)[0]
+                }
+            )
 
     def _putBytes(self, fileBytes: bytes, destination: str):
-        self._bucket.put_object(Key=self._abspath(destination), Body=fileBytes, StorageClass=self._storageClass.value)
+        self._bucket.put_object(
+            Key=self._abspath(destination),
+            Body=fileBytes,
+            StorageClass=self._storageClass.value,
+            ContentType=mimetypes.guess_type(destination)[0]
+        )
 
     def _cpFile(self, source, destination):
-        self._bucket.Object(destination).copy_from(CopySource={'Bucket': self._bucketName, 'Key': source})
+        self._bucket.Object(destination).copy_from(
+            CopySource={'Bucket': self._bucketName, 'Key': source},
+            ContentType=mimetypes.guess_extension(destination)[0]
+        )
 
     def _cp(self, source: Artefact, destination: str):
 
