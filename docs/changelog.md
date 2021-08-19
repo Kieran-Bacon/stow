@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.3] - 2021-08-15
+
+### Fixed
+
+- s3 object key regex meant that files and directories that had spaces were rejected however they are accepted. Update regex and test for files with spaces.
+
+---
+
 ## [1.1.2] - 2021-07-15
 
 ### Fixed

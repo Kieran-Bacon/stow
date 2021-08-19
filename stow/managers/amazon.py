@@ -27,7 +27,7 @@ class Amazon(RemoteManager):
 
     # Define regex for the object key
     _LINE_SEP = "/"
-    _S3_OBJECT_KEY = re.compile(r"^[a-zA-Z0-9!_.*'()-]+(/[a-zA-Z0-9!_.*'()-]+)*$")
+    _S3_OBJECT_KEY = re.compile(r"^[a-zA-Z0-9!_.*'()\- ]+(/[a-zA-Z0-9!_.*'()\- ]+)*$")
 
     class StorageClass(enum.Enum):
         STANDARD = 'STANDARD'

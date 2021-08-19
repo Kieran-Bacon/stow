@@ -250,4 +250,18 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
 
             self.assertEqual(obj.content_type, expected_type)
 
+    def test_keys(self):
+        """ keys are valid """
+
+        acceptableKeys = [
+            " Space.txt"
+            "Space in middle.txt"
+        ]
+
+        for key in acceptableKeys:
+            self.manager.touch(key)
+
+        # TODO test bad keys
+        badKeys = []
+
 
