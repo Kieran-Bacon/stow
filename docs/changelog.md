@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.4] - 2021-09-07
+
+### Fixed
+
+- mimetype were being created for files put into s3 using the `mimetype` builtin package. The method `guess_type` returns none for extentions that are not apart of the standard set. This caused the CLI to through and error as it requires a valid content-type is set or nothing. Resolved by choosing s3 default if None is returned
+
+---
+
 ## [1.1.3] - 2021-08-15
 
 ### Fixed
