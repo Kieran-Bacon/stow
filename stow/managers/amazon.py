@@ -187,6 +187,19 @@ class Amazon(RemoteManager):
         # Return the bytes stored in the buffer
         return bytes_buffer.getvalue()
 
+    def _upload_file(self, path: str, key: str):
+        """ Wrapper for the boto3 upload_file method to load the file content types """
+
+        self._bucket.upload_file(
+            path,
+            key,
+            ExtraArgs = {
+                'StorageClass': self._storageClass.value,
+                'ContentType': (mimetypes.guess_type(path)[0] or 'application/octet-stream')
+            }
+        )
+
+
     def _put(self, source: str, destination: str):
 
         destination = self._abspath(destination)
@@ -208,38 +221,24 @@ class Amazon(RemoteManager):
 
                 # For each file at this point - construct their local absolute path and their relative remote path
                 for file in files:
-                    self._bucket.upload_file(
-                        os.path.join(root, file),
-                        self.join(dRoot, file, separator='/'),
-                        ExtraArgs = {
-                            'StorageClass': self._storageClass.value,
-                            'ContentType': mimetypes.guess_type(file)[0]
-                        }
-                    )
+                    self._upload_file(os.path.join(root, file), self.join(dRoot, file, separator='/'))
 
         else:
             # Putting a file
-            self._bucket.upload_file(
-                source,
-                destination,
-                ExtraArgs = {
-                    'StorageClass': self._storageClass.value,
-                    'ContentType': mimetypes.guess_type(source)[0]
-                }
-            )
+            self._upload_file(source, destination)
 
     def _putBytes(self, fileBytes: bytes, destination: str):
         self._bucket.put_object(
             Key=self._abspath(destination),
             Body=fileBytes,
             StorageClass=self._storageClass.value,
-            ContentType=mimetypes.guess_type(destination)[0]
+            ContentType=(mimetypes.guess_type(destination)[0] or 'application/octet-stream')
         )
 
     def _cpFile(self, source, destination):
         self._bucket.Object(destination).copy_from(
             CopySource={'Bucket': self._bucketName, 'Key': source},
-            ContentType=mimetypes.guess_extension(destination)[0]
+            ContentType=(mimetypes.guess_type(destination)[0] or 'application/octet-stream')
         )
 
     def _cp(self, source: Artefact, destination: str):
