@@ -6,6 +6,7 @@ import boto3
 from botocore.exceptions import ClientError
 import uuid
 import tempfile
+import urllib
 
 import stow
 from stow.managers import Amazon
@@ -212,11 +213,13 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
 
     def test_parseURLAWSCreds(self):
 
-        # os.environ["AWS_ACCESS_KEY_ID"] = self._config['aws_access_key_id']
-        # os.environ["AWS_SECRET_ACCESS_KEY"] = self._config['aws_secret_access_key']
-
-        manager, path = stow.parseURL('s3://{}/directory/path?aws_access_key_id={}&aws_secret_access_key={}'.format(
-            self.bucket_name, self._config['aws_access_key_id'], self._config['aws_secret_access_key']
+        manager, path = stow.parseURL('s3://{}/directory/path?{}'.format(
+            self.bucket_name,
+            urllib.parse.urlencode({
+                "aws_access_key_id": self._config["aws_access_key_id"],
+                "aws_secret_access_key": self._config["aws_secret_access_key"],
+                "region_name": self._config["region_name"],
+            })
         ))
 
         self.assertEqual(path, "/directory/path")
@@ -240,10 +243,12 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
 
         csvfile = self.manager.touch('/content-type/file.csv')
         mp4file = self.manager.touch('/content-type/file.mp4')
+        onnxfile = self.manager.touch('/content-type/model.onnx')
 
         for art, expected_type in [
                 (csvfile, 'text/csv'),
-                (mp4file, 'video/mp4')
+                (mp4file, 'video/mp4'),
+                (onnxfile, 'application/octet-stream')
             ]:
             obj = self.s3.Object(self.bucket_name, self.manager._abspath(art.path))
             obj.load()
