@@ -615,6 +615,18 @@ class Test_Stateless(unittest.TestCase):
             with stow.open(filepath3) as handle:
                 self.assertEqual(content, handle.read())
 
+    def test_cpOverwrite(self):
+
+        with tempfile.TemporaryDirectory() as dir1, tempfile.TemporaryDirectory() as dir2:
+            dir1_file = stow.join(dir1, 'file1.txt')
+            dir2_file = stow.join(dir2, 'file1.txt')
+
+            stow.touch(dir1_file)
+            stow.touch(dir2_file)
+
+            # This will replace the second file
+            stow.cp(dir1_file, dir2_file)
+
     def test_mv(self):
 
         with tempfile.TemporaryDirectory() as directory:
@@ -641,6 +653,18 @@ class Test_Stateless(unittest.TestCase):
 
             with stow.open(filepath3, "r") as handle:
                 self.assertEqual(content, handle.read())
+
+    def test_mvOverwrite(self):
+
+        with tempfile.TemporaryDirectory() as dir1, tempfile.TemporaryDirectory() as dir2:
+            dir1_file = stow.join(dir1, 'file1.txt')
+            dir2_file = stow.join(dir2, 'file1.txt')
+
+            stow.touch(dir1_file)
+            stow.touch(dir2_file)
+
+            # This will replace the second file
+            stow.mv(dir1_file, dir2_file)
 
     def test_sync(self):
 

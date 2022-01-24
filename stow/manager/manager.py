@@ -541,16 +541,16 @@ class Manager(AbstractManager, ClassMethodManager, ManagerInterface, ManagerSera
         log.warning("lexists: Symbolic links are not supported - defaulting to exists")
         return self.exists(artefact)
 
-    def get(self, source: typing.Union[Artefact, str], destination: str = None, overwrite: bool = False) -> Artefact:
-        """ Get a remote artefact from the storage option and write it to the destination path given.
+    def get(source: typing.Union[Artefact, str], destination: str = None, overwrite: bool = False) -> typing.Union[Artefact, bytes]:
+        """ Get an artefact from a local or remote source and download the artefact either to a local artefact or as bytes
 
         Args:
-            source (Artefact/str): The remote's file object or its path
-            destination (str) = None: The local path for the artefact to be written to
+            source (Artefact|str): The source artefact to be downloaded
+            destination (str) = None: The local path to write the artefact. If None return file as bytes
+            overwrite (bool) = False: local directory protection - to overwrite a directory with overwrite must be True
 
-        Returns:
-            typing.Union[typing.Any, bytes]: Return user defined response for get if file written to destination else
-                return bytes if no destination given
+        Return:
+            Artefact|bytes: The local artefact downloaded, or the bytes of the source artefact.
         """
 
         # Ensure the destination - Remove or raise issue for a local artefact at the location where the get is called
@@ -579,7 +579,10 @@ class Manager(AbstractManager, ClassMethodManager, ManagerInterface, ManagerSera
 
         # Fetch the object and place it at the location
         if destination is not None:
-            return self._get(obj, destination)
+            self._get(obj, destination)
+
+            # Get the artefact from the object locally and return it
+            return self._findArtefact(destination)
 
         else:
             if not isinstance(obj, File):
@@ -683,7 +686,7 @@ class Manager(AbstractManager, ClassMethodManager, ManagerInterface, ManagerSera
 
         # Ensure the destination - get the destination object
         destinationObj, destinationPath = self._artefactFormStandardise(destination)
-        if destinationObj:
+        if destinationObj is not None:
 
             # Only work on targets that are on the manager
             if destinationObj.manager is not self:
@@ -700,7 +703,7 @@ class Manager(AbstractManager, ClassMethodManager, ManagerInterface, ManagerSera
                 )
 
             # Remove the original object
-            self._rm(destinationObj.path)
+            self._rm(destinationObj)
             self._delinkArtefactObjects(destinationObj)
 
         # Look to see if the source artefact is in the manager - if so we can try to be more efficient
@@ -738,7 +741,7 @@ class Manager(AbstractManager, ClassMethodManager, ManagerInterface, ManagerSera
 
         # Ensure the destination - get the destination object
         destinationObj, destinationPath = self._artefactFormStandardise(destination)
-        if destinationObj:
+        if destinationObj is not None:
 
             # Only work on targets that are on the manager
             if destinationObj.manager is not self:
@@ -755,7 +758,7 @@ class Manager(AbstractManager, ClassMethodManager, ManagerInterface, ManagerSera
                 )
 
             # Remove the original object
-            self._rm(destinationObj.path)
+            self._rm(destinationObj)
             self._delinkArtefactObjects(destinationObj)
 
         # Look to see if the source artefact is in the manager - if so we can try to be more efficient

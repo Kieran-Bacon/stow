@@ -4,3 +4,5 @@ mkapi
 pyini
 pytest
 pytest-cov
+pytest-profiling
+snakeviz

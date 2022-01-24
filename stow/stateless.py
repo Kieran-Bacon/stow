@@ -218,9 +218,22 @@ def ls(artefact = os.path.curdir, **kwargs):
     return manager.ls(manager.abspath(relpath), **kwargs)
 
 @wraps(Manager.get)
-def get(src_remote, dest_local, *args, **kwargs):
-    manager, relpath = _getManager(src_remote)
-    manager.get(relpath, dest_local, *args, **kwargs)
+def get(source: typing.Union[Artefact, str], destination: str = None, overwrite: bool = False) -> typing.Union[Artefact, bytes]:
+    """ Get an artefact from a local or remote source and download the artefact either to a local artefact or as bytes
+
+    Args:
+        source (Artefact|str): The source artefact to be downloaded
+        destination (str) = None: The local path to write the artefact. If None return file as bytes
+        overwrite (bool) = False: local directory protection - to overwrite a directory with overwrite must be True
+
+    Return:
+        Artefact|bytes: The local artefact downloaded, or the bytes of the source artefact.
+    """
+
+    # Convert the source object into its important parts
+    manager, relpath = _getManager(source)
+
+    return manager.get(relpath, destination, overwrite=overwrite)
 
 @wraps(Manager.put)
 def put(src, dest, *args, **kwargs):

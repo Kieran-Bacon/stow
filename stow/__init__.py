@@ -1,5 +1,6 @@
 __version__ = "1.1.4"
 
+from os import environ as env
 from .artefacts import Artefact, File, Directory, SubFile, SubDirectory
 from .manager import Manager, SubManager
 from . import exceptions
