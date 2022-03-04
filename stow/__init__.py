@@ -1,4 +1,4 @@
-__version__ = "1.1.5"
+__version__ = "1.1.6"
 
 from os import environ as env
 from .artefacts import Artefact, File, Directory, SubFile, SubDirectory

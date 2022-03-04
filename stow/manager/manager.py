@@ -541,7 +541,7 @@ class Manager(AbstractManager, ClassMethodManager, ManagerInterface, ManagerSera
         log.warning("lexists: Symbolic links are not supported - defaulting to exists")
         return self.exists(artefact)
 
-    def get(source: typing.Union[Artefact, str], destination: str = None, overwrite: bool = False) -> typing.Union[Artefact, bytes]:
+    def get(self, source: typing.Union[Artefact, str], destination: str = None, overwrite: bool = False) -> typing.Union[Artefact, bytes]:
         """ Get an artefact from a local or remote source and download the artefact either to a local artefact or as bytes
 
         Args:
