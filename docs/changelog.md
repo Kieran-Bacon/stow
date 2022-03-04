@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.6] - 2021-03-04
+
+### Fixed
+
+- `cp` method didn't correctly delete destination objects if the object was an empty directory or empty file.
+- `get` in the stateless interface didn't return file bytes when no destination was provided + it was a required field.
+
 ## [1.1.4] - 2021-09-07
 
 ### Fixed

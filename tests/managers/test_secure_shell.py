@@ -17,7 +17,7 @@ from .manager import ManagerTests, SubManagerTests
 
 CONFIG_PATH = os.path.join(ETC_DIR, 'ssh_credentials.ini')
 
-@unittest.skipIf(False or not os.path.exists(CONFIG_PATH), 'No credentials at {} to connect to an SSH server'.format(CONFIG_PATH))
+@unittest.skipIf(True or not os.path.exists(CONFIG_PATH), 'No credentials at {} to connect to an SSH server'.format(CONFIG_PATH))
 class Test_SecureShell(unittest.TestCase, ManagerTests, SubManagerTests):
 
     def setUp(self):
@@ -77,7 +77,7 @@ class Test_SecureShell(unittest.TestCase, ManagerTests, SubManagerTests):
         pass
 
 
-@unittest.skipIf(False or not os.path.exists(CONFIG_PATH), 'No credentials at {} to connect to an SSH server'.format(CONFIG_PATH))
+@unittest.skipIf(True or not os.path.exists(CONFIG_PATH), 'No credentials at {} to connect to an SSH server'.format(CONFIG_PATH))
 class Test_SSHStatelessInterface(unittest.TestCase):
 
     def setUp(self):
