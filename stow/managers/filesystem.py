@@ -1,11 +1,11 @@
 import os
 import datetime
 import shutil
-import pytz
 import urllib
+import typing
 
-from ..artefacts import Artefact, File, Directory
-from ..manager import LocalManager
+from ..artefacts import Artefact, File, Directory, PartialArtefact
+from ..manager.base_managers import LocalManager
 
 class FS(LocalManager):
     """ Wrap a local filesystem (a networked drive or local directory)
@@ -14,61 +14,89 @@ class FS(LocalManager):
         path (str): The local relative path to where the manager is to be initialised
     """
 
-    def __init__(self, path: str):
-        # Record the local path to the original directory
-        self._path = os.path.abspath(path)
-        super().__init__()
+    def __new__(cls, path: str = '/'):
 
-    def __repr__(self): return '<Manager(FS): {}>'.format(self._path)
+        manager = super().__new__(cls)
+
+        if path != '/':
+            # The class is not the default system wide FS manager - overload the functions to
+            # perform a translation of provided paths
+
+            # Update the current working directory information
+            cwd = path if os.path.isdir(path) else os.path.dirname(path)
+            def cwd(cls):
+                return cwd
+            manager._cwd = classmethod(cwd)
+
+            # Update the absolute path method to become relative to the root
+            def relativeAbspath(self, managerPath: str) -> str:
+                return os.path.abspath(self.join(self._root, managerPath, joinAbsolutes=True))
+            manager._abspath = relativeAbspath
+
+            # Absolute to relative
+            rootLength = len(path)
+            def relative(self, abspath: str) -> str:
+                return abspath[rootLength:]
+            manager._relative = relative
+
+        return manager
+
+    def __init__(self, path: str = '/'):
+        super().__init__()
+        self._root = path
+
+    def __repr__(self):
+        return '<Manager(FS)>'
 
     def _abspath(self, managerPath: str) -> str:
-        path = self.join(self._path, managerPath, joinAbsolutes=True)
+        return os.path.abspath(managerPath)
 
-        if os.name == 'nt':
-            path = path.replace('/', '\\')
+    def _relative(self, abspath: str) -> str:
+        return abspath
 
-        return path
+    def _exists(self, managerPath: str):
+        return os.path.exists(self._abspath(managerPath))
+
+    def _isLink(self, file: File):
+        return os.path.islink(self._abspath(file))
+
+    def _isMount(self, directory: Directory):
+        return os.path.ismount(self._abspath(directory))
 
     def _identifyPath(self, managerPath: str):
 
-        abspath = self._abspath(managerPath)
+        try:
 
-        if os.path.exists(abspath):
+            abspath = self._abspath(managerPath)
 
             stats = os.stat(abspath)
 
-            # Created time
-            createdTime = datetime.datetime.utcfromtimestamp(stats.st_ctime)
-            createdTime = pytz.UTC.localize(createdTime)
-
-            # Modified time
-            modifiedTime = datetime.datetime.utcfromtimestamp(stats.st_mtime)
-            modifiedTime = pytz.UTC.localize(modifiedTime)
-
-            # Access time
-            accessedTime = datetime.datetime.utcfromtimestamp(stats.st_atime)
-            accessedTime = pytz.UTC.localize(accessedTime)
+            # Export artefact created time information
+            createdTime = datetime.datetime.fromtimestamp(stats.st_ctime, tz=datetime.timezone.utc)
+            modifiedTime = datetime.datetime.fromtimestamp(stats.st_mtime, tz=datetime.timezone.utc)
+            accessedTime = datetime.datetime.fromtimestamp(stats.st_atime, tz=datetime.timezone.utc)
 
             if os.path.isfile(abspath):
                 return File(
                     self,
-                    managerPath,
+                    self._relative(abspath),
                     stats.st_size,
                     modifiedTime,
-                    createdTime,
-                    accessedTime,
+                    createdTime=createdTime,
+                    accessedTime=accessedTime,
                 )
 
             elif os.path.isdir(abspath):
                 return Directory(
                     self,
-                    managerPath,
+                    self._relative(abspath),
                     createdTime=createdTime,
                     modifiedTime=modifiedTime,
                     accessedTime=accessedTime,
                 )
 
-        return None
+        except:
+            return None
 
     def _get(self, source: Artefact, destination: str):
 
@@ -113,18 +141,17 @@ class FS(LocalManager):
             handle.write(fileBytes)
 
     def _cp(self, source: Artefact, destination: str):
-        self._put(self._abspath(source.path), destination)
+        return self._put(self._abspath(source.path), destination)
 
-    def _mv(self, source: Artefact, destination: str):
-
-        # Convert the source and destination
-        source, destination = self._abspath(source.path), self._abspath(destination)
+    def _mv(self, sourceAbspath: str, destinationAbspath: str):
 
         # Ensure the destination location
-        os.makedirs(os.path.dirname(destination), exist_ok=True)
+        os.makedirs(os.path.dirname(destinationAbspath), exist_ok=True)
 
         # Move the source artefact
-        os.rename(source, destination)
+        os.rename(sourceAbspath, destinationAbspath)
+
+        return PartialArtefact(self, self._relative(destinationAbspath))
 
     def _ls(self, directory: str):
 
@@ -133,11 +160,12 @@ class FS(LocalManager):
 
         # Iterate over the folder and identify every object - add the created
         for art in os.listdir(abspath):
-            self._addArtefact(
-                self._identifyPath(
-                    self.join(directory, art, separator='/')
-                )
+            artefact = self._identifyPath(
+                self.join(directory, art, separator='/')
             )
+
+            if artefact is not None:
+                yield artefact
 
     def _rm(self, artefact: Artefact):
 
@@ -152,7 +180,7 @@ class FS(LocalManager):
 
     @classmethod
     def _signatureFromURL(cls, url: urllib.parse.ParseResult):
-        return {"path": "/"}, os.path.abspath(os.path.expanduser(url.path))
+        return {}, os.path.abspath(os.path.expanduser(url.path))
 
     def toConfig(self):
-        return {'manager': 'FS', 'path': self._path}
+        return {'manager': 'FS'}

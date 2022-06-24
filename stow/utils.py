@@ -11,7 +11,8 @@ def initCache(function):
     """ Cache results and return previously created manager objects
     """
 
-    functools.wraps(function)
+
+    @functools.wraps(function)
     def wrapper(manager, **kwargs):
 
         identifier = hash((manager, "-".join(["{}-{}".format(k,v) for k,v in sorted(kwargs.items(), key=lambda x: x[0])])))

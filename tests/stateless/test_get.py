@@ -39,8 +39,10 @@ class Test_GetStateless(unittest.TestCase):
 
     def test_get_local_bytes(self):
         """ Get local file bytes """
+        pass
 
     def test_get_remote_bytes(self):
         """ Get remote file bytes """
+        pass
 
 

@@ -1,2 +1,3 @@
 pyini
 pytest
+moto[s3]

@@ -241,7 +241,7 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
         self.assertEqual(self.s3.Object(key='dir1/file1', bucket_name=self.bucket_name).storage_class, 'REDUCED_REDUNDANCY')
 
     def test_contentType(self):
-        # Check that a file uploaded with a given extension has the appriopriate content type
+        # Check that a file uploaded with a given extension has the appropriate content type
 
         csvfile = self.manager.touch('/content-type/file.csv')
         mp4file = self.manager.touch('/content-type/file.mp4')
@@ -271,4 +271,11 @@ class Test_Amazon(unittest.TestCase, ManagerTests, SubManagerTests):
         # TODO test bad keys
         badKeys = []
 
+    def test_s3_filename_with_space(self):
+
+        self.manager.touch('/something/else there')
+
+        file = self.manager['/something/else there']
+
+        self.assertIsInstance(file, stow.File)
 

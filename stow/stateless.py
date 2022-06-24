@@ -11,19 +11,6 @@ from .artefacts import Artefact
 from .manager import Manager, LocalManager
 from . import utils
 
-def _getManager(artefact) -> typing.Tuple[Manager, str]:
-
-    if isinstance(artefact, Artefact):
-        manager = artefact.manager
-        relpath = artefact.path
-
-    elif isinstance(artefact, str):
-        return utils.parseURL(artefact)
-
-    else:
-        raise TypeError("Artefact reference must be either `stow.Artefact` or string not type {}".format(type(artefact)))
-
-    return manager, relpath
 
 @wraps(utils.find)
 def find(*args, **kwargs) -> typing.Type[Manager]:

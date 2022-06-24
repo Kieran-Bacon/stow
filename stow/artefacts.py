@@ -155,8 +155,10 @@ class File(Artefact):
         path: str,
         size: float,
         modifiedTime: datetime.datetime,
+        *,
         createdTime: datetime.datetime = None,
-        accessedTime: datetime.datetime = None
+        accessedTime: datetime.datetime = None,
+        isLink: bool = None
         ):
         super().__init__(manager, path)
 
@@ -164,6 +166,7 @@ class File(Artefact):
         self._createdTime = createdTime  # Time the artefact was physically created
         self._modifiedTime = modifiedTime  # Time the artefact was last modified via the os
         self._accessedTime = accessedTime  # Time the artefact was last accessed
+        self._isLink = isLink
 
     def __len__(self): return self.size
     def __repr__(self):
@@ -231,6 +234,13 @@ class File(Artefact):
     def size(self):
         """ Size of file content in bytes """
         return self._size
+
+    def isLink(self):
+
+        if self._isLink is not None:
+            return self._isLink
+        else:
+            return self._manager._isLink(self)
 
     @contextlib.contextmanager
     def localise(self) -> str:
@@ -322,7 +332,8 @@ class Directory(Artefact):
         *,
         createdTime: datetime.datetime = None,
         modifiedTime: datetime.datetime = None,
-        accessedTime: datetime.datetime = None
+        accessedTime: datetime.datetime = None,
+        isMount: bool = None
         ):
         super().__init__(manager, path)
         self._contents = weakref.WeakSet()
@@ -331,6 +342,7 @@ class Directory(Artefact):
         self._createdTime = createdTime
         self._modifiedTime = modifiedTime
         self._accessedTime = accessedTime
+        self._isMount = isMount
 
     def __len__(self): return len(self.ls())
     def __iter__(self): return iter(self._contents)
@@ -372,6 +384,13 @@ class Directory(Artefact):
                 return max(x.accessedTime for x in self._contents)
             return None
         return self._accessedTime
+
+    def isMount(self):
+        if self._isMount is not None:
+            return self._isMount
+
+        else:
+            return self._manager._isMount(self)
 
     def mkdir(self, path: str):
         """ Create a directory nested inside this `Directory` with the relative path given
@@ -546,3 +565,34 @@ class SubDirectory(Directory):
 
     def _update(self, other: Artefact):
         self._concrete._update(other._concrete)
+
+class PartialArtefact:
+
+    def __init__(self, manager: ManagerInterface, path: str):
+        self._manager = manager
+        self._path = path
+
+    def __getattribute__(self, attr: str):
+
+        # For debugger only (only way this function can be called twice)
+        if object.__getattribute__(self, "__class__").__name__ != "PartialArtefact":
+            return object.__getattribute__(self, attr)
+
+        # Get the artefact information
+        manager = object.__getattribute__(self, "_manager")
+        path = object.__getattribute__(self, "_path")
+
+        try:
+            artefact = manager[path]
+        except exceptions.ArtefactNotFound:
+            # Though we have created a partial artefact through an action we have taken that should result in an
+            # artefact being created, the artefact was not found meaning that the artefact has since been deleted.
+            raise exceptions.ArtefactNoLongerExists("Artefact has been removed")
+
+        self.__class__ = type(artefact.__class__.__name__, (artefact.__class__,),{})
+        self.__dict__ = artefact.__dict__
+
+        if attr == "__class__":
+            return artefact.__class__
+        else:
+            return object.__getattribute__(self, attr)

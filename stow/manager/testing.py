@@ -1,0 +1,3 @@
+import stow
+
+stow.abspath()

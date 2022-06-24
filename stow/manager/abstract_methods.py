@@ -32,6 +32,17 @@ class AbstractManager(ABC):
         """
         pass
 
+    @abstractmethod
+    def _exists(self, managerPath: str) -> bool:
+        """ Return whether a artefact exists at the path given
+
+        Args:
+            managerPath (str): The path to the artefact
+
+        Returns:
+            bool: True if it exists else False
+        """
+        pass
 
     @abstractmethod
     def _identifyPath(self, managerPath: str) -> typing.Union[Artefact, None]:
@@ -44,6 +55,16 @@ class AbstractManager(ABC):
         Returns:
             typing.Union[Artefact, None]: The artefact object that represents the item on disk or None if nothing exists
         """
+        pass
+
+    @abstractmethod
+    def _isLink(file: File):
+        """ Check if the file object given is a link/shortcut to another file """
+        pass
+
+    @abstractmethod
+    def _isMount(directory: Directory):
+        """ Check if the file object given is a mount point """
         pass
 
     @abstractmethod
@@ -124,24 +145,25 @@ class AbstractManager(ABC):
 
     @abstractmethod
     def _mv(self, source: Artefact, destination: str):
-        """ Method for moving an artefact local to the manager to another location on the manager. Implementation
-        would avoid having to download data from a manager to re-upload that data.
+        """ Move an artefact from its location to another location managed by the same manager class. This method should
+        attempt exploit manager implementation to have transfer done remotely, and avoid having data downloaded to be
+        pushed.
 
-        If there isn't a method of duplicating the data on the manager, you can call
-            self._put(self._abspath(source.path), destination)
-            self._rm(self._abspath(source.path))
+        An example of this could be the s3 mv feature - though an artefact and its destination maybe in different
+        buckets, it is possible to transfer artefacts inside s3.
 
-        Which will mean the behaviour defaults to the put action and then a delete of the original file. Achieving the
-        same goal.
+        As such, it is important that the method can handle destinations that would be managed by other manager
+        instances. If this is not possible, the static final variable cls.ISOLATED should be set TRUE. Which will mean
+        the behaviour defaults to the put action and then a delete of the original file. Achieving the same goal.
 
         Args:
-            source: the manager local source file
-            destination: a manager abspath path for destination
+            source (str): An absolute path to the source object (from _abspath) to be moved
+            destination (str): An absolute path to the destination (from _abspath of the destination manager)
         """
         pass
 
     @abstractmethod
-    def _ls(self, directory: str):
+    def _ls(self, directory: str) -> typing.Generator[Artefact, None, Artefact]:
         """ List all artefacts that are present at the directory objects location and add them into the manager.
 
         Args:
