@@ -89,7 +89,7 @@ class ClassMethodManager:
         if sourceObject is None:
             # The artefact wasn't given and the path doesn't lead to an artefact on the manager
 
-            manager, path = utils.parseURL(sourcePath)
+            manager, path = cls._getManager(sourcePath)
 
             return manager[path], path
 

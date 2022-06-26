@@ -13,7 +13,7 @@ class AbstractManager(ABC):
 
     @abstractmethod
     def _abspath(self, managerPath: str) -> str:
-        """ Return the absolute path on the backend provider from the standardised manager path.
+        """ Return the absolute path for a manager path, including the managers protocol, hostname, and parameters.
 
         Args:
             managerPath: The manager relative path which is to be converted to an absolute path

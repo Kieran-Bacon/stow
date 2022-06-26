@@ -24,18 +24,18 @@ class FS(LocalManager):
 
             # Update the current working directory information
             cwd = path if os.path.isdir(path) else os.path.dirname(path)
-            def cwd(cls):
+            def cwd():
                 return cwd
             manager._cwd = classmethod(cwd)
 
             # Update the absolute path method to become relative to the root
-            def relativeAbspath(self, managerPath: str) -> str:
-                return os.path.abspath(self.join(self._root, managerPath, joinAbsolutes=True))
+            def relativeAbspath(managerPath: str) -> str:
+                return os.path.abspath(cls.join(path, managerPath, joinAbsolutes=True))
             manager._abspath = relativeAbspath
 
             # Absolute to relative
             rootLength = len(path)
-            def relative(self, abspath: str) -> str:
+            def relative(abspath: str) -> str:
                 return abspath[rootLength:]
             manager._relative = relative
 
@@ -56,6 +56,9 @@ class FS(LocalManager):
 
     def _exists(self, managerPath: str):
         return os.path.exists(self._abspath(managerPath))
+
+    def _metadata(self, path: str):
+        return {}
 
     def _isLink(self, file: File):
         return os.path.islink(self._abspath(file))

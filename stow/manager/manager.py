@@ -34,6 +34,21 @@ class Manager(AbstractManager, ClassMethodManager, ManagerInterface, ManagerSera
     def __init__(self):
         self._submanagers = {}
 
+    def _getManager(self, artefact: typing.Tuple[Artefact, str, None]) -> typing.Tuple['ClassMethodManager', str]:
+        """ Fetch the manager and path for the provided artefact """
+
+        if artefact is None:
+            return self, self._cwd()
+
+        elif isinstance(artefact, Artefact):
+            return artefact.manager, artefact.path
+
+        elif isinstance(artefact, str):
+            return self, artefact
+
+        else:
+            raise TypeError("Artefact reference must be either `stow.Artefact` or string not type {}".format(type(artefact)))
+
     def __contains__(self, artefact: typing.Union[Artefact, str]) -> bool:
         return self.exists(artefact)
 
@@ -55,6 +70,9 @@ class Manager(AbstractManager, ClassMethodManager, ManagerInterface, ManagerSera
         if artefact is None:
             raise exceptions.ArtefactNotFound(f"No artefact exists at: {path}")
         return artefact
+
+    def touch(self, relpath: str) -> File:
+        return self._putBytes(b"", relpath)
 
     def submanager(self, uri: str):
         """ Create a submanager at the given uri which shall behave like a conventional manager, however, its actions
@@ -89,6 +107,16 @@ class Manager(AbstractManager, ClassMethodManager, ManagerInterface, ManagerSera
             return manager
         else:
             raise exceptions.ArtefactTypeError("Cannot create a submanager with a file's path")
+
+    def _get_content_type(self, path: str) -> str:
+        """ Get the content type for the path given """
+        contentType, _ = mimetypes.guess_type(path)
+        contentType = (content_type or 'application/octet-stream')
+        return contentType
+
+    def _set_content_type(self, path: str, content_type: str) -> str:
+        """ Set the content type of the file """
+        raise NotImplementedError('Manager does not have an method for changing the content-type for the path given')
 
 class SubManager(Manager):
     """ Created by a `Manager` instance to manage a section of the filesystem as if it were a fully fledged manager. The

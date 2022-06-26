@@ -18,7 +18,7 @@ class Artefact:
     are deleted and they are no longer able to work
 
     Args:
-        manager: The submanager this file belongs to
+        manager: The manager this file belongs to
         path: The file's relative path
     """
 
@@ -49,7 +49,7 @@ class Artefact:
 
     def __fspath__(self):
         if isinstance(self._manager, LocalInterface):
-            # Get the filepath for the object - no protection for when the file is editted by os
+            # Get the filepath for the object - no protection for when the file is edited by os
             return self._manager._abspath(self._path)
 
         else:
@@ -57,6 +57,11 @@ class Artefact:
                 "Cannot get filesystem path for {} as it is a remote object - "
                 "we suggest that you open a localise context for this object and use the absolute path returned"
             )
+
+    @property
+    def abspath(self) -> str:
+        """ Get the absolute path to the object for the manager """
+        self._manager._abspath(self._path)
 
     @property
     def manager(self):
@@ -156,6 +161,8 @@ class File(Artefact):
         size: float,
         modifiedTime: datetime.datetime,
         *,
+        content_type: str = None,
+        metadata: typing.Dict[str, str] = None,
         createdTime: datetime.datetime = None,
         accessedTime: datetime.datetime = None,
         isLink: bool = None
@@ -163,6 +170,8 @@ class File(Artefact):
         super().__init__(manager, path)
 
         self._size = size  # The size in bytes of the object
+        self._content_type = content_type
+        self._metadata = _metadata
         self._createdTime = createdTime  # Time the artefact was physically created
         self._modifiedTime = modifiedTime  # Time the artefact was last modified via the os
         self._accessedTime = accessedTime  # Time the artefact was last accessed
@@ -171,6 +180,25 @@ class File(Artefact):
     def __len__(self): return self.size
     def __repr__(self):
         return '<stow.File: {} modified({}) size({} bytes)>'.format(self._path, self._modifiedTime, self._size)
+
+    @property
+    def content_type(self):
+        if self._content_type is None:
+            self._content_type = self._manager._get_content_type(self._path)
+
+        return self._content_type
+
+    @content_type.setter
+    def content_type(self, value: str):
+        self._content_type = value
+        self._manager._set_content_type(self._path, value)
+
+    @property
+    def metadata(self):
+        """ Get accessible file metadata as hosted by the manager """
+        if self._metadata is None:
+            self._metadata = self._manager._metadata(self._path)
+        return self._metadata
 
     @property
     def name(self):
