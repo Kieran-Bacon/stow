@@ -171,7 +171,7 @@ class File(Artefact):
 
         self._size = size  # The size in bytes of the object
         self._content_type = content_type
-        self._metadata = _metadata
+        self._metadata = metadata
         self._createdTime = createdTime  # Time the artefact was physically created
         self._modifiedTime = modifiedTime  # Time the artefact was last modified via the os
         self._accessedTime = accessedTime  # Time the artefact was last accessed
@@ -364,8 +364,6 @@ class Directory(Artefact):
         isMount: bool = None
         ):
         super().__init__(manager, path)
-        self._contents = weakref.WeakSet()
-        self._collected = False
 
         self._createdTime = createdTime
         self._modifiedTime = modifiedTime
@@ -376,10 +374,14 @@ class Directory(Artefact):
     def __iter__(self): return iter(self._contents)
     def __repr__(self): return '<stow.Directory: {}>'.format(self._path)
     def __contains__(self, artefact: typing.Union[Artefact, str]) -> bool:
-        if isinstance(artefact, Artefact):
-            return artefact.manager is self.manager and artefact in self._contents
-        else:
-            return self.manager.join(self._path, artefact, separator='/') in self.manager
+        try:
+            manager, obj, _ = self._manager._splitExternalArtefactForm(artefact)
+            return manager._abspath(obj).startswith(self._manager._abspath(self._path))
+            # return type(manager) is type(self._manager) and obj
+
+        except:
+            # Directory cannot contain an artefact that doesn't exist
+            return False
 
     def _add(self, artefact: Artefact) -> None:
         assert isinstance(artefact, (File, Directory)) and not isinstance(artefact, (SubDirectory))

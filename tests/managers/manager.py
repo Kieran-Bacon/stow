@@ -24,6 +24,12 @@ class ManagerTests:
     @abc.abstractmethod
     def setUpWithFiles(self): pass
 
+    def test_artefact(self):
+
+        self.setUpWithFiles()
+
+        self.manager.artefact("/initial_file1.txt")
+
     def test_initial_files(self):
 
         self.setUpWithFiles()

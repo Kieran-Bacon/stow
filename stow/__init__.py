@@ -2,9 +2,8 @@ __version__ = "1.1.6"
 
 import os
 from .artefacts import Artefact, File, Directory, SubFile, SubDirectory
-from .manager import Manager, SubManager
+from .manager import StatelessManager, SubManager
 from . import exceptions
-
 
 env = os.environ
 
@@ -14,6 +13,9 @@ from .utils import (
     connect,
     parseURL
 )
+
+# Create the stateless manager
+Manager = StatelessManager()
 
 artefact = Manager.artefact
 abspath = Manager.abspath

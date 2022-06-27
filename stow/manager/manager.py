@@ -9,7 +9,7 @@ import tempfile
 import contextlib
 
 from .abstract_methods import AbstractManager
-from .class_methods import ClassMethodManager
+from .stateless_manager import StatelessManager
 from .reloader import ManagerSeralisable
 
 from ..class_interfaces import ManagerInterface, LocalInterface, RemoteInterface
@@ -20,7 +20,7 @@ from .. import exceptions
 import logging
 log = logging.getLogger(__name__)
 
-class Manager(AbstractManager, ClassMethodManager, ManagerInterface, ManagerSeralisable):
+class Manager(AbstractManager, StatelessManager, ManagerInterface, ManagerSeralisable):
     """ Manager Abstract base class - expressed the interface of a Manager which governs a storage option and allows
     extraction and placement of files in that storage container
 
@@ -33,21 +33,6 @@ class Manager(AbstractManager, ClassMethodManager, ManagerInterface, ManagerSera
 
     def __init__(self):
         self._submanagers = {}
-
-    def _getManager(self, artefact: typing.Tuple[Artefact, str, None]) -> typing.Tuple['ClassMethodManager', str]:
-        """ Fetch the manager and path for the provided artefact """
-
-        if artefact is None:
-            return self, self._cwd()
-
-        elif isinstance(artefact, Artefact):
-            return artefact.manager, artefact.path
-
-        elif isinstance(artefact, str):
-            return self, artefact
-
-        else:
-            raise TypeError("Artefact reference must be either `stow.Artefact` or string not type {}".format(type(artefact)))
 
     def __contains__(self, artefact: typing.Union[Artefact, str]) -> bool:
         return self.exists(artefact)
@@ -71,8 +56,38 @@ class Manager(AbstractManager, ClassMethodManager, ManagerInterface, ManagerSera
             raise exceptions.ArtefactNotFound(f"No artefact exists at: {path}")
         return artefact
 
-    def touch(self, relpath: str) -> File:
-        return self._putBytes(b"", relpath)
+    def _splitManagerArtefactForm(
+        self,
+        artefact: typing.Tuple[Artefact, str, None],
+        load: bool = True,
+        require: bool = True
+        ) -> typing.Tuple['ManagerInterface', Artefact, str]:
+
+        if isinstance(artefact, Artefact):
+            return artefact._manager, artefact, artefact.path
+
+        else:
+
+            if artefact is None:
+                path = self._cwd()
+            elif isinstance(artefact, str):
+                path = artefact
+            else:
+                raise TypeError(
+                    "Artefact reference must be either `stow.Artefact` or string not type {}".format(type(artefact))
+                )
+
+            obj = None
+            if load:
+
+                try:
+                    obj = self[path]
+
+                except exceptions.ArtefactNotFound:
+                    if require:
+                        raise
+
+            return self, obj, path
 
     def submanager(self, uri: str):
         """ Create a submanager at the given uri which shall behave like a conventional manager, however, its actions

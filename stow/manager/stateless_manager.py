@@ -11,20 +11,19 @@ import contextlib
 from ..artefacts import Artefact, File, Directory
 from .. import utils
 from .. import exceptions
-from ..class_interfaces import ManagerInterface, LocalInterface, RemoteInterface
+from ..class_interfaces import ManagerInterface
 
 import logging
 log = logging.getLogger(__name__)
 
-class ClassMethodManager:
+class StatelessManager(ManagerInterface):
     """ Class method namespace for the Manager
     """
 
     SEPARATORS = ['\\', '/']
     ISOLATED = False
 
-    @classmethod
-    def _cwd(cls) -> str:
+    def _cwd(self) -> str:
         """ Return the default working directory for the manager - used to default the artefact path if no path provided
 
         Returns:
@@ -32,47 +31,12 @@ class ClassMethodManager:
         """
         return os.getcwd()
 
-    @classmethod
-    def _getManager(cls, artefact: typing.Tuple[Artefact, str, None]) -> typing.Tuple['ClassMethodManager', str]:
-        """ Fetch the manager and path for the provided artefact """
-
-        if artefact is None:
-            return utils.connect("FS"), cls._cwd()
-
-        elif isinstance(artefact, Artefact):
-            return artefact.manager, artefact.path
-
-        elif isinstance(artefact, str):
-            return utils.parseURL(artefact)
-
-        else:
-            raise TypeError("Artefact reference must be either `stow.Artefact` or string not type {}".format(type(artefact)))
-
-    @classmethod
-    def _splitArtefactUnionForm(cls, artefact: typing.Union[Artefact, str, None]) -> typing.Tuple[typing.Union[Artefact, None], str]:
-        """ Take an artefact or a string and return in a strict format the object and string representation. This allows
-        methods to accept both and resolve and ensure.
-
-        Only the path is guaranteed, the artefact object will be None if it is not passed
-
-        Args:
-            artefact: Type unknown, artefact object or path
-
-        Returns:
-            artefact: An artefact object or None
-            path: the path passed or pull from the artefact object
-
-        """
-        if artefact is None:
-            return None, cls._cwd()
-
-        if isinstance(artefact, Artefact):
-            return artefact, artefact.path
-
-        return None, artefact
-
-    @classmethod
-    def _splitAndLoadArtefactUnionForm(cls, artefact: typing.Union[Artefact, str, None]) -> typing.Tuple[Artefact, str]:
+    def _splitExternalArtefactForm(
+        self,
+        artefact: typing.Tuple[Artefact, str, None],
+        load: bool = True,
+        require: bool = True
+        ) -> typing.Tuple['ManagerInterface', Artefact, str]:
         """ Convert the incoming object which could be either an artefact or relative path into a standardised form for
         both such that functions can be easily convert and use what they require
 
@@ -85,39 +49,59 @@ class ClassMethodManager:
             str: The relative path of the object/the passed value
         """
 
-        sourceObject, sourcePath = cls._splitArtefactUnionForm(artefact)
-        if sourceObject is None:
-            # The artefact wasn't given and the path doesn't lead to an artefact on the manager
-
-            manager, path = cls._getManager(sourcePath)
-
-            return manager[path], path
-
-        return sourceObject, path
-
-    @classmethod
-    def _splitAllComponents(cls, artefact: typing.Union[Artefact, str]) -> typing.Tuple["ManagerInterface", typing.Union[Artefact, None], str]:
         if isinstance(artefact, Artefact):
-            artefactManager, artefactObj, artefactPath = artefact._manager, artefact, artefact.path
+            return artefact._manager, artefact, artefact.path
 
         else:
-            artefactManager, artefactPath = cls._getManager(artefact)
+            obj = None
 
-            try:
-                artefactObj = artefactManager[artefactPath]
+            if artefact is None:
+                manager, path = utils.connect("FS"), self._cwd()
 
-            except exceptions.ArtefactNotFound:
-                artefactObj = None
+            elif isinstance(artefact, str):
+                manager, path = utils.parseURL(artefact)
 
-        return artefactManager, artefactObj, artefactPath
+            else:
+                raise TypeError(
+                    "Artefact reference must be either `stow.Artefact` or string not type {}".format(type(artefact))
+                )
 
-    @classmethod
-    def _localLoad(cls, path: str):
+
+            if load:
+
+                try:
+                    obj = manager[path]
+
+                except exceptions.ArtefactNotFound:
+                    if require:
+                        raise
+
+            return manager, obj, path
+
+    def _splitManagerArtefactForm(
+        self,
+        artefact: typing.Tuple[Artefact, str, None],
+        load: bool = True,
+        require: bool = True
+        ) -> typing.Tuple['ManagerInterface', Artefact, str]:
+        """ Convert the incoming object which could be either an artefact or relative path into a standardised form for
+        both such that functions can be easily convert and use what they require
+
+        Args:
+            artObj (typing.Union[Artefact, str]): Either the artefact object or it's relative path to be standardised
+            require (str): Require that the object exists. when false return None for yet to be created objects but
+
+        Returns:
+            Artefact or None: the artefact object or None if it doesn't exists and require is False
+            str: The relative path of the object/the passed value
+        """
+        return self._splitExternalArtefactForm(artefact, load, require)
+
+    def _localLoad(self, path: str):
         """ Load a local file in without having to parse the path """
         return utils.connect(manager="FS")[path]
 
-    @classmethod
-    def artefact(cls, path: str) -> Artefact:
+    def artefact(self, path: str) -> Artefact:
         """ Fetch an artefact object for the given path
 
         Params:
@@ -129,10 +113,9 @@ class ClassMethodManager:
         Raises:
             ArtefactNotFound: In the event that no artefact exists at the location given
         """
-        return cls._splitAndLoadArtefactUnionForm(path)[0]
+        return self._splitManagerArtefactForm(path)[1]
 
-    @classmethod
-    def abspath(cls, artefact: typing.Union[Artefact, str]) -> str:
+    def abspath(self, artefact: typing.Union[Artefact, str]) -> str:
         """ Return a normalized absolute version of the path or artefact given.
 
         Args:
@@ -144,11 +127,10 @@ class ClassMethodManager:
         Raises:
             ValueError: Cannot make a remote artefact object's path absolute
         """
-        _, path = cls._splitArtefactUnionForm(artefact)
+        _, path = self._splitArtefactUnionForm(artefact)
         return os.path.abspath(path)
 
-    @classmethod
-    def basename(cls, artefact: typing.Union[Artefact, str]) -> str:
+    def basename(self, artefact: typing.Union[Artefact, str]) -> str:
         """ Return the base name of an artefact or path. This is the second element of the pair returned by passing path
         to the function `split()`.
 
@@ -158,11 +140,10 @@ class ClassMethodManager:
         Returns:
             str: the basename
         """
-        _, path = cls._splitArtefactUnionForm(artefact)
+        _, path = self._splitArtefactUnionForm(artefact)
         return os.path.basename(path)
 
-    @classmethod
-    def name(cls, artefact: typing.Union[Artefact, str]) -> str:
+    def name(self, artefact: typing.Union[Artefact, str]) -> str:
         """ Return the name of an artefact or path (basename without extension).
 
         Args:
@@ -171,15 +152,14 @@ class ClassMethodManager:
         Returns:
             str: the name e.g. /hello/there.txt => there
         """
-        _, path = cls._splitArtefactUnionForm(artefact)
+        _, path = self._splitArtefactUnionForm(artefact)
         basename = os.path.basename(path)
         index = basename.rfind('.')
         if index != -1:
             return basename[:index]
         return basename
 
-    @classmethod
-    def extension(cls, artefact: typing.Union[Artefact, str]) -> str:
+    def extension(self, artefact: typing.Union[Artefact, str]) -> str:
         """ Return the extension of an artefact or path.
 
         Args:
@@ -188,15 +168,14 @@ class ClassMethodManager:
         Returns:
             str: the extension e.g. /hello/there.txt => txt
         """
-        _, path = cls._splitArtefactUnionForm(artefact)
+        _, path = self._splitArtefactUnionForm(artefact)
         basename = os.path.basename(path)
         index = basename.rfind('.')
         if index != -1:
             return basename[index+1:]
         return ''
 
-    @classmethod
-    def commonpath(cls, paths: typing.Iterable[typing.Union[Artefact, str]]) -> str:
+    def commonpath(self, paths: typing.Iterable[typing.Union[Artefact, str]]) -> str:
         """ Return the longest common sub-path of each pathname in the sequence paths
 
         Examples:
@@ -211,10 +190,9 @@ class ClassMethodManager:
         Raises:
             ValueError: If there is no crossover at all
         """
-        return os.path.commonpath([cls._splitArtefactUnionForm(path)[1] for path in paths])
+        return os.path.commonpath([self._splitArtefactUnionForm(path)[1] for path in paths])
 
-    @classmethod
-    def commonprefix(cls, paths: typing.Iterable[typing.Union[Artefact, str]]) -> str:
+    def commonprefix(self, paths: typing.Iterable[typing.Union[Artefact, str]]) -> str:
         """ Return the longest common string literal for a collection of path/artefacts
 
         Examples:
@@ -226,10 +204,9 @@ class ClassMethodManager:
         Returns:
             str: A string that all paths startwith (may be empty string)
         """
-        return os.path.commonprefix([cls._splitArtefactUnionForm(path)[1] for path in paths])
+        return os.path.commonprefix([self._splitArtefactUnionForm(path)[1] for path in paths])
 
-    @classmethod
-    def dirname(cls, artefact: typing.Union[Artefact, str]) -> str:
+    def dirname(self, artefact: typing.Union[Artefact, str]) -> str:
         """ Return the directory name of path or artefact. Preserve the protocol of the path if a protocol is given
 
         Args:
@@ -238,7 +215,7 @@ class ClassMethodManager:
         Returns:
             str: The directory path for the holding directory of the artefact
         """
-        obj, path = cls._splitArtefactUnionForm(artefact)
+        obj, path = self._splitArtefactUnionForm(artefact)
 
         if obj is not None or path.find(":") == -1:
             # Obj path or path within no protocol and therefore no need to parse
@@ -305,8 +282,7 @@ class ClassMethodManager:
         """
         return os.path.isabs(path)
 
-    @classmethod
-    def isfile(cls, artefact: typing.Union[Artefact, str]) -> bool:
+    def isfile(self, artefact: typing.Union[Artefact, str]) -> bool:
         """ Check if the artefact provided is a file
 
         Args:
@@ -317,14 +293,13 @@ class ClassMethodManager:
         """
 
         try:
-            obj, _ = cls._splitAndLoadArtefactUnionForm(artefact)
+            obj, _ = self._splitAndLoadArtefactUnionForm(artefact)
             return isinstance(obj, File)
 
         except exceptions.ArtefactNotFound:
             return False
 
-    @classmethod
-    def isdir(cls, artefact: typing.Union[Artefact, str]) -> bool:
+    def isdir(self, artefact: typing.Union[Artefact, str]) -> bool:
         """ Check if the artefact provided is a directory
 
         Args:
@@ -335,14 +310,13 @@ class ClassMethodManager:
         """
 
         try:
-            obj, _ = cls._splitAndLoadArtefactUnionForm(artefact)
+            obj, _ = self._splitAndLoadArtefactUnionForm(artefact)
             return isinstance(obj, Directory)
 
         except:
             return False
 
-    @classmethod
-    def islink(cls, artefact: typing.Union[Artefact, str]) -> bool:
+    def islink(self, artefact: typing.Union[Artefact, str]) -> bool:
         """ Check if the artefact provided is a link
 
         Will check for local managers but will default to False for remote managers
@@ -355,15 +329,13 @@ class ClassMethodManager:
         """
 
         try:
-            obj, _ = cls._splitAndLoadArtefactUnionForm(artefact)
+            obj, _ = self._splitAndLoadArtefactUnionForm(artefact)
             return isinstance(obj, File) and obj.isLink()
 
         except:
             return False
 
-
-    @classmethod
-    def ismount(cls, artefact: typing.Union[Artefact, str]) -> bool:
+    def ismount(self, artefact: typing.Union[Artefact, str]) -> bool:
         """ Check if the artefact provided is a link
 
         Will check for local managers but will default to False for remote managers
@@ -375,14 +347,13 @@ class ClassMethodManager:
             Bool: True or False in answer to the question
         """
         try:
-            obj, _ = cls._splitAndLoadArtefactUnionForm(artefact)
+            obj, _ = self._splitAndLoadArtefactUnionForm(artefact)
             return isinstance(obj, Directory) and obj.isMount()
 
         except:
             return False
 
-    @classmethod
-    def getctime(cls, artefact: typing.Union[Artefact, str]) -> typing.Union[float, None]:
+    def getctime(self, artefact: typing.Union[Artefact, str]) -> typing.Union[float, None]:
         """ Get the created time for the artefact as a UTC timestamp
 
         Args:
@@ -395,10 +366,9 @@ class ClassMethodManager:
             ArtefactNotFound: If there is no artefact at the location
         """
 
-        return cls._splitAndLoadArtefactUnionForm(artefact)[0].createdTime.timestamp()
+        return self._splitAndLoadArtefactUnionForm(artefact)[0].createdTime.timestamp()
 
-    @classmethod
-    def getmtime(cls, artefact: typing.Union[Artefact, str]) -> typing.Union[float, None]:
+    def getmtime(self, artefact: typing.Union[Artefact, str]) -> typing.Union[float, None]:
         """ Get the modified time for the artefact as a UTC timestamp
 
         Args:
@@ -410,10 +380,9 @@ class ClassMethodManager:
         Raises:
             ArtefactNotFound: If there is no artefact at the location
         """
-        return cls._splitAndLoadArtefactUnionForm(artefact)[0].modifiedTime.timestamp()
+        return self._splitAndLoadArtefactUnionForm(artefact)[0].modifiedTime.timestamp()
 
-    @classmethod
-    def getatime(cls, artefact: typing.Union[Artefact, str]) -> typing.Union[float, None]:
+    def getatime(self, artefact: typing.Union[Artefact, str]) -> typing.Union[float, None]:
         """ Get the accessed time for the artefact as a UTC timestamp
 
         Args:
@@ -425,10 +394,9 @@ class ClassMethodManager:
         Raises:
             ArtefactNotFound: If there is no artefact at the location
         """
-        return cls._splitAndLoadArtefactUnionForm(artefact)[0].accessedTime.timestamp()
+        return self._splitAndLoadArtefactUnionForm(artefact)[0].accessedTime.timestamp()
 
-    @classmethod
-    def exists(cls, artefact: typing.Union[Artefact, str]) -> bool:
+    def exists(self, artefact: typing.Union[Artefact, str]) -> bool:
         """ Return true if the given artefact is a member of the manager, or the path is correct for the manager and it
         leads to a File or Directory.
 
@@ -440,12 +408,11 @@ class ClassMethodManager:
         Returns:
             bool: True if artefact exists else False
         """
-        manager, path = cls._getManater(artefact)
+        manager, path = self._getManater(artefact)
 
         return manager._exists(path)
 
-    @classmethod
-    def lexists(cls, artefact: typing.Union[Artefact, str]) -> str:
+    def lexists(self, artefact: typing.Union[Artefact, str]) -> str:
         """ Return true if the given artefact is a member of the manager, or the path is correct for the manager and it
         leads to a File or Directory.
 
@@ -457,7 +424,7 @@ class ClassMethodManager:
         Returns:
             bool: True if artefact exists else False
         """
-        return cls.islink(artefact)
+        return self.islink(artefact)
 
     @classmethod
     def join(cls, *paths: typing.Iterable[str], separator=os.sep, joinAbsolutes: bool = False) -> str:
@@ -566,8 +533,7 @@ class ClassMethodManager:
         # Apply the normal path - method to the path
         return os.path.normpath(path)
 
-    @classmethod
-    def realpath(cls, path: str) -> str:
+    def realpath(self, path: str) -> str:
         """ Return the canonical path of the specified filename, eliminating any symbolic links encountered in the path
         (if they are supported by the operating system).
 
@@ -579,8 +545,7 @@ class ClassMethodManager:
         """
         return os.path.realpath(path)
 
-    @classmethod
-    def relpath(cls, path: str, start=os.curdir) -> str:
+    def relpath(self, path: str, start=os.curdir) -> str:
         """ Return a relative filepath to path either from the current directory or from an optional start directory
 
         Args:
@@ -589,8 +554,7 @@ class ClassMethodManager:
         """
         return os.path.relpath(path, start)
 
-    @classmethod
-    def samefile(cls, artefact1: typing.Union[Artefact, str], artefact2: typing.Union[Artefact, str]) -> bool:
+    def samefile(self, artefact1: typing.Union[Artefact, str], artefact2: typing.Union[Artefact, str]) -> bool:
         """ Check if provided artefacts are represent the same data on disk
 
         Args:
@@ -600,8 +564,8 @@ class ClassMethodManager:
         Returns:
             bool: True if the artefacts are the same
         """
-        obj1, path1 = cls._splitArtefactUnionForm(artefact1)
-        obj2, path2 = cls._splitArtefactUnionForm(artefact2)
+        obj1, path1 = self._splitArtefactUnionForm(artefact1)
+        obj2, path2 = self._splitArtefactUnionForm(artefact2)
 
         if obj1 is None or obj2 is None:
             return os.path.samefile(path1, path2)
@@ -615,8 +579,7 @@ class ClassMethodManager:
         """
         return os.path.sameopenfile(handle1, handle2)
 
-    @classmethod
-    def samestat(cls, artefact1: typing.Union[Artefact, str], artefact2: typing.Union[Artefact, str]) -> bool:
+    def samestat(self, artefact1: typing.Union[Artefact, str], artefact2: typing.Union[Artefact, str]) -> bool:
         """ Check if provided artefacts are represent the same data on disk
 
         Args:
@@ -626,13 +589,12 @@ class ClassMethodManager:
         Returns:
             bool: True if the artefacts are the same
         """
-        _, path1 = cls._splitArtefactUnionForm(artefact1)
-        _, path2 = cls._splitArtefactUnionForm(artefact2)
+        _, path1 = self._splitArtefactUnionForm(artefact1)
+        _, path2 = self._splitArtefactUnionForm(artefact2)
 
         return os.path.samestat(path1, path2)
 
-    @classmethod
-    def split(cls, artefact: typing.Union[Artefact, str]) -> typing.Tuple[str, str]:
+    def split(self, artefact: typing.Union[Artefact, str]) -> typing.Tuple[str, str]:
         """ Split the pathname path into a pair, (head, tail) where tail is the last pathname component and head is
         everything leading up to that.
 
@@ -643,11 +605,10 @@ class ClassMethodManager:
             (dirname, basename): the split parts of the artefact
         """
 
-        _, path = cls._splitArtefactUnionForm(artefact)
-        return (cls.dirname(path), cls.basename(path))
+        _, path = self._splitArtefactUnionForm(artefact)
+        return (self.dirname(path), self.basename(path))
 
-    @classmethod
-    def splitdrive(cls, path: str) -> typing.Tuple[str, str]:
+    def splitdrive(self, path: str) -> typing.Tuple[str, str]:
         """ Split the pathname path into a pair (drive, tail) where drive is either a mount point or the empty string.
 
         Args:
@@ -659,8 +620,7 @@ class ClassMethodManager:
 
         return os.path.splitdrive(path)
 
-    @classmethod
-    def splitext(cls, artefact: typing.Union[Artefact, str]) -> typing.Tuple[str, str]:
+    def splitext(self, artefact: typing.Union[Artefact, str]) -> typing.Tuple[str, str]:
         """ Split the pathname path into a pair (root, ext) such that root + ext == path, and ext is empty or begins
         with a period and contains at most one period.
 
@@ -670,7 +630,7 @@ class ClassMethodManager:
         Returns:
             (root, ext): The root path without the extension and the extension
         """
-        _, path = cls._splitArtefactUnionForm(artefact)
+        _, path = self._splitArtefactUnionForm(artefact)
         return os.path.splitext(path)
 
     @staticmethod
@@ -683,8 +643,7 @@ class ClassMethodManager:
 
         return hash_md5.hexdigest()
 
-    @classmethod
-    def get(cls, source: typing.Union[Artefact, str], destination: typing.Union[str, None] = None, overwrite: bool = False) -> typing.Union[Artefact, bytes]:
+    def get(self, source: typing.Union[Artefact, str], destination: typing.Union[str, None] = None, overwrite: bool = False) -> typing.Union[Artefact, bytes]:
         """ Get an artefact from a local or remote source and download the artefact either to a local artefact or as bytes
 
         Args:
@@ -697,7 +656,7 @@ class ClassMethodManager:
         """
 
         # Split into object and path - Ensure that the artefact to get is from this manager
-        obj, _ = cls._splitAndLoadArtefactUnionForm(source)
+        obj, _ = self._splitAndLoadArtefactUnionForm(source)
 
         # Ensure the destination - Remove or raise issue for a local artefact at the location where the get is called
         if destination is not None:
@@ -716,13 +675,13 @@ class ClassMethodManager:
 
             else:
                 # Ensure the directory that this object exists with
-                os.makedirs(cls.dirname(destination), exist_ok=True)
+                os.makedirs(self.dirname(destination), exist_ok=True)
 
             # Get the object using the underlying manager implementation
             obj.manager._get(obj, destination)
 
             # Load the downloaded artefact from the local location and return
-            return cls._localLoad(destination)
+            return self._localLoad(destination)
 
         else:
             if not isinstance(obj, File):
@@ -730,9 +689,8 @@ class ClassMethodManager:
 
             return obj.manager._getBytes(obj)
 
-    @classmethod
     def put(
-        cls,
+        self,
         source: typing.Union[Artefact, str, bytes],
         destination: typing.Union[Artefact, str],
         overwrite: bool = False,
@@ -748,26 +706,19 @@ class ClassMethodManager:
 
         # Validate source before deleting destination
         if not isinstance(source, bytes):
-            sourceObj, _ = cls._splitAndLoadArtefactUnionForm(source)
+            _, sourceObj, _ = self._splitExternalArtefactForm(source)
 
-        # Delete if exists the destination artefacts
-        try:
-            destinationObj, destinationPath = cls._splitAndLoadArtefactUnionForm(destination)
+        # Load in the information about the destination
+        destinationManager, destinationObj, destinationPath = self._splitManagerArtefactForm(destination, require=False)
 
-
-            destinationManager = destinationObj.manager
-
+        if destinationObj is not None:
             # Delete the destination object that is able to be overwritten
             if overwrite or isinstance(destinationObj, File):
-                destinationObj.manager._rm(destinationObj)
+                destinationManager._rm(destinationObj)
             else:
                 raise exceptions.OperationNotPermitted(
                     "Cannot put {} as destination is a directory, and overwrite has not been set to True"
                 )
-
-        except exceptions.ArtefactNotFound:
-            # The file doesn't exist to be deleted
-            destinationManager, destinationPath = cls._getManager(destination)
 
         if isinstance(source, bytes):
             return destinationManager._putBytes(source, destinationPath)
@@ -776,9 +727,8 @@ class ClassMethodManager:
             with sourceObj.localise() as abspath:
                 return destinationManager._put(abspath, destinationPath)
 
-    @classmethod
     def cp(
-        cls,
+        self,
         source: typing.Union[Artefact, str],
         destination: typing.Union[Artefact, str],
         overwrite: bool = False
@@ -796,7 +746,7 @@ class ClassMethodManager:
         """
 
         # Load the source object that is to be copied
-        sourceObj, _ = cls._splitAndLoadArtefactUnionForm(source)
+        sourceObj, _ = self._splitAndLoadArtefactUnionForm(source)
 
         # Check the destination
         if isinstance(destination, Artefact):
@@ -820,11 +770,10 @@ class ClassMethodManager:
         if type(sourceObj._manager) == type(destinationManager):
             return sourceObj._manager._cp(sourceObj, destination)
 
-        return cls.put(sourceObj, destination, overwrite=overwrite)
+        return self.put(sourceObj, destination, overwrite=overwrite)
 
-    @classmethod
     def mv(
-        cls,
+        self,
         source: typing.Union[Artefact, str],
         destination: typing.Union[Artefact, str],
         overwrite: bool = False
@@ -842,8 +791,8 @@ class ClassMethodManager:
         """
 
         # Load the source object that is to be copied
-        sourceObj, sourcePath = cls._splitAndLoadArtefactUnionForm(source)
-        destinationManager, destinationObj, destinationPath = cls._splitAllComponents(destination)
+        sourceObj, sourcePath = self._splitAndLoadArtefactUnionForm(source)
+        destinationManager, destinationObj, destinationPath = self._splitAllComponents(destination)
 
         # Prevent the overwriting of a directory without permission
         if destinationObj is not None and isinstance(destination, Directory) and not overwrite:
@@ -857,12 +806,11 @@ class ClassMethodManager:
             )
 
         # Moving between manager types - put the object and then delete the old one
-        object = cls.put(sourceObj, destination, overwrite=overwrite)
+        object = self.put(sourceObj, destination, overwrite=overwrite)
         sourceObj._manager._rm(sourceObj)
         return object
 
-    @classmethod
-    def rm(cls, artefact: typing.Union[Artefact, str], recursive: bool = False) -> None:
+    def rm(self, artefact: typing.Union[Artefact, str], recursive: bool = False) -> None:
         """ Remove an artefact from the manager using the artefact object or its relative path. If its a directory,
         remove it if it is empty, or all of its contents if recursive has been set to true.
 
@@ -871,17 +819,16 @@ class ClassMethodManager:
             recursive (bool) = False: whether to accept the deletion of a directory which has contents
         """
 
-        obj, _ = cls._splitAndLoadArtefactUnionForm(artefact)
+        obj, _ = self._splitAndLoadArtefactUnionForm(artefact)
         if isinstance(obj, Directory) and not recursive:
             raise exceptions.OperationNotPermitted(
                 "Cannot delete a container object that isn't empty - set recursive to True to proceed"
             )
 
         # Remove the artefact from the manager
-        cls._rm(obj)  # Remove the underlying data objects
+        self._rm(obj)  # Remove the underlying data objects
 
-    @classmethod
-    def sync(cls, source: typing.Union[Directory, str], destination: typing.Union[Directory, str], overwrite: bool = False, delete: bool = False) -> None:
+    def sync(self, source: typing.Union[Directory, str], destination: typing.Union[Directory, str], overwrite: bool = False, delete: bool = False) -> None:
         """ Put artefacts in the source location into the destination location if they have more recently been edited
 
         Args:
@@ -897,15 +844,15 @@ class ClassMethodManager:
 
         # Fetch the destination - sync target
         try:
-            destinationObj, destinationPath = cls._splitAndLoadArtefactUnionForm(destination)
+            destinationObj, destinationPath = self._splitAndLoadArtefactUnionForm(destination)
 
         except exceptions.ArtefactNotFound:
             # There is no destination to sync with, therefore we can put the entire source
             log.debug("Syncing: No destination therefore putting entire source")
-            return cls.put(source, destinationPath)
+            return self.put(source, destinationPath)
 
         # Fetch the source object and require that it be an Artefact so we can check object states
-        sourceObj, sourcePath = cls._splitAndLoadArtefactUnionForm(source)
+        sourceObj, sourcePath = self._splitAndLoadArtefactUnionForm(source)
 
         # Ensure that the two passed artefacts are directories
         if not (isinstance(sourceObj, Directory) and isinstance(destinationObj, Directory)):
@@ -930,7 +877,7 @@ class ClassMethodManager:
             if relpath not in destinationMapped:
                 # The file doesn't conflict so we will push to destination
                 log.debug(f'Syncing: Putting source object {sourceArtefact}')
-                cls.put(sourceArtefact, cls.join(destinationObj.path, relpath, separator='/'))
+                self.put(sourceArtefact, self.join(destinationObj.path, relpath, separator='/'))
 
             else:
                 # There is a conflict - lets compare local and destination
@@ -947,7 +894,7 @@ class ClassMethodManager:
                 elif sourceArtefact.modifiedTime > destinationArtefact.modifiedTime:
                     # File is more up to date than destination
                     log.debug(f'Syncing: Updating destination object {destinationArtefact} with {sourceArtefact}')
-                    cls.put(sourceArtefact, destinationArtefact, overwrite=overwrite)
+                    self.put(sourceArtefact, destinationArtefact, overwrite=overwrite)
 
         # Remove destination artefacts if delete is toggled
         if delete:
@@ -963,8 +910,7 @@ class ClassMethodManager:
                     log.debug(f"Syncing: Deleting unfound source object from destionation {artefact}")
                     artefact.manager._rm(artefact)
 
-    @classmethod
-    def iterls(cls, artefact: typing.Union[Directory, str, None] = None, recursive: bool = False) -> typing.Generator[Artefact, None, Artefact]:
+    def iterls(self, artefact: typing.Union[Directory, str, None] = None, recursive: bool = False) -> typing.Generator[Artefact, None, Artefact]:
         """ List contents of the directory path/artefact given.
 
         Args:
@@ -975,18 +921,17 @@ class ClassMethodManager:
             {Artefact}: The artefact objects which are within the directory
         """
         # Convert the incoming artefact reference - require that the object exist and that it is a directory
-        artobj, _ = cls._splitAndLoadArtefactUnionForm(artefact)
+        _, artobj, _ = self._splitManagerArtefactForm(artefact)
         if not isinstance(artobj, Directory):
             raise TypeError("Cannot perform ls action on File artefact: {}".format(artobj))
 
         # Yield the contents of the directory
         for subArtefact in artobj.manager._ls(artobj):
             if recursive and isinstance(subArtefact, Directory):
-                yield from cls.iterls(subArtefact, recursive=recursive)
+                yield from self.iterls(subArtefact, recursive=recursive)
             yield subArtefact
 
-    @classmethod
-    def ls(cls, art: typing.Union[Directory, str, None] = None, recursive: bool = False) -> typing.Set[Artefact]:
+    def ls(self, art: typing.Union[Directory, str, None] = None, recursive: bool = False) -> typing.Set[Artefact]:
         """ List contents of the directory path/artefact given.
 
         Args:
@@ -996,10 +941,9 @@ class ClassMethodManager:
         Returns:
             {Artefact}: The artefact objects which are within the directory
         """
-        return set(cls.iterls(art, recursive))
+        return set(self.iterls(art, recursive))
 
-    @classmethod
-    def mkdir(cls, path: str, ignoreExists: bool = True, overwrite: bool = False) -> Directory:
+    def mkdir(self, path: str, ignoreExists: bool = True, overwrite: bool = False) -> Directory:
         """ Make a directory at the location of the path provided. By default - do nothing in the event that the
         location is already a directory object.
 
@@ -1017,21 +961,20 @@ class ClassMethodManager:
         """
 
         try:
-            artefact, path = cls._splitAndLoadArtefactUnionForm(path)
+            _, artefact, path = self._splitManagerArtefactForm(path)
             if isinstance(artefact, File):
                 raise exceptions.OperationNotPermitted("Cannot make a directory as location {} is a file object".format(path))
 
             if ignoreExists and not overwrite:
                 return artefact
 
-        except:
+        except exceptions.ArtefactNotFound:
             pass
 
         with tempfile.TemporaryDirectory() as directory:
-            return cls.put(directory, artefact, overwrite=overwrite)
+            return self.put(directory, path, overwrite=overwrite)
 
-    @classmethod
-    def touch(cls, relpath: str) -> Artefact:
+    def touch(self, relpath: str) -> Artefact:
         """ Perform the linux touch command to create a empty file at the path provided, or for existing files, update
         their modified timestamps as if there where just created.
 
@@ -1039,20 +982,15 @@ class ClassMethodManager:
             relpath (str): Path to new file location
         """
 
-        manager, path = cls._getManager(relpath)
+        manager, artefact, path = self._splitManagerArtefactForm(relpath, require=False)
 
-        try:
-            artefact = manager[path]
-            cls.cp(artefact, artefact)
+        if artefact is not None:
+            return self.cp(artefact, artefact)
 
-        except exceptions.ArtefactNotFound:
-            pass
+        return self.put(b'', relpath)
 
-        return cls.put(b'', relpath)
-
-    @classmethod
     @contextlib.contextmanager
-    def open(cls, artefact: typing.Union[File, str], mode: str = "r", **kwargs) -> io.IOBase:
+    def open(self, artefact: typing.Union[File, str], mode: str = "r", **kwargs) -> io.IOBase:
         """ Open a file and create a stream to that file. Expose interface of `open`
 
         Args:
@@ -1064,9 +1002,9 @@ class ClassMethodManager:
             io.IOBase: An IO object depending on the mode for interacting with the file
         """
 
-        manager, _ = cls._getManager(artefact)
+        manager, _ = self._getManager(artefact)
 
-        if mode in cls._READONLYMODES:
+        if mode in self._READONLYMODES:
             if not manager.exists(artefact):
                 raise exceptions.ArtefactNotFound(f"Could not open {artefact} to read since it doesn't exist")
 
@@ -1074,12 +1012,11 @@ class ClassMethodManager:
             with open(abspath, mode, **kwargs) as handle:
                 yield handle
 
-    @classmethod
     @contextlib.contextmanager
-    def localise(cls, artefact: typing.Union[Artefact, str]) -> str:
+    def localise(self, artefact: typing.Union[Artefact, str]) -> str:
 
         # Get the manager instance to handle the localise method
-        manager, path = cls._getManager(artefact)
+        manager, path = self._getManager(artefact)
 
         # Call localise on the manager with the path
         with manager.localise(path) as handle:

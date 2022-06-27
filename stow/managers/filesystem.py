@@ -24,9 +24,7 @@ class FS(LocalManager):
 
             # Update the current working directory information
             cwd = path if os.path.isdir(path) else os.path.dirname(path)
-            def cwd():
-                return cwd
-            manager._cwd = classmethod(cwd)
+            manager._cwd = lambda: '/'
 
             # Update the absolute path method to become relative to the root
             def relativeAbspath(managerPath: str) -> str:
@@ -142,6 +140,8 @@ class FS(LocalManager):
         # Write the byte file
         with open(destinationAbspath, "wb") as handle:
             handle.write(fileBytes)
+
+        return PartialArtefact(self, destination)
 
     def _cp(self, source: Artefact, destination: str):
         return self._put(self._abspath(source.path), destination)
