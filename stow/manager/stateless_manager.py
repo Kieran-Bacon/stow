@@ -140,7 +140,7 @@ class StatelessManager(ManagerInterface):
         Returns:
             str: the basename
         """
-        _, path = self._splitArtefactUnionForm(artefact)
+        _, _, path = self._splitManagerArtefactForm(artefact)
         return os.path.basename(path)
 
     def name(self, artefact: typing.Union[Artefact, str]) -> str:
@@ -656,7 +656,7 @@ class StatelessManager(ManagerInterface):
         """
 
         # Split into object and path - Ensure that the artefact to get is from this manager
-        obj, _ = self._splitAndLoadArtefactUnionForm(source)
+        _, obj, _ = self._splitManagerArtefactForm(source)
 
         # Ensure the destination - Remove or raise issue for a local artefact at the location where the get is called
         if destination is not None:
@@ -921,12 +921,12 @@ class StatelessManager(ManagerInterface):
             {Artefact}: The artefact objects which are within the directory
         """
         # Convert the incoming artefact reference - require that the object exist and that it is a directory
-        _, artobj, _ = self._splitManagerArtefactForm(artefact)
+        _, artobj, artPath = self._splitManagerArtefactForm(artefact)
         if not isinstance(artobj, Directory):
             raise TypeError("Cannot perform ls action on File artefact: {}".format(artobj))
 
         # Yield the contents of the directory
-        for subArtefact in artobj.manager._ls(artobj):
+        for subArtefact in artobj.manager._ls(artPath):
             if recursive and isinstance(subArtefact, Directory):
                 yield from self.iterls(subArtefact, recursive=recursive)
             yield subArtefact

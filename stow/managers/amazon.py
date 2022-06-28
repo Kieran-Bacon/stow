@@ -42,42 +42,61 @@ class Amazon(RemoteManager):
     def __init__(
         self,
         bucket: str,
+        *,
+        aws_session: boto3.Session = None,
         aws_access_key_id: str = None,
         aws_secret_access_key: str = None,
+        aws_session_token: str = None,
         region_name: str = None,
         storage_class: str = 'STANDARD'
     ):
 
         self._bucketName = bucket
+
+        if aws_session is None:
+            self._aws_session = boto3.Session(
+                aws_access_key_id=aws_access_key_id,
+                aws_secret_access_key=aws_secret_access_key,
+                aws_session_token=aws_session_token,
+                region_name=region_name,
+            )
+
+        else:
+            self._aws_session = aws_session
+
+        self._s3 = self._aws_session.client('s3')
+
         self._aws_access_key_id = aws_access_key_id
         self._aws_secret_access_key = aws_secret_access_key
+        self._aws_session_token = aws_session_token
         self._region_name = region_name
         self._storageClass = self.StorageClass(storage_class)
-
-        self._s3Client = boto3.client(
-            "s3",
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-            region_name=region_name
-        )
-        self._s3Resource = boto3.resource(
-            's3',
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-            region_name=region_name
-        )
-
-        # Create a paginator object for iterating through remote objects
-        self._clientPaginator = self._s3Client.get_paginator('list_objects')
-
-        # Create a reference to the AWS bucket - create a Directory to represent it
-        self._bucket = self._s3Resource.Bucket(name=bucket) # pylint: disable=no-member
 
         super().__init__()
 
     def __repr__(self): return '<Manager(S3): {}>'.format(self._bucketName)
 
     def _abspath(self, managerPath: str) -> str:
+
+        params = {}
+        if self._aws_access_key_id:
+            params = {
+                "aws_access_key_id": self._aws_access_key_id,
+                "aws_secret_access_key": self._aws_secret_access_key,
+                "aws_session_token": self._aws_session_token,
+                "region_name": self._region_name,
+            }
+
+        return urllib.parse.ParseResult(
+                's3',
+                self._bucketName,
+                managerPath,
+                params,
+                '',
+                ''
+            ).geturl()
+
+    def _managerPath(self, managerPath: str) -> str:
         """ Difference between AWS and manager path is the removal of a leading '/'. As such remove the first character
         """
         abspath = managerPath.strip("/")
@@ -86,69 +105,53 @@ class Amazon(RemoteManager):
 
     def _identifyPath(self, managerPath: str) -> typing.Union[Artefact, None]:
 
-        # Extract the key path
-        key = self._abspath(managerPath)
+        key = self._managerPath(managerPath)
 
-        # Create a pagination that looks specifically at the manager path given
-        pages = self._clientPaginator.paginate(
-            Bucket=self._bucketName,
-            Prefix=key,
-            Delimiter="/"
-        )
-
-        # Iterate over the pages -
-        for page in pages:
-            if page is None:
-                break
-
-            # Check To see if there are any files with the given name
-            if "Contents" in page:
-                # There are files that lead with the manager path given
-                for file in page["Contents"]:
-                    if file["Key"] == key:
-                        # We've found the file artefact that directly matches - create a file and return
-                        return File(
-                            self,
-                            managerPath,
-                            modifiedTime=file["LastModified"],
-                            size=file["Size"]
-                        )
-
-            if "CommonPrefixes" in page:
-
-                # Directories end in "/"
-                key += "/"
-
-                for directory in page["CommonPrefixes"]:
-                    if directory["Prefix"] == key:
-                        # The path is to the directory
-                        return Directory(self, managerPath)
-
-        return None
-
-    def _loadArtefact(self, managerPath: str) -> Artefact:
-
-        if managerPath in self._paths:
-            # We may have already pulled the manager
-            return super()._loadArtefact(managerPath)
-
-        # Ensure the owning directory and fetch the directory object
         try:
-            directory = self._ensureDirectory(self.dirname(managerPath))
+            response = self._s3.head_object(
+                Bucket=self._bucketName,
+                Key=key
+            )
 
-        except (exceptions.ArtefactNotFound, exceptions.ArtefactTypeError) as e:
-            raise exceptions.ArtefactNotFound("Cannot locate artefact {}".format(managerPath)) from e
+            return File(
+                self,
+                key,
+                modifiedTime=response['LastModified'],
+                size=response['ContentLength'],
+                metadata=response['Metadata'],
+                content_type=response['ContentType']
+            )
 
-        # Add all artefacts of the directory into the manager - adding the target artefact at the same time
-        self._ls(directory.path)
-        directory._collected = True
+        except:
+            key += '/'
+            resp = self._s3.list_objects(Bucket=self._bucketName, Prefix=key, Delimiter='/',MaxKeys=1)
+            if "Contents" in resp:
+                return Directory(self, key)
 
-        # Check now that the directory has been downloaded and added that the original target exists
-        if managerPath in self._paths:
-            return self._paths[managerPath]
+            return None
 
-        else:
-            raise exceptions.ArtefactNotFound("Cannot locate artefact {}".format(managerPath))
+    def _exists(self, abspath: str):
+        return self._identifyPath(abspath) is not None
+
+    def _metadata(self, managerPath: str) -> typing.Dict[str, str]:
+        key = self._managerPath(managerPath)
+
+        try:
+            response = self._s3.head_object(
+                Bucket=self._bucketName,
+                Key=key
+            )
+
+            return response.get('Metadata', {})
+
+        except:
+            raise exceptions.ArtefactNotAvailable(f'Failed to fetch metadata information for {key}')
+
+    def _isLink(self, abspath: str):
+        return False
+
+    def _isMount(self, abspath: str):
+        return False
 
     def _get(self, source: Artefact, destination: str):
 
@@ -182,7 +185,7 @@ class Amazon(RemoteManager):
         bytes_buffer = io.BytesIO()
 
         # Fetch the file bytes and write them to the buffer
-        self._s3Client.download_fileobj(Bucket=self._bucketName, Key=self._abspath(source.path), Fileobj=bytes_buffer)
+        self._s3.download_fileobj(Bucket=self._bucketName, Key=self._managerPath(source.path), Fileobj=bytes_buffer)
 
         # Return the bytes stored in the buffer
         return bytes_buffer.getvalue()
@@ -274,6 +277,38 @@ class Amazon(RemoteManager):
             self._bucket.Object(sourcePath).delete()
 
     def _ls(self, directory: str):
+
+        key = self._managerPath(directory) + '/'
+
+        marker = ""
+        while True:
+
+            response = self._s3.list_objects(
+                Bucket=self._bucketName,
+                Prefix=key,
+                Delimiter='/',
+                MaxKeys=100,
+                Marker=marker
+            )
+
+            for fileMetadata in response.get('Contents', []):
+                if fileMetadata['Key'] == '':
+                    continue
+
+                yield File(
+                    self,
+                    fileMetadata['Key'],
+                    modifiedTime=fileMetadata['LastModified'],
+                    size=fileMetadata['Size']
+                )
+
+            for prefix in response.get('CommonPrefixes', []):
+                yield Directory(self, prefix['Prefix'])
+
+            if not response['IsTruncated']:
+                return
+
+            marker = response['NextMarker']
 
         if directory != "/":
             key = self._abspath(directory) + "/"

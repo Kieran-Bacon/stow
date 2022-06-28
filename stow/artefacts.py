@@ -30,16 +30,6 @@ class Artefact:
 
         self._manager = manager  # Link back to the owning manager
         self._path = path  # Relative path on manager
-        self._exists = True # As you are created you are assumed to exist
-
-    def __getattribute__(self, attr: str):
-
-        if attr.startswith("_") or object.__getattribute__(self, '_exists'):
-            return object.__getattribute__(self, attr)
-        else:
-            raise exceptions.ArtefactNoLongerExists(
-                "Artefact {} {} no longer exists".format(type(self), object.__getattribute__(self, "_path"))
-            )
 
     def __reduce__(self):
         return (ArtefactReloader, (self._manager.toConfig(), self._path))
@@ -61,7 +51,7 @@ class Artefact:
     @property
     def abspath(self) -> str:
         """ Get the absolute path to the object for the manager """
-        self._manager._abspath(self._path)
+        return self._manager._abspath(self._path)
 
     @property
     def manager(self):
@@ -103,7 +93,7 @@ class Artefact:
     @property
     def basename(self):
         """ Basename of the artefact - holding directory path removed leaving filename and extension """
-        return self._manager.basename(self.path)
+        return self._manager.basename(self)
     @basename.setter
     def basename(self, basename: str):
         self.manager.mv(self, self._manager.join(self._manager.dirname(self.path), basename, separator='/'))
