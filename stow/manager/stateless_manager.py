@@ -408,8 +408,7 @@ class StatelessManager(ManagerInterface):
         Returns:
             bool: True if artefact exists else False
         """
-        manager, path = self._getManater(artefact)
-
+        manager, _,path = self._splitManagerArtefactForm(artefact, load=False)
         return manager._exists(path)
 
     def lexists(self, artefact: typing.Union[Artefact, str]) -> str:
@@ -1002,13 +1001,9 @@ class StatelessManager(ManagerInterface):
             io.IOBase: An IO object depending on the mode for interacting with the file
         """
 
-        manager, _ = self._getManager(artefact)
+        manager, obj, path = self._splitManagerArtefactForm(artefact, load=mode in self._READONLYMODES)
 
-        if mode in self._READONLYMODES:
-            if not manager.exists(artefact):
-                raise exceptions.ArtefactNotFound(f"Could not open {artefact} to read since it doesn't exist")
-
-        with manager.localise(artefact) as abspath:
+        with manager.localise(path) as abspath:
             with open(abspath, mode, **kwargs) as handle:
                 yield handle
 

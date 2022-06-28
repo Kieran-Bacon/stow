@@ -103,16 +103,16 @@ class ManagerTests:
 
         # Esure that non existent files doesn't exist
         self.assertFalse('/file-non-existent.txt' in self.manager)
-        self.assertFalse(stow.File(None, '/file-non-existent.txt', 10, datetime.datetime.utcnow()) in self.manager)
+        self.assertFalse(stow.File(self.manager, '/file-non-existent.txt', 10, datetime.datetime.utcnow()) in self.manager)
 
     def test_touchByName(self):
 
         file = self.manager.touch("/file.txt")
 
-        self.assertIs(file, self.manager["file.txt"])
+        self.assertEqual(file, self.manager["file.txt"])
 
         file2 = self.manager.touch("file2.txt")
-        self.assertIs(file2, self.manager["file2.txt"])
+        self.assertEqual(file2, self.manager["file2.txt"])
 
     def test_getEnsuresDirectories(self):
 

@@ -16,7 +16,7 @@ class LocalManager(Manager, abc.ABC, LocalInterface):
     @contextlib.contextmanager
     def localise(self, artefact: typing.Union[Artefact, str]):
 
-        _, _, path = self._splitManagerArtefactForm(artefact)
+        _, _, path = self._splitManagerArtefactForm(artefact, load=False)
 
         abspath = self._abspath(path)
         os.makedirs(os.path.dirname(abspath), exist_ok=True)

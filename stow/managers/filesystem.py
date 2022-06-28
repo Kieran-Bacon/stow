@@ -186,4 +186,4 @@ class FS(LocalManager):
         return {}, os.path.abspath(os.path.expanduser(url.path))
 
     def toConfig(self):
-        return {'manager': 'FS'}
+        return {'manager': 'FS', 'path': self._root}
