@@ -215,7 +215,7 @@ class StatelessManager(ManagerInterface):
         Returns:
             str: The directory path for the holding directory of the artefact
         """
-        obj, path = self._splitArtefactUnionForm(artefact)
+        _, obj, path = self._splitManagerArtefactForm(artefact, load=False)
 
         if obj is not None or path.find(":") == -1:
             # Obj path or path within no protocol and therefore no need to parse
@@ -1016,7 +1016,7 @@ class StatelessManager(ManagerInterface):
     def localise(self, artefact: typing.Union[Artefact, str]) -> str:
 
         # Get the manager instance to handle the localise method
-        manager, path = self._getManager(artefact)
+        manager, obj, path = self._splitManagerArtefactForm(artefact, load=False)
 
         # Call localise on the manager with the path
         with manager.localise(path) as handle:

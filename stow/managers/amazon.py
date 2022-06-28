@@ -156,28 +156,42 @@ class Amazon(RemoteManager):
     def _get(self, source: Artefact, destination: str):
 
         # Convert manager path to s3
-        keyName = self._abspath(source.path)
+        keyName = self._managerPath(source.path)
 
         # If the source object is a directory
         if isinstance(source, Directory):
 
-            # Loop through all objects in the bucket and create them locally
-            for object in self._bucket.objects.filter(Prefix=keyName):
+            # Loop through all objects under that prefix and create them locally
+            for artefact in self._ls(keyName):
 
                 # Get the objects relative path to the directory
-                relativePath = self.relpath(object.key, keyName)
+                relativePath = self.relpath(artefact.path, keyName)
 
-                # Create object absolute path
+                # Create object absolute path locally
                 path = os.path.join(destination, relativePath)
 
                 # Ensure the directory for that object
                 os.makedirs(os.path.dirname(path), exist_ok=True)
 
-                # Download the file to that location
-                self._bucket.download_file(object.key, path)
+                # Download the artefact to that location
+                if isinstance(artefact, File):
+                    self._s3.download_file(
+                        self._bucketName,
+                        artefact.path,
+                        path
+                    )
+
+                else:
+                    # Recursively get the child directory
+                    self._get(artefact, path)
 
         else:
-            self._bucket.download_file(keyName, destination)
+            self._s3.download_file(
+                self._bucketName,
+                keyName,
+                destination
+            )
+            # self._bucket.download_file(keyName, destination)
 
     def _getBytes(self, source: Artefact) -> bytes:
 

@@ -92,13 +92,10 @@ class RemoteManager(Manager, RemoteInterface):
     def localise(self, artefact):
 
         # Load the artefacts from the remote
-        try:
-            obj, path = self._splitAndLoadArtefactUnionForm(artefact)
-
-        except:
-            obj, path = None, artefact
+        _, obj, path = self._splitManagerArtefactForm(artefact, require=False)
 
         # Setup a location locally to be able to work with the files
+        exception = None
         with tempfile.TemporaryDirectory() as directory:
 
             # Generate a temporay path for the file to be downloaded into
@@ -147,5 +144,5 @@ class RemoteManager(Manager, RemoteInterface):
                 # New item - put the artefact into the manager
                 self.put(local_path, path)
 
-        if exception:
+        if exception is not None:
             raise exception
