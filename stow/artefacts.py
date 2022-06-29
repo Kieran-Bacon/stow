@@ -35,7 +35,11 @@ class Artefact:
         return (ArtefactReloader, (self._manager.toConfig(), self._path))
 
     def __hash__(self): return hash(id(self))
-    def __eq__(self, other): return hash(self) == hash(other)
+    def __eq__(self, other: "Artefact"):
+        return (
+            self.manager is other.manager and
+            self.path == other.path
+        )
 
     def __fspath__(self):
         if isinstance(self._manager, LocalInterface):
@@ -89,6 +93,7 @@ class Artefact:
     def path(self, path: str):
         """ Move the file on the target (perform the rename) - if it fails do not change the local file name """
         self._manager.mv(self, path)
+        self._path = path
 
     @property
     def basename(self):
@@ -96,7 +101,9 @@ class Artefact:
         return self._manager.basename(self)
     @basename.setter
     def basename(self, basename: str):
-        self.manager.mv(self, self._manager.join(self._manager.dirname(self.path), basename, separator='/'))
+        path = self._manager.join(self._manager.dirname(self._path), self._manager.basename(basename))
+        self.manager.mv(self, path)
+        self._path = path
 
     @property
     def name(self):
@@ -373,44 +380,25 @@ class Directory(Artefact):
             # Directory cannot contain an artefact that doesn't exist
             return False
 
-    def _add(self, artefact: Artefact) -> None:
-        assert isinstance(artefact, (File, Directory)) and not isinstance(artefact, (SubDirectory))
-        self._contents.add(artefact)
-    def _remove(self, artefact: Artefact) -> None: self._contents.remove(artefact)
-
     @property
     def createdTime(self):
         """ UTC localised datetime of time file last modified by a write/append method """
-        if self._createdTime is None:
-            if self._contents:
-                return min(x.createdTime for x in self._contents)
-            return None
         return self._createdTime
 
     @property
     def modifiedTime(self):
         """ UTC localised datetime of time file last modified by a write/append method """
-        if self._modifiedTime is None:
-            if self._contents:
-                return max(x.modifiedTime for x in self._contents)
-            return None
         return self._modifiedTime
 
     @property
     def accessedTime(self):
         """ UTC localised datetime of time file last modified by a write/append method """
-        if self._accessedTime is None:
-            if self._contents:
-                return max(x.accessedTime for x in self._contents)
-            return None
         return self._accessedTime
 
     def isMount(self):
-        if self._isMount is not None:
-            return self._isMount
-
-        else:
-            return self._manager._isMount(self)
+        if self._isMount is None:
+            self._isMount = self._manager._isMount(self)
+        return self._isMount
 
     def mkdir(self, path: str):
         """ Create a directory nested inside this `Directory` with the relative path given

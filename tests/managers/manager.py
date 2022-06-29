@@ -106,13 +106,8 @@ class ManagerTests:
         self.assertFalse(stow.File(self.manager, '/file-non-existent.txt', 10, datetime.datetime.utcnow()) in self.manager)
 
     def test_touchByName(self):
-
         file = self.manager.touch("/file.txt")
-
         self.assertEqual(file, self.manager["file.txt"])
-
-        file2 = self.manager.touch("file2.txt")
-        self.assertEqual(file2, self.manager["file2.txt"])
 
     def test_getEnsuresDirectories(self):
 
@@ -121,6 +116,8 @@ class ManagerTests:
             file = self.manager.touch("/file1.txt")
             contentbytes = b"here is some content"
             file.content = contentbytes
+
+            self.assertEqual(file.content, contentbytes)
 
             # Get the file
             filepath = os.path.join(directory, "some_dir", "another dir", "file.1.txt")

@@ -129,6 +129,8 @@ class FS(LocalManager):
         # Perform the putting
         method(source, destinationAbspath)
 
+        return PartialArtefact(self, destination)
+
     def _putBytes(self, fileBytes: bytes, destination: str):
 
         # Convert destination path

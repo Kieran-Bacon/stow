@@ -35,20 +35,6 @@ class BasicSetup:
 
 class Test_Artefacts(BasicSetup, unittest.TestCase):
 
-    def test_existence(self):
-
-        # Test that when a file is deleted that the object no longer works
-        file = self.manager["/file1"]
-
-        # Assert that we can get the length of the file
-        self.assertTrue(len(file))
-
-        # Detele the file from the manager
-        self.manager.rm("/file1")
-
-        with pytest.raises(stow.exceptions.ArtefactNoLongerExists):
-            self.assertTrue(len(file))
-
     def test_path(self):
 
         file = self.manager['/file1']
@@ -88,15 +74,9 @@ class Test_Artefacts(BasicSetup, unittest.TestCase):
             {"/directory1", "/file1.txt"}
         )
 
-        file.basename = '/another_directory/file1.txt'
-
-        self.assertEqual(
-            {art.path for art in self.manager.ls(recursive=True)},
-            {"/directory1", "/another_directory/file1.txt", '/another_directory'}
-        )
 
         # Directory changes
-
+        self.manager.touch("/another_directory/file1.txt")
         directory = self.manager["/another_directory"]
 
         self.assertEqual(directory.basename, "another_directory")
@@ -105,14 +85,7 @@ class Test_Artefacts(BasicSetup, unittest.TestCase):
 
         self.assertEqual(
             {art.path for art in self.manager.ls(recursive=True)},
-            {"/directory1", "/something_else/file1.txt", '/something_else'}
-        )
-
-        directory.basename = "something_else_again/with_level"
-
-        self.assertEqual(
-            {art.path for art in self.manager.ls(recursive=True)},
-            {"/directory1", "/something_else_again/with_level/file1.txt", '/something_else_again', "/something_else_again/with_level"}
+            {"/directory1", "/something_else/file1.txt", '/something_else', '/file1.txt'}
         )
 
     def test_name(self):
@@ -144,7 +117,7 @@ class Test_Artefacts(BasicSetup, unittest.TestCase):
 
         self.assertEqual(
             {art.path for art in self.manager.ls(recursive=True)},
-            {"/directory1", "/file1-changed.txt", '/something_else_again', "/something_else_again/with_level"}
+            {"/directory1", "/file1-changed.txt", '/with_level'}
         )
 
     def test_manager(self):
@@ -424,7 +397,7 @@ class Test_Directories(unittest.TestCase):
 
 
         file1 = stow.File(self.manager, "/example", 0, modifiedTime=modified, createdTime=modified, accessedTime=accessed)
-        file2 = stow.File(self.manager, "/example", 0,modifiedTime=modified, createdTime=created, accessedTime=modified)
+        file2 = stow.File(self.manager, "/example", 0, modifiedTime=modified, createdTime=created, accessedTime=modified)
 
         timelessDirectory._add(file1)
         timelessDirectory._add(file2)

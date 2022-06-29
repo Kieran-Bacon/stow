@@ -140,7 +140,7 @@ class StatelessManager(ManagerInterface):
         Returns:
             str: the basename
         """
-        _, _, path = self._splitManagerArtefactForm(artefact)
+        _, _, path = self._splitManagerArtefactForm(artefact, load=False)
         return os.path.basename(path)
 
     def name(self, artefact: typing.Union[Artefact, str]) -> str:
@@ -293,7 +293,7 @@ class StatelessManager(ManagerInterface):
         """
 
         try:
-            obj, _ = self._splitAndLoadArtefactUnionForm(artefact)
+            _, obj, _ = self._splitManagerArtefactForm(artefact)
             return isinstance(obj, File)
 
         except exceptions.ArtefactNotFound:
@@ -310,7 +310,7 @@ class StatelessManager(ManagerInterface):
         """
 
         try:
-            obj, _ = self._splitAndLoadArtefactUnionForm(artefact)
+            _, obj, _ = self._splitManagerArtefactForm(artefact)
             return isinstance(obj, Directory)
 
         except:
@@ -329,7 +329,7 @@ class StatelessManager(ManagerInterface):
         """
 
         try:
-            obj, _ = self._splitAndLoadArtefactUnionForm(artefact)
+            _, obj, _ = self._splitManagerArtefactForm(artefact)
             return isinstance(obj, File) and obj.isLink()
 
         except:
@@ -347,7 +347,7 @@ class StatelessManager(ManagerInterface):
             Bool: True or False in answer to the question
         """
         try:
-            obj, _ = self._splitAndLoadArtefactUnionForm(artefact)
+            _, obj, _ = self._splitManagerArtefactForm(artefact)
             return isinstance(obj, Directory) and obj.isMount()
 
         except:
@@ -366,7 +366,7 @@ class StatelessManager(ManagerInterface):
             ArtefactNotFound: If there is no artefact at the location
         """
 
-        return self._splitAndLoadArtefactUnionForm(artefact)[0].createdTime.timestamp()
+        return self._splitManagerArtefactForm(artefact)[1].createdTime.timestamp()
 
     def getmtime(self, artefact: typing.Union[Artefact, str]) -> typing.Union[float, None]:
         """ Get the modified time for the artefact as a UTC timestamp
@@ -380,7 +380,7 @@ class StatelessManager(ManagerInterface):
         Raises:
             ArtefactNotFound: If there is no artefact at the location
         """
-        return self._splitAndLoadArtefactUnionForm(artefact)[0].modifiedTime.timestamp()
+        return self._splitManagerArtefactForm(artefact)[1].modifiedTime.timestamp()
 
     def getatime(self, artefact: typing.Union[Artefact, str]) -> typing.Union[float, None]:
         """ Get the accessed time for the artefact as a UTC timestamp
@@ -394,7 +394,7 @@ class StatelessManager(ManagerInterface):
         Raises:
             ArtefactNotFound: If there is no artefact at the location
         """
-        return self._splitAndLoadArtefactUnionForm(artefact)[0].accessedTime.timestamp()
+        return self._splitManagerArtefactForm(artefact)[1].accessedTime.timestamp()
 
     def exists(self, artefact: typing.Union[Artefact, str]) -> bool:
         """ Return true if the given artefact is a member of the manager, or the path is correct for the manager and it
@@ -745,7 +745,7 @@ class StatelessManager(ManagerInterface):
         """
 
         # Load the source object that is to be copied
-        sourceObj, _ = self._splitAndLoadArtefactUnionForm(source)
+        _, sourceObj, _ = self._splitManagerArtefactForm(source)
 
         # Check the destination
         if isinstance(destination, Artefact):
@@ -790,15 +790,15 @@ class StatelessManager(ManagerInterface):
         """
 
         # Load the source object that is to be copied
-        sourceObj, sourcePath = self._splitAndLoadArtefactUnionForm(source)
-        destinationManager, destinationObj, destinationPath = self._splitAllComponents(destination)
+        _, sourceObj, sourcePath = self._splitManagerArtefactForm(source)
+        destinationManager, destinationObj, destinationPath = self._splitManagerArtefactForm(destination, require=False)
 
         # Prevent the overwriting of a directory without permission
         if destinationObj is not None and isinstance(destination, Directory) and not overwrite:
             raise exceptions.OperationNotPermitted("Cannot replace directory without passing overwrite True")
 
         # Check if the source and destination are from the same manager class
-        if type(sourceObj._manager) == type(destinationManager):
+        if type(sourceObj._manager) == type(destinationManager) and not sourceObj._manager.ISOLATED:
             return sourceObj._manager._mv(
                 sourceObj._manager._abspath(sourcePath),
                 destinationManager._abspath(destinationPath)
@@ -818,7 +818,7 @@ class StatelessManager(ManagerInterface):
             recursive (bool) = False: whether to accept the deletion of a directory which has contents
         """
 
-        obj, _ = self._splitAndLoadArtefactUnionForm(artefact)
+        _, obj, _ = self._splitManagerArtefactForm(artefact)
         if isinstance(obj, Directory) and not recursive:
             raise exceptions.OperationNotPermitted(
                 "Cannot delete a container object that isn't empty - set recursive to True to proceed"
@@ -843,7 +843,7 @@ class StatelessManager(ManagerInterface):
 
         # Fetch the destination - sync target
         try:
-            destinationObj, destinationPath = self._splitAndLoadArtefactUnionForm(destination)
+            destinationManager, destinationObj, destinationPath = self._splitExternalArtefactForm(destination)
 
         except exceptions.ArtefactNotFound:
             # There is no destination to sync with, therefore we can put the entire source
@@ -851,7 +851,7 @@ class StatelessManager(ManagerInterface):
             return self.put(source, destinationPath)
 
         # Fetch the source object and require that it be an Artefact so we can check object states
-        sourceObj, sourcePath = self._splitAndLoadArtefactUnionForm(source)
+        _, sourceObj, sourcePath = self._splitManagerArtefactForm(source)
 
         # Ensure that the two passed artefacts are directories
         if not (isinstance(sourceObj, Directory) and isinstance(destinationObj, Directory)):
