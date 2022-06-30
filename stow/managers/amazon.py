@@ -366,14 +366,36 @@ class Amazon(RemoteManager):
 
     def _rm(self, artefact: Artefact):
 
-        key = self._abspath(artefact.path)
+        key = self._managerPath(artefact.path)
 
         if isinstance(artefact, Directory):
-            for obj in self._bucket.objects.filter(Prefix=key):
-                obj.delete()
+            keys = []
+
+            marker = ""
+            while True:
+                response = self._s3.list_objects(
+                    Bucket=self._bucketName,
+                    Prefix=key + '/',
+                    Marker=marker
+                )
+
+                for fileMetadata in response.get('Contents', []):
+                    keys.append({"Key": fileMetadata['Key']})
+
+                if not response['Truncate']:
+                    break
+                marker = response['NextMarker']
 
         else:
-            self._bucket.Object(key).delete()
+            keys = [{"Key": key}]
+
+        self._s3.delete_objects(
+            Bucket=self._bucketName,
+            Delete={
+                "Objects": keys,
+                "Quite": True
+            }
+        )
 
     @classmethod
     def _signatureFromURL(cls, url: urllib.parse.ParseResult):

@@ -54,6 +54,7 @@ mkdir = Manager.mkdir
 localise = Manager.localise
 open = Manager.open
 ls = Manager.ls
+iterls = Manager.iterls
 get = Manager.get
 put = Manager.put
 cp = Manager.cp

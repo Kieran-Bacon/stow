@@ -818,14 +818,14 @@ class StatelessManager(ManagerInterface):
             recursive (bool) = False: whether to accept the deletion of a directory which has contents
         """
 
-        _, obj, _ = self._splitManagerArtefactForm(artefact)
+        manager, obj, _ = self._splitManagerArtefactForm(artefact)
         if isinstance(obj, Directory) and not recursive:
             raise exceptions.OperationNotPermitted(
                 "Cannot delete a container object that isn't empty - set recursive to True to proceed"
             )
 
         # Remove the artefact from the manager
-        self._rm(obj)  # Remove the underlying data objects
+        manager._rm(obj)  # Remove the underlying data objects
 
     def sync(self, source: typing.Union[Directory, str], destination: typing.Union[Directory, str], overwrite: bool = False, delete: bool = False) -> None:
         """ Put artefacts in the source location into the destination location if they have more recently been edited
