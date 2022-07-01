@@ -104,7 +104,7 @@ def connect(manager: str, *, submanager: str = None, **kwargs):
 # Parsed URL tuple definition
 ParsedURL = collections.namedtuple("ParsedURL", ["manager", "relpath"])
 
-def parseURL(stowURL: str) -> ParsedURL:
+def parseURL(stowURL: str, default_manager = None) -> ParsedURL:
     """ Parse the passed stow URL and return a ParsedURL a named tuple of manager and relpath
 
     Example:
@@ -128,6 +128,9 @@ def parseURL(stowURL: str) -> ParsedURL:
     if parsedURL.scheme and parsedURL.netloc:
         manager = find(parsedURL.scheme)
         scheme = parsedURL.scheme
+
+    elif default_manager is not None:
+        return ParsedURL(default_manager, stowURL)
 
     else:
         manager = find("FS")

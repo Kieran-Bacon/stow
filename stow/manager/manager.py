@@ -56,6 +56,53 @@ class Manager(AbstractManager, StatelessManager, ManagerInterface, ManagerSerali
             raise exceptions.ArtefactNotFound(f"No artefact exists at: {path}")
         return artefact
 
+    def _splitExternalArtefactForm(
+        self,
+        artefact: typing.Tuple[Artefact, str, None],
+        load: bool = True,
+        require: bool = True
+        ) -> typing.Tuple['ManagerInterface', Artefact, str]:
+        """ Convert the incoming object which could be either an artefact or relative path into a standardised form for
+        both such that functions can be easily convert and use what they require
+
+        Args:
+            artObj (typing.Union[Artefact, str]): Either the artefact object or it's relative path to be standardised
+            require (str): Require that the object exists. when false return None for yet to be created objects but
+
+        Returns:
+            Artefact or None: the artefact object or None if it doesn't exists and require is False
+            str: The relative path of the object/the passed value
+        """
+
+        if isinstance(artefact, Artefact):
+            return artefact._manager, artefact, artefact.path
+
+        else:
+            obj = None
+
+            if artefact is None:
+                manager, path = utils.connect("FS"), self._cwd()
+
+            elif isinstance(artefact, str):
+                manager, path = utils.parseURL(artefact, default_manager=self)
+
+            else:
+                raise TypeError(
+                    "Artefact reference must be either `stow.Artefact` or string not type {}".format(type(artefact))
+                )
+
+
+            if load:
+
+                try:
+                    obj = manager[path]
+
+                except exceptions.ArtefactNotFound:
+                    if require:
+                        raise
+
+            return manager, obj, path
+
     def _splitManagerArtefactForm(
         self,
         artefact: typing.Tuple[Artefact, str, None],

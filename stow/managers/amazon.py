@@ -8,6 +8,7 @@ import typing
 import urllib.parse
 import enum
 import mimetypes
+from tqdm import tqdm
 
 from ..artefacts import Artefact, File, Directory
 from ..manager import RemoteManager
@@ -123,9 +124,8 @@ class Amazon(RemoteManager):
             )
 
         except:
-            key += '/'
-            resp = self._s3.list_objects(Bucket=self._bucketName, Prefix=key, Delimiter='/',MaxKeys=1)
-            if "Contents" in resp:
+            resp = self._s3.list_objects(Bucket=self._bucketName, Prefix=key+'/', Delimiter='/',MaxKeys=1)
+            if "Contents" in resp or "CommonPrefixes" in resp:
                 return Directory(self, key)
 
             return None
@@ -152,6 +152,24 @@ class Amazon(RemoteManager):
 
     def _isMount(self, abspath: str):
         return False
+
+    def _list_objects(self, bucket: str, key: str, delimiter: str = ""):
+        marker = ""
+        while True:
+            response = self._s3.list_objects(
+                Bucket=bucket,
+                Prefix=key + '/',
+                Marker=marker,
+                Delimiter=delimiter
+            )
+
+            for fileMetadata in response.get('Contents', []):
+                yield fileMetadata
+
+            if not response['IsTruncated']:
+                break
+
+            marker = response['NextMarker']
 
     def _get(self, source: Artefact, destination: str):
 
@@ -261,34 +279,78 @@ class Amazon(RemoteManager):
     def _cp(self, source: Artefact, destination: str):
 
         # Convert the paths to s3 paths
-        sourcePath, destinationPath = self._abspath(source.path), self._abspath(destination)
+        sourceBucket, sourcePath = source.manager.root, self._managerPath(source.path)
+        destinationPath = self._managerPath(destination)
 
-        # Detemine how to handle the source
         if isinstance(source, Directory):
-            # Source is director - loop through and copy each file object
-            for obj in self._bucket.objects.filter(Prefix=sourcePath):
-                self._cpFile(obj.key, self.join(destinationPath, self.relpath(obj.key, sourcePath), separator='/'))
+            for fileMetadata in tqdm(self._list_objects(sourceBucket, sourcePath), desc=f"Copying {sourcePath} -> {destinationPath}"):
+
+                # Copy the object from the source object to the relative location in the destination location
+                self._s3.copy_object(
+                    CopySource={
+                        "Bucket": sourceBucket,
+                        "Key": fileMetadata['Key']
+                    },
+                    Bucket=self._bucketName,
+                    # The Relative path to the source joined onto the destination path
+                    Key=self.join(destinationPath, self.relpath(fileMetadata['Key'], sourcePath), separator='/')
+                )
 
         else:
-            # Source is a file - copy directly to location
-            self._cpFile(sourcePath, destinationPath)
+            # Copy the object from the source object to the relative location in the destination location
+            self._s3.copy_object(
+                CopySource={
+                    "Bucket": sourceBucket,
+                    "Key": sourcePath
+                },
+                Bucket=self._bucketName,
+                # The Relative path to the source joined onto the destination path
+                Key=destinationPath
+            )
 
     def _mv(self, source: Artefact, destination: str):
 
         # Convert the paths to s3 paths
-        sourcePath, destinationPath = self._abspath(source.path), self._abspath(destination)
+        sourceBucket, sourcePath = source.manager.root, self._managerPath(source.path)
+        destinationPath = self._managerPath(destination)
 
-        # Detemine how to handle the source
         if isinstance(source, Directory):
-            # Source is director - loop through and copy each file object
-            for obj in self._bucket.objects.filter(Prefix=sourcePath):
-                self._cpFile(obj.key, self.join(destinationPath, self.relpath(obj.key, sourcePath), separator='/'))
-                obj.delete()
+            for fileMetadata in tqdm(self._list_objects(sourceBucket, sourcePath), desc=f"Moving {sourcePath} -> {destinationPath}"):
+
+                # Copy the object from the source object to the relative location in the destination location
+                self._s3.copy_object(
+                    CopySource={
+                        "Bucket": sourceBucket,
+                        "Key": fileMetadata['Key']
+                    },
+                    Bucket=self._bucketName,
+                    # The Relative path to the source joined onto the destination path
+                    Key=self.join(destinationPath, self.relpath(fileMetadata['Key'], sourcePath), separator='/')
+                )
+
+                # Delete the original object
+                self._s3.delete_object(
+                    Bucket=sourceBucket,
+                    Key=fileMetadata['Key']
+                )
 
         else:
-            # Source is a file - copy directly to location
-            self._cpFile(sourcePath, destinationPath)
-            self._bucket.Object(sourcePath).delete()
+            # Copy the object from the source object to the relative location in the destination location
+            self._s3.copy_object(
+                CopySource={
+                    "Bucket": sourceBucket,
+                    "Key": sourcePath
+                },
+                Bucket=self._bucketName,
+                # The Relative path to the source joined onto the destination path
+                Key=destinationPath
+            )
+
+            # Delete the original object
+            self._s3.delete_object(
+                Bucket=sourceBucket,
+                Key=sourcePath
+            )
 
     def _ls(self, directory: str):
 
@@ -382,7 +444,7 @@ class Amazon(RemoteManager):
                 for fileMetadata in response.get('Contents', []):
                     keys.append({"Key": fileMetadata['Key']})
 
-                if not response['Truncate']:
+                if not response.get('IsTruncated', False):
                     break
                 marker = response['NextMarker']
 
@@ -393,7 +455,7 @@ class Amazon(RemoteManager):
             Bucket=self._bucketName,
             Delete={
                 "Objects": keys,
-                "Quite": True
+                "Quiet": True
             }
         )
 
@@ -412,6 +474,10 @@ class Amazon(RemoteManager):
         }
 
         return signature, (url.path or '/')
+
+    @property
+    def root(self):
+        return self._bucketName
 
     def toConfig(self):
         return {

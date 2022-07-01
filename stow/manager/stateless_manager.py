@@ -745,31 +745,20 @@ class StatelessManager(ManagerInterface):
         """
 
         # Load the source object that is to be copied
-        _, sourceObj, _ = self._splitManagerArtefactForm(source)
+        _, sourceObj, sourcePath = self._splitExternalArtefactForm(source)
+        destinationManager, destinationObj, destinationPath = self._splitManagerArtefactForm(destination, require=False)
 
-        # Check the destination
-        if isinstance(destination, Artefact):
-            destinationManager = destination._manager
-
-            if isinstance(destination, Directory) and not overwrite:
+        # Prevent the overwriting of a directory without permission
+        if destinationObj is not None and isinstance(destinationObj, Directory):
+            if not overwrite:
                 raise exceptions.OperationNotPermitted("Cannot replace directory without passing overwrite True")
+            destinationManager._rm(destinationObj)
 
-        else:
-            destinationManager, destinationRelpath = utils.parseURL(destination)
+        # Check if the source and destination are from the same manager class
+        if type(sourceObj._manager) == type(destinationManager) and not sourceObj._manager.ISOLATED:
+            return destinationManager._cp(sourceObj, destinationPath)
 
-            try:
-                destination = destinationManager[destinationRelpath]
-                if isinstance(destination, Directory) and not overwrite:
-                    raise exceptions.OperationNotPermitted("Cannot replace directory without passing overwrite True")
-
-            except exceptions.ArtefactNotFound:
-                pass
-
-        # Check if the source and destination are from the same
-        if type(sourceObj._manager) == type(destinationManager):
-            return sourceObj._manager._cp(sourceObj, destination)
-
-        return self.put(sourceObj, destination, overwrite=overwrite)
+        return self.put(sourceObj, destination)
 
     def mv(
         self,
@@ -790,19 +779,18 @@ class StatelessManager(ManagerInterface):
         """
 
         # Load the source object that is to be copied
-        _, sourceObj, sourcePath = self._splitManagerArtefactForm(source)
+        _, sourceObj, sourcePath = self._splitExternalArtefactForm(source)
         destinationManager, destinationObj, destinationPath = self._splitManagerArtefactForm(destination, require=False)
 
         # Prevent the overwriting of a directory without permission
-        if destinationObj is not None and isinstance(destination, Directory) and not overwrite:
-            raise exceptions.OperationNotPermitted("Cannot replace directory without passing overwrite True")
+        if destinationObj is not None and isinstance(destinationObj, Directory):
+            if not overwrite:
+                raise exceptions.OperationNotPermitted("Cannot replace directory without passing overwrite True")
+            destinationManager._rm(destinationPath)
 
         # Check if the source and destination are from the same manager class
         if type(sourceObj._manager) == type(destinationManager) and not sourceObj._manager.ISOLATED:
-            return sourceObj._manager._mv(
-                sourceObj._manager._abspath(sourcePath),
-                destinationManager._abspath(destinationPath)
-            )
+            return destinationManager._mv(sourceObj, destinationPath)
 
         # Moving between manager types - put the object and then delete the old one
         object = self.put(sourceObj, destination, overwrite=overwrite)
