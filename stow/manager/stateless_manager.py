@@ -693,6 +693,8 @@ class StatelessManager(ManagerInterface):
         source: typing.Union[Artefact, str, bytes],
         destination: typing.Union[Artefact, str],
         overwrite: bool = False,
+        *,
+        metadata: typing.Dict[str, str] = None
         ) -> Artefact:
         """ Put a local artefact onto the remote at the location given.
 
@@ -720,11 +722,11 @@ class StatelessManager(ManagerInterface):
                 )
 
         if isinstance(source, bytes):
-            return destinationManager._putBytes(source, destinationPath)
+            return destinationManager._putBytes(source, destinationPath, metadata=metadata)
 
         else:
             with sourceObj.localise() as abspath:
-                return destinationManager._put(abspath, destinationPath)
+                return destinationManager._put(abspath, destinationPath, metadata=metadata)
 
     def cp(
         self,
