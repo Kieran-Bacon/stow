@@ -262,12 +262,15 @@ class Amazon(RemoteManager):
             # Putting a file
             self._upload_file(source, destination)
 
-    def _putBytes(self, fileBytes: bytes, destination: str):
-        self._bucket.put_object(
-            Key=self._abspath(destination),
+    def _putBytes(self, fileBytes: bytes, destination: str, *, metadata: typing.Dict[str, str] = None):
+
+        self._s3.put_object(
+            Bucket=self._bucketName,
+            Key=self._managerPath(destination),
             Body=fileBytes,
             StorageClass=self._storageClass.value,
-            ContentType=(mimetypes.guess_type(destination)[0] or 'application/octet-stream')
+            ContentType=(mimetypes.guess_type(destination)[0] or 'application/octet-stream'),
+            Metadata=({str(k): str(v) for k, v in metadata.items()} if metadata else {})
         )
 
     def _cpFile(self, source, destination):
