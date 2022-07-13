@@ -899,20 +899,34 @@ class StatelessManager(ManagerInterface):
                     log.debug(f"Syncing: Deleting unfound source object from destionation {artefact}")
                     artefact.manager._rm(artefact)
 
-    def iterls(self, artefact: typing.Union[Directory, str, None] = None, recursive: bool = False) -> typing.Generator[Artefact, None, Artefact]:
+    def iterls(
+        self,
+        artefact: typing.Union[Directory, str, None] = None,
+        recursive: bool = False,
+        *,
+        ignore_missing: bool = False
+        ) -> typing.Generator[Artefact, None, Artefact]:
         """ List contents of the directory path/artefact given.
 
         Args:
             art (Directory/str): The Directory artefact or the relpath to the directory to be listed
             recursive (bool) = False: Return subdirectory contents as well
+            *,
+            ignore_missing (bool) = False: Ignore whether the artefact exists, if it doesn't exist return empty generator
 
         Returns:
             {Artefact}: The artefact objects which are within the directory
         """
         # Convert the incoming artefact reference - require that the object exist and that it is a directory
-        _, artobj, artPath = self._splitManagerArtefactForm(artefact)
-        if not isinstance(artobj, Directory):
-            raise TypeError("Cannot perform ls action on File artefact: {}".format(artobj))
+        try:
+            _, artobj, artPath = self._splitManagerArtefactForm(artefact)
+            if not isinstance(artobj, Directory):
+                raise TypeError("Cannot perform ls action on File artefact: {}".format(artobj))
+
+        except exceptions.ArtefactNotFound:
+            if ignore_missing:
+                return []
+            raise
 
         # Yield the contents of the directory
         for subArtefact in artobj.manager._ls(artPath):
@@ -920,17 +934,24 @@ class StatelessManager(ManagerInterface):
                 yield from self.iterls(subArtefact, recursive=recursive)
             yield subArtefact
 
-    def ls(self, art: typing.Union[Directory, str, None] = None, recursive: bool = False) -> typing.Set[Artefact]:
+    def ls(
+        self,
+        art: typing.Union[Directory, str, None] = None,
+        recursive: bool = False,
+        *,
+        ignore_missing: bool = False
+        ) -> typing.Set[Artefact]:
         """ List contents of the directory path/artefact given.
 
         Args:
             art (Directory/str): The Directory artefact or the relpath to the directory to be listed
             recursive (bool) = False: Return subdirectory contents as well
+            ignore_missing: bool = False
 
         Returns:
             {Artefact}: The artefact objects which are within the directory
         """
-        return set(self.iterls(art, recursive))
+        return set(self.iterls(art, recursive, ignore_missing=ignore_missing))
 
     def mkdir(self, path: str, ignoreExists: bool = True, overwrite: bool = False) -> Directory:
         """ Make a directory at the location of the path provided. By default - do nothing in the event that the
