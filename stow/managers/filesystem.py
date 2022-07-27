@@ -115,7 +115,7 @@ class FS(LocalManager):
         with open(self._abspath(source.path), "rb") as handle:
             return handle.read()
 
-    def _put(self, source: str, destination: str):
+    def _put(self, source: str, destination: str, metadata = None):
 
         # Convert destination path
         destinationAbspath = self._abspath(destination)

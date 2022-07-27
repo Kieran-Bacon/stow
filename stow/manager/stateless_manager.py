@@ -127,7 +127,7 @@ class StatelessManager(ManagerInterface):
         Raises:
             ValueError: Cannot make a remote artefact object's path absolute
         """
-        _, path = self._splitArtefactUnionForm(artefact)
+        _, _, path = self._splitManagerArtefactForm(artefact)
         return os.path.abspath(path)
 
     def basename(self, artefact: typing.Union[Artefact, str]) -> str:
@@ -152,7 +152,7 @@ class StatelessManager(ManagerInterface):
         Returns:
             str: the name e.g. /hello/there.txt => there
         """
-        _, path = self._splitArtefactUnionForm(artefact)
+        _, _, path = self._splitManagerArtefactForm(artefact, load=False)
         basename = os.path.basename(path)
         index = basename.rfind('.')
         if index != -1:
@@ -998,6 +998,8 @@ class StatelessManager(ManagerInterface):
             return self.cp(artefact, artefact)
 
         return self.put(b'', relpath)
+
+    _READONLYMODES = ["r", "rb"]
 
     @contextlib.contextmanager
     def open(self, artefact: typing.Union[File, str], mode: str = "r", **kwargs) -> io.IOBase:
