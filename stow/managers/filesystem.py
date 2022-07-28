@@ -131,7 +131,7 @@ class FS(LocalManager):
 
         return PartialArtefact(self, destination)
 
-    def _putBytes(self, fileBytes: bytes, destination: str):
+    def _putBytes(self, fileBytes: bytes, destination: str, metadata = None):
 
         # Convert destination path
         destinationAbspath = self._abspath(destination)
