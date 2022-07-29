@@ -235,9 +235,11 @@ class Amazon(RemoteManager):
         )
 
 
-    def _put(self, source: str, destination: str):
+    def _put(self, source: str, destination: str, metadata = None):
 
-        destination = self._abspath(destination)
+        # TODO metadata not implemented
+
+        # destination = self._abspath(destination)
 
         if os.path.isdir(source):
             # A directory of items is to be uploaded - walk local directory and uploaded each file
@@ -260,7 +262,17 @@ class Amazon(RemoteManager):
 
         else:
             # Putting a file
-            self._upload_file(source, destination)
+
+            self._s3.upload_file(
+                source,
+                self._bucketName,
+                self._managerPath(destination),
+                ExtraArgs={
+                    "StorageClass": self._storageClass.value,
+                    "ContentType": (mimetypes.guess_type(destination)[0] or 'application/octet-stream'),
+                    "Metadata": ({str(k): str(v) for k, v in metadata.items()} if metadata else {})
+                }
+            )
 
     def _putBytes(self, fileBytes: bytes, destination: str, *, metadata: typing.Dict[str, str] = None):
 

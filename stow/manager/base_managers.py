@@ -124,25 +124,26 @@ class RemoteManager(Manager, RemoteInterface):
                 exception = e
 
             # The user has stopped interacting with the artefact - resolve any differences with manager
-            if checksum:
-                if os.path.isdir(local_path):
-                    # Compare the new hiearchy - update only affected files/directories
-                    put, delete = self._compareHierarhy(checksum, self._parseHierarchy(local_path))
+            if os.path.exists(local_path):
+                if checksum:
+                    if os.path.isdir(local_path):
+                        # Compare the new hiearchy - update only affected files/directories
+                        put, delete = self._compareHierarhy(checksum, self._parseHierarchy(local_path))
 
-                    # Define the method for converting the abspath back to the manager relative path
-                    contexualise = lambda x: self.join(path, x[len(local_path)+1:], separator='/')
+                        # Define the method for converting the abspath back to the manager relative path
+                        contexualise = lambda x: self.join(path, x[len(local_path)+1:], separator='/')
 
-                    # Put/delete the affected artefacts
-                    for abspath in put: self.put(abspath, contexualise(abspath))
-                    for abspath in delete: self.rm(contexualise(abspath), recursive=True)
+                        # Put/delete the affected artefacts
+                        for abspath in put: self.put(abspath, contexualise(abspath))
+                        for abspath in delete: self.rm(contexualise(abspath), recursive=True)
 
-                elif self.md5(local_path) != checksum:
-                    # The file has been changed - upload the file's contents
-                    self.put(local_path, path)
+                    elif self.md5(local_path) != checksum:
+                        # The file has been changed - upload the file's contents
+                        self.put(self._localLoad(local_path), path)
 
-            else:
-                # New item - put the artefact into the manager
-                self.put(local_path, path)
+                else:
+                    # New item - put the artefact into the manager
+                    self.put(self._localLoad(local_path), path)
 
         if exception is not None:
             raise exception
