@@ -162,6 +162,7 @@ class File(Artefact):
         metadata: typing.Dict[str, str] = None,
         createdTime: datetime.datetime = None,
         accessedTime: datetime.datetime = None,
+        digest: str = None,
         isLink: bool = None
         ):
         super().__init__(manager, path)
@@ -172,6 +173,7 @@ class File(Artefact):
         self._createdTime = createdTime  # Time the artefact was physically created
         self._modifiedTime = modifiedTime  # Time the artefact was last modified via the os
         self._accessedTime = accessedTime  # Time the artefact was last accessed
+        self._digest = digest  # A signature for the file content
         self._isLink = isLink
 
     def __len__(self): return self.size
@@ -254,6 +256,18 @@ class File(Artefact):
         if self._accessedTime is None:
             return self._modifiedTime
         return self._accessedTime
+
+    @property
+    def digest(self):
+        """ Get the file digest to verify validaty - if a manager does not have it's own method of creatin file digests
+        the md5 checksum will be used for the file contents.
+        """
+
+        if not self._digest:
+            with self.localise() as abspath:
+                self._digest = self.manager.md5(abspath)
+
+        return self._digest
 
     @property
     def size(self):

@@ -120,7 +120,8 @@ class Amazon(RemoteManager):
                 modifiedTime=response['LastModified'],
                 size=response['ContentLength'],
                 metadata=response['Metadata'],
-                content_type=response['ContentType']
+                content_type=response['ContentType'],
+                digest=response['ETag'].strip('"')
             )
 
         except:
@@ -390,7 +391,8 @@ class Amazon(RemoteManager):
                     self,
                     fileMetadata['Key'],
                     modifiedTime=fileMetadata['LastModified'],
-                    size=fileMetadata['Size']
+                    size=fileMetadata['Size'],
+                    digest=fileMetadata['ETag'].strip('"')
                 )
 
             for prefix in response.get('CommonPrefixes', []):
