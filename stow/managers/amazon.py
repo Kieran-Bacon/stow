@@ -49,28 +49,29 @@ class Amazon(RemoteManager):
         aws_secret_access_key: str = None,
         aws_session_token: str = None,
         region_name: str = None,
+        profile_name: str = None,
         storage_class: str = 'STANDARD'
     ):
 
         self._bucketName = bucket
 
         if aws_session is None:
-            self._aws_session = boto3.Session(
+            aws_session = boto3.Session(
                 aws_access_key_id=aws_access_key_id,
                 aws_secret_access_key=aws_secret_access_key,
                 aws_session_token=aws_session_token,
                 region_name=region_name,
+                profile_name=profile_name
             )
 
-        else:
-            self._aws_session = aws_session
-
+        self._aws_session = aws_session
         self._s3 = self._aws_session.client('s3')
 
         self._aws_access_key_id = aws_access_key_id
         self._aws_secret_access_key = aws_secret_access_key
         self._aws_session_token = aws_session_token
         self._region_name = region_name
+        self._profile_name = profile_name
         self._storageClass = self.StorageClass(storage_class)
 
         super().__init__()
