@@ -215,10 +215,16 @@ class StatelessManager(ManagerInterface):
         Returns:
             str: The directory path for the holding directory of the artefact
         """
-        _, obj, path = self._splitManagerArtefactForm(artefact, load=False)
 
-        if obj is not None or path.find(":") == -1:
-            # Obj path or path within no protocol and therefore no need to parse
+        # Covert the path - do not parse the path
+        if isinstance(artefact, Artefact):
+            path = artefact.abspath
+
+        else:
+            path = artefact
+
+        if path.find(":") == -1:
+            # Path with no protocol and therefore no need to url parse
             return os.path.dirname(path)
 
         else:
