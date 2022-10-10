@@ -1,8 +1,10 @@
 __version__ = "1.1.6"
 
 import os
+import functools
+
 from .artefacts import Artefact, File, Directory, SubFile, SubDirectory
-from .manager import StatelessManager, SubManager
+from .manager import Manager, SubManager
 from . import exceptions
 
 env = os.environ
@@ -14,8 +16,16 @@ from .utils import (
     parseURL
 )
 
+@functools.wraps(find)
+def a(*args):
+    return find(*args)
+
+
+
+a()
+
 # Create the stateless manager
-Manager = StatelessManager()
+Manager = Manager()
 
 artefact = Manager.artefact
 abspath = Manager.abspath

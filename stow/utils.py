@@ -1,8 +1,12 @@
-import collections
+""" House utilities for the finding and creation of Managers """
+
 import typing
 import urllib
 import functools
 import pkg_resources
+import dataclasses
+
+from .manager import Manager
 
 MANAGERS = {}
 INITIALISED_MANAGERS = {}
@@ -11,11 +15,12 @@ def initCache(function):
     """ Cache results and return previously created manager objects
     """
 
-
     @functools.wraps(function)
     def wrapper(manager, **kwargs):
 
-        identifier = hash((manager, "-".join(["{}-{}".format(k,v) for k,v in sorted(kwargs.items(), key=lambda x: x[0])])))
+        identifier = hash((
+            manager, "-".join([f"{k}-{v}" for k,v in sorted(kwargs.items(), key=lambda x: x[0])])
+        ))
 
         if identifier in INITIALISED_MANAGERS:
             return INITIALISED_MANAGERS[identifier]
@@ -28,9 +33,9 @@ def initCache(function):
 
     return wrapper
 
-
-def find(manager: str):
-    """ Fetch the `Manager` class hosted on the 'stow_managers' entrypoint with the given name `manager` entry name.
+def find(manager: str) -> typing.Type[Manager]:
+    """ Fetch the `Manager` class hosted on the 'stow_managers' entrypoint with
+    the given name `manager` entry name.
 
     Args:
         manager: The name of the `Manager` class to be returned
@@ -60,17 +65,15 @@ def find(manager: str):
                 break
 
         else:
-            raise ValueError("Couldn't find a manager called '{}' - found {} managers: {}".format(
-                    manager,
-                    len(foundManagerNames),
-                    foundManagerNames
-                )
+            raise ValueError(
+                f"Couldn't find a manager called '{manager}'"
+                f" - found {len(foundManagerNames)} managers: {foundManagerNames}"
             )
 
     return mClass
 
 @initCache
-def connect(manager: str, *, submanager: str = None, **kwargs):
+def connect(manager: str, *, submanager: str = None, **kwargs) -> typing.Type[Manager]:
     """ Find and connect to a `Manager` using its name (entrypoint name) and return an instance of that `Manager`
     initialised with the kwargs provided. A path can be provided as the location on the manager for a sub manager to be
     created which will be returned instead.
@@ -101,9 +104,13 @@ def connect(manager: str, *, submanager: str = None, **kwargs):
     # Create the Manager - pass all the kwarg arguments
     return mClass(**kwargs)
 
-# Parsed URL tuple definition
-ParsedURL = collections.namedtuple("ParsedURL", ["manager", "relpath"])
+@dataclasses.dataclass
+class ParsedURL:
+    """ House pointers to manager """
+    manager: Manager
+    relpath: str
 
+@functools.lru_cache
 def parseURL(stowURL: str, default_manager = None) -> ParsedURL:
     """ Parse the passed stow URL and return a ParsedURL a named tuple of manager and relpath
 

@@ -1,3 +1,4 @@
 pytz
 boto3
 paramiko
+tqdm

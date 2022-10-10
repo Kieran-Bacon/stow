@@ -618,3 +618,5 @@ class PartialArtefact:
             return artefact.__class__
         else:
             return object.__getattribute__(self, attr)
+
+ArtefactType = typing.Union[File, Directory]

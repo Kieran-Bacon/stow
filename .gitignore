@@ -1,6 +1,7 @@
 .vscode
 .pytest_cache
 pyenv
+*venv*
 
 *.egg-info
 *.pyc
