@@ -8,8 +8,9 @@ import contextlib
 from ..class_interfaces import LocalInterface, RemoteInterface
 from ..artefacts import Artefact
 from .manager import Manager
+from .abstract_methods import AbstractManager
 
-class LocalManager(Manager, abc.ABC, LocalInterface):
+class LocalManager(Manager, AbstractManager, abc.ABC, LocalInterface):
     """ Abstract Base Class for managers that will be working with local artefacts.
     """
 
@@ -26,7 +27,7 @@ class LocalManager(Manager, abc.ABC, LocalInterface):
         except Exception as e:
             raise
 
-class RemoteManager(Manager, RemoteInterface):
+class RemoteManager(Manager, AbstractManager, abc.ABC, RemoteInterface):
     """ Abstract Base Class for managers that will be working with remote artefacts so efficiency with fetching and
     pushing files is important for time and bandwidth
     """

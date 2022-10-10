@@ -6,7 +6,7 @@ import typing
 import weakref
 
 from .class_interfaces import ManagerInterface, LocalInterface, RemoteInterface
-from . import utils
+from . import _utils as utils
 from . import exceptions
 
 class ArtefactReloader:

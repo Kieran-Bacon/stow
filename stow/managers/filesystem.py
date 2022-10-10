@@ -24,7 +24,7 @@ class FS(LocalManager):
 
             # Update the current working directory information
             cwd = path if os.path.isdir(path) else os.path.dirname(path)
-            manager._cwd = lambda: '/'
+            manager._cwd = lambda: cwd
 
             # Update the absolute path method to become relative to the root
             def relativeAbspath(managerPath: str) -> str:
@@ -148,7 +148,10 @@ class FS(LocalManager):
     def _cp(self, source: Artefact, destination: str):
         return self._put(self._abspath(source.path), destination)
 
-    def _mv(self, sourceAbspath: str, destinationAbspath: str):
+    def _mv(self, source: str, destination: str):
+
+        sourceAbspath = self._abspath(source)
+        destinationAbspath = self._abspath(destination)
 
         # Ensure the destination location
         os.makedirs(os.path.dirname(destinationAbspath), exist_ok=True)

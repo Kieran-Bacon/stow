@@ -10,9 +10,9 @@ import contextlib
 
 from .abstract_methods import AbstractManager
 
-from ..class_interfaces import ManagerInterface, LocalInterface, RemoteInterface
+from ..class_interfaces import ManagerInterface
 from ..artefacts import Artefact, ArtefactType, File, Directory, SubFile, SubDirectory
-from .. import utils
+from .. import _utils as utils
 from .. import exceptions
 
 import logging
@@ -24,7 +24,7 @@ class ManagerReloader:
         # This will create a new manager if it doesn't exist of fetch the one globally created
         return utils.connect(**config)
 
-class Manager(AbstractManager, ManagerInterface):
+class Manager(ManagerInterface):
     """ Manager Abstract base class - expressed the interface of a Manager which governs a storage option and allows
     extraction and placement of files in that storage container
 
@@ -33,7 +33,7 @@ class Manager(AbstractManager, ManagerInterface):
     SEPARATORS = ['\\', '/']
     ISOLATED = False
 
-    _READONLYMODES = ["r", "rb"]            
+    _READONLYMODES = ["r", "rb"]
     _MULTI_SEP_REGEX = re.compile(r"(\\{2,})|(\/{2,})")
     _RELPATH_REGEX = re.compile(r"^([a-zA-Z0-9]+:)?([/\\\w\.!-_*'() ]*)$")
 
@@ -129,12 +129,40 @@ class Manager(AbstractManager, ManagerInterface):
             Artefact or None: the artefact object or None if it doesn't exists and require is False
             str: The relative path of the object/the passed value
         """
-        return self._splitExternalArtefactForm(artefact, load, require)
+
+        if isinstance(artefact, Artefact):
+            return artefact._manager, artefact, artefact.path
+
+        else:
+            obj = None
+
+            if artefact is None:
+                return self, Directory('/'), '/'
+
+            elif isinstance(artefact, str):
+                manager, path = utils.parseURL(artefact, default_manager=self)
+
+            else:
+                raise TypeError(
+                    "Artefact reference must be either `stow.Artefact` or string not type {}".format(type(artefact))
+                )
+
+
+            if load:
+
+                try:
+                    obj = manager[path]
+
+                except exceptions.ArtefactNotFound:
+                    if require:
+                        raise
+
+            return manager, obj, path
 
     def _get_content_type(self, path: str) -> str:
         """ Get the content type for the path given """
         contentType, _ = mimetypes.guess_type(path)
-        contentType = (content_type or 'application/octet-stream')
+        contentType = (contentType or 'application/octet-stream')
         return contentType
 
     def _set_content_type(self, path: str, content_type: str) -> str:
@@ -840,7 +868,7 @@ class Manager(AbstractManager, ManagerInterface):
         """
 
         # Load the source object that is to be copied
-        _, sourceObj, sourcePath = self._splitExternalArtefactForm(source)
+        _, sourceObj, sourcePath = self._splitManagerArtefactForm(source)
         destinationManager, destinationObj, destinationPath = self._splitManagerArtefactForm(destination, require=False)
 
         # Prevent the overwriting of a directory without permission

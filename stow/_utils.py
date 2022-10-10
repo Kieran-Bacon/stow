@@ -1,14 +1,37 @@
 """ House utilities for the finding and creation of Managers """
 
-import typing
-import urllib
 import functools
+import pkg_resources
+import collections
 import dataclasses
+import urllib
 
-from . import _utils
-from .manager import Manager
+MANAGERS = {}
+INITIALISED_MANAGERS = {}
 
-def find(manager: str) -> typing.Type[Manager]:
+def initCache(function):
+    """ Cache results and return previously created manager objects
+    """
+
+    @functools.wraps(function)
+    def wrapper(manager, **kwargs):
+
+        identifier = hash((
+            manager, "-".join([f"{k}-{v}" for k,v in sorted(kwargs.items(), key=lambda x: x[0])])
+        ))
+
+        if identifier in INITIALISED_MANAGERS:
+            return INITIALISED_MANAGERS[identifier]
+
+        manager = function(manager, **kwargs)
+
+        INITIALISED_MANAGERS[identifier] = manager
+
+        return manager
+
+    return wrapper
+
+def find(manager: str):
     """ Fetch the `Manager` class hosted on the 'stow_managers' entrypoint with
     the given name `manager` entry name.
 
@@ -21,9 +44,34 @@ def find(manager: str) -> typing.Type[Manager]:
     Raises:
         ValueError: In the event that a manager with the provided name couldn't be found
     """
-    return _utils.find(manager)
 
-def connect(manager: str, *, submanager: str = None, **kwargs) -> typing.Type[Manager]:
+    # Get the manager class for the manager type given - load the manager type if not already loaded
+    lmanager = manager.lower()
+
+    if lmanager in MANAGERS:
+        mClass = MANAGERS[lmanager]
+
+    else:
+        foundManagerNames = []
+
+        for entry_point in pkg_resources.iter_entry_points('stow_managers'):
+
+            foundManagerNames.append(entry_point.name)
+
+            if entry_point.name == lmanager:
+                mClass = MANAGERS[lmanager] = entry_point.load()
+                break
+
+        else:
+            raise ValueError(
+                f"Couldn't find a manager called '{manager}'"
+                f" - found {len(foundManagerNames)} managers: {foundManagerNames}"
+            )
+
+    return mClass
+
+@initCache
+def connect(manager: str, *, submanager: str = None, **kwargs):
     """ Find and connect to a `Manager` using its name (entrypoint name) and return an instance of that `Manager`
     initialised with the kwargs provided. A path can be provided as the location on the manager for a sub manager to be
     created which will be returned instead.
@@ -43,15 +91,19 @@ def connect(manager: str, *, submanager: str = None, **kwargs) -> typing.Type[Ma
         The stateless interface uses this method as the backend for its functions and as such you can fetch any active
         session by using this function rather than initalising a `Manager` directly
     """
-    return _utils.connect(manager, submanager=submanager, **kwargs)
 
+    if submanager is not None:
+        # Create the initial manager and return a sub-manager
+        return connect(manager, **kwargs).submanager(submanager)
 
+    # Find the class for the manager
+    mClass = find(manager)
 
-@dataclasses.dataclass
-class ParsedURL:
-    """ House pointers to manager """
-    manager: Manager
-    relpath: str
+    # Create the Manager - pass all the kwarg arguments
+    return mClass(**kwargs)
+
+# Parsed URL tuple definition
+ParsedURL = collections.namedtuple("ParsedURL", ["manager", "relpath"])
 
 @functools.lru_cache
 def parseURL(stowURL: str, default_manager = None) -> ParsedURL:
@@ -70,7 +122,6 @@ def parseURL(stowURL: str, default_manager = None) -> ParsedURL:
     Returns:
         typing.NamedTuple: Holding the manager and relative path of
     """
-    return ParsedURL(*_utils.parseURL(stowURL))
 
     # Parse the url provided
     parsedURL = urllib.parse.urlparse(stowURL)

@@ -16,14 +16,6 @@ from .utils import (
     parseURL
 )
 
-@functools.wraps(find)
-def a(*args):
-    return find(*args)
-
-
-
-a()
-
 # Create the stateless manager
 Manager = Manager()
 
