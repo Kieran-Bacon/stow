@@ -168,7 +168,7 @@ class StatelessManager(ManagerInterface):
         Returns:
             str: the extension e.g. /hello/there.txt => txt
         """
-        _, path = self._splitArtefactUnionForm(artefact)
+        _, _, path = self._splitExternalArtefactForm(artefact, load=False)
         basename = os.path.basename(path)
         index = basename.rfind('.')
         if index != -1:
