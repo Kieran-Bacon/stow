@@ -5,7 +5,6 @@ import contextlib
 import typing
 import weakref
 
-from .class_interfaces import ManagerInterface, LocalInterface, RemoteInterface
 from . import _utils as utils
 from . import exceptions
 
@@ -24,7 +23,7 @@ class Artefact:
 
     def __init__(
         self,
-        manager: ManagerInterface,
+        manager,
         path: str
         ):
 
@@ -42,15 +41,7 @@ class Artefact:
         )
 
     def __fspath__(self):
-        if isinstance(self._manager, LocalInterface):
-            # Get the filepath for the object - no protection for when the file is edited by os
-            return self._manager._abspath(self._path)
-
-        else:
-            raise exceptions.ArtefactNotAvailable(
-                "Cannot get filesystem path for {} as it is a remote object - "
-                "we suggest that you open a localise context for this object and use the absolute path returned"
-            )
+        return self._manager._abspath(self._path)
 
     @property
     def abspath(self) -> str:
@@ -303,55 +294,6 @@ class File(Artefact):
         self._accessedTime = other._accessedTime
         self._size = other._size
 
-class SubFile(File):
-    """ A file object of a submanager. Wrapper for a complete Manager File
-
-    Args:
-        manager: The submanager this file belongs to
-        path: The file's relative path
-        file: The concrete file object this subfile wraps
-    """
-
-    def __init__(self, manager, path: str, file: File):
-        super(File, self).__init__(manager, path)
-        self._concrete = file
-
-    def __len__(self): return len(self._concrete)
-    def __repr__(self): return '<stow.SubFile for {}>'.format(self._concrete)
-
-    @property
-    def _modifiedTime(self): return self._concrete._modifiedTime
-    @_modifiedTime.setter
-    def _modifiedTime(self, time): self._concrete._modifiedTime = time
-
-    @property
-    def _createdTime(self): return self._concrete._createdTime
-    @_createdTime.setter
-    def _createdTime(self, time): self._concrete._createdTime = time
-
-    @property
-    def _accessedTime(self): return self._concrete._accessedTime
-    @_accessedTime.setter
-    def _accessedTime(self, time): self._concrete._accessedTime = time
-
-    @property
-    def content(self) -> bytes: return self._concrete.content
-    @content.setter
-    def content(self, content: bytes): self._concrete.content = content
-
-    @property
-    def _size(self): return self._concrete.size
-    @_size.setter
-    def _size(self, newSize): self._concrete._size = newSize
-
-    @contextlib.contextmanager
-    def open(self, mode: str = 'r', **kwargs) -> io.TextIOWrapper:
-        """ Context manager to allow the pulling down and opening of a file """
-        with self._concrete.open(mode, **kwargs) as handle:
-            yield handle
-
-    # def _update(self, other: Artefact): self._concrete._update(other)
-
 class Directory(Artefact):
     """ A directory represents an local filesystems directory or folder. Directories hold references to other
     directories or files
@@ -555,42 +497,9 @@ class Directory(Artefact):
         self._accessedTime = other._accessedTime
         self._collected = False
 
-class SubDirectory(Directory):
-    """ A directory object of a submanager. Wrapper for a complete Manager directory """
-
-    def __init__(self, manager, path: str, directory: Directory):
-        super(Directory, self).__init__(manager, path)  # Access the parent of Directory
-        self._contents = weakref.WeakSet()
-        self._collected = False
-        self._concrete = directory
-
-    @property
-    def _collected(self): return self._concrete._collected
-    @_collected.setter
-    def _collected(self, value): pass
-
-
-    def __len__(self): return len(self._concrete)
-    def __repr__(self): return '<stow.SubDirectory for {}>'.format(self._concrete)
-    def _add(self, artefact: Artefact) -> None:
-        assert isinstance(artefact, (SubFile, SubDirectory))
-        self._contents.add(artefact)
-
-    @property
-    def _modifiedTime(self): return self._concrete._modifiedTime
-
-    @property
-    def _createdTime(self): return self._concrete._createdTime
-
-    @property
-    def _accessedTime(self): return self._concrete._accessedTime
-
-    def _update(self, other: Artefact):
-        self._concrete._update(other._concrete)
-
 class PartialArtefact:
 
-    def __init__(self, manager: ManagerInterface, path: str):
+    def __init__(self, manager, path: str):
         self._manager = manager
         self._path = path
 
@@ -606,10 +515,10 @@ class PartialArtefact:
 
         try:
             artefact = manager[path]
-        except exceptions.ArtefactNotFound:
+        except exceptions.ArtefactNotFound as e:
             # Though we have created a partial artefact through an action we have taken that should result in an
             # artefact being created, the artefact was not found meaning that the artefact has since been deleted.
-            raise exceptions.ArtefactNoLongerExists("Artefact has been removed")
+            raise exceptions.ArtefactNoLongerExists("Artefact has been removed") from e
 
         self.__class__ = type(artefact.__class__.__name__, (artefact.__class__,),{})
         self.__dict__ = artefact.__dict__

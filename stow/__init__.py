@@ -1,13 +1,10 @@
 __version__ = "1.1.6"
 
 import os
-import functools
 
-from .artefacts import Artefact, File, Directory, SubFile, SubDirectory
-from .manager import Manager, SubManager
+from .artefacts import Artefact, File, Directory
+from .manager import Manager
 from . import exceptions
-
-env = os.environ
 
 # Expose the util functions
 from .utils import (
@@ -15,6 +12,8 @@ from .utils import (
     connect,
     parseURL
 )
+
+env = os.environ
 
 # Create the stateless manager
 Manager = Manager()

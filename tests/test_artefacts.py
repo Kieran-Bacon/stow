@@ -255,7 +255,7 @@ class Test_Files(BasicSetup, unittest.TestCase):
 
         file = self.manager["/file1"]
 
-        self.assertEqual(file.accessedTime, file.modifiedTime)
+        self.assertAlmostEqual(file.accessedTime, file.modifiedTime, delta=datetime.timedelta(seconds=2e-2))
 
         file = stow.File(self.manager, "/example", 0, file.modifiedTime)
 
@@ -326,27 +326,6 @@ class Test_Files(BasicSetup, unittest.TestCase):
 
         self.assertEqual(hydrated._manager, self.manager)
         self.assertEqual(file, hydrated)
-
-class Test_SubFiles(Test_Files):
-
-    def setUp(self):
-
-        self.ori = tempfile.mkdtemp()
-
-        self.directory = os.path.join(self.ori, "demo")
-        os.mkdir(self.directory)
-
-        manager = stow.connect(manager="FS", path=self.ori)
-        self.manager = manager.submanager("/demo")
-
-        # Create a file
-        self.filepath = os.path.join(self.directory, 'file1')
-        self.filetext = 'Another one bits the dust'
-        with open(self.filepath, 'w') as handle:
-            handle.write(self.filetext)
-
-        # Make a directory
-        os.mkdir(os.path.join(self.directory, 'directory1'))
 
 class Test_Directories(unittest.TestCase):
 
@@ -591,32 +570,3 @@ class Test_Directories(unittest.TestCase):
 
         self.assertEqual(hydrated._manager, self.manager)
         self.assertEqual(directory, hydrated)
-
-class Test_Subdirectories(Test_Directories):
-
-    def setUp(self):
-
-        self.ori = tempfile.mkdtemp()
-        self.directory = os.path.join(self.ori, "demo")
-        os.mkdir(self.directory)
-
-        self.subdirectory = os.path.join(self.directory, 'dir1')
-        os.mkdir(self.subdirectory)
-
-        self.filepath = os.path.join(self.directory, 'dir1', 'file1')
-        self.filetext = 'Another one bits the dust'
-        with open(self.filepath, 'w') as handle:
-            handle.write(self.filetext)
-
-        self.ori = stow.connect(manager='FS', path=self.ori)
-        self.manager = self.ori.submanager("/demo")
-
-    def test_update(self):
-
-        directory = self.manager["/dir1"]
-
-        created = (datetime.datetime.now() - datetime.timedelta(seconds=10))
-
-        directory._update(stow.SubDirectory(self.manager, "/example", stow.Directory(self.ori, directory.path, createdTime=created)))
-
-        self.assertEqual(directory.createdTime, created)
