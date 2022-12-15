@@ -1,11 +1,14 @@
-from abc import ABC, abstractmethod, abstractclassmethod
+from abc import abstractmethod
 import urllib.parse
 import typing
 import contextlib
 
 from ..artefacts import Artefact, File, Directory
 
-class AbstractManager(ABC):
+class AbstractManager():
+    """ The abstract manager interface - outlines and details the methods that should be implemented
+    by developers that want to extend the stow manager library
+    """
 
     @abstractmethod
     def __repr__(self):
@@ -183,7 +186,8 @@ class AbstractManager(ABC):
         """
         pass
 
-    @abstractclassmethod
+    @classmethod
+    @abstractmethod
     def _signatureFromURL(cls, url: urllib.parse.ParseResult):
         """ Create the signature that can be passed to the init of the manager to create a new instance using the
         information passed via the url ParseResult object that will have been created via the stateless interface
@@ -220,8 +224,8 @@ class AbstractManager(ABC):
 
     @abstractmethod
     def toConfig(self) -> dict:
-        """ Generate a config which can be unpacked into the `connect` interface to initialise this manager. To be
-        used to seralise and de-seralise a manager object.
+        """ Generate a config which can be unpacked into the `connect` interface to initialise this
+        manager. To be used to seralise and de-seralise a manager object.
 
         NOTE Defaulted values or environment variables are not guaranteed to be saved
 
