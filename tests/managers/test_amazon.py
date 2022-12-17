@@ -13,6 +13,7 @@ from moto.core import set_initial_no_auth_action_count
 import boto3
 from botocore.exceptions import ClientError
 
+import stow.testing
 import stow.exceptions
 from stow.managers.amazon import Amazon
 
@@ -154,6 +155,16 @@ class Test_Amazon(unittest.TestCase):
         manager = Amazon("bucket_name")
         self.assertFalse(manager.exists('/file.txt'))
 
+    def test_link(self):
+
+        manager = Amazon('bucket_name')
+        self.assertFalse(manager.islink("/file.txt"))
+
+    def test_mount(self):
+
+        manager = Amazon('bucket_name')
+        self.assertFalse(manager.ismount("/file.txt"))
+
     def test_abspath(self):
 
         manager = Amazon("bucket_name")
@@ -172,6 +183,37 @@ class Test_Amazon(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             manager.get('/file.txt', stow.join(directory, 'file.txt'))
+
+    def test_download_directory(self):
+
+        keys = ["directory/file1.txt", "directory/file2.txt", "directory/sub-directory/file3.txt"]
+
+        for key in keys:
+
+            self.s3.put_object(
+                Bucket="bucket_name",
+                Key=key,
+                Body=b"This is the content of the file",
+            )
+
+        manager = Amazon('bucket_name')
+
+        with tempfile.TemporaryDirectory() as directory:
+            manager.get('/directory', directory, overwrite=True)
+
+            for key in keys:
+                self.assertTrue(os.path.exists(os.path.join(directory, key[10:])))
+
+    def test_download_bytes(self):
+
+        self.s3.put_object(
+            Bucket="bucket_name",
+            Key='file.txt',
+            Body=b"This is the content of the file",
+        )
+
+        self.assertEqual(b"This is the content of the file", Amazon('bucket_name').get('/file.txt'))
+
 
     def test_upload_file(self):
 
@@ -196,21 +238,10 @@ class Test_Amazon(unittest.TestCase):
 
     def test_upload_file_callback(self):
 
-        class TestCallback(stow.callbacks.AbstractCallback):
-
-            artefact = None
-            is_downloading = None
-            called = False
-
-            def __init__(self, artefact, is_downloading):
-                self.__class__.artefact = artefact
-                self.__class__.is_downloading = is_downloading
-
-            def __call__(self, _):
-                self.__class__.called = True
-
-
         with tempfile.TemporaryDirectory() as directory:
+
+            if os.name == "nt":
+                directory = directory[:directory.index(':')].lower() + directory[directory.index(':'):]
 
             local_path = os.path.join(directory, 'file.txt')
 
@@ -218,11 +249,39 @@ class Test_Amazon(unittest.TestCase):
                 handle.write('Content')
 
             manager = Amazon("bucket_name")
-            manager.put(local_path, '/file.txt', Callback=TestCallback)
+            manager.put(local_path, '/file.txt', Callback=stow.testing.mock.TestCallback)
 
-        self.assertEqual(TestCallback.artefact.path, local_path)
-        self.assertFalse(TestCallback.is_downloading)
-        self.assertTrue(TestCallback.called)
+
+        raise ValueError(f"{stow.testing.mock.TestCallback.artefacts.keys()}")
+        data = stow.testing.mock.TestCallback.artefacts[local_path]
+
+        self.assertEqual(data['artefact'].path, local_path)
+        self.assertFalse(data['is_downloading'])
+        self.assertEqual(data['bytes_transferred'], 7)
+
+    def test_upload_directory(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            with open(os.path.join(directory, 'file.txt'), 'w') as handle:
+                handle.write('content')
+
+            with open(os.path.join(directory, 'file2.txt'), 'w') as handle:
+                handle.write('content')
+
+            os.mkdir(os.path.join(directory, 'sub-directory'))
+
+            with open(os.path.join(directory, 'sub-directory', 'file3.txt'), 'w') as handle:
+                handle.write('content')
+
+            manager = Amazon('bucket_name')
+            manager.put(directory, '/upload')
+
+            self.s3.head_object(Bucket='bucket_name', Key='upload/file.txt')
+            self.s3.head_object(Bucket='bucket_name', Key='upload/file2.txt')
+            self.s3.head_object(Bucket='bucket_name', Key='upload/sub-directory/file3.txt')
+
+
 
     def test_upload_bytes(self):
 

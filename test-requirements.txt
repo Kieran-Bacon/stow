@@ -1,3 +1,4 @@
 pyini
 pytest
+pytest-cov
 moto[s3]

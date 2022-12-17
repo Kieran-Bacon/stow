@@ -4,7 +4,6 @@ import paramiko.ssh_exception
 
 import os
 import io
-import pytz
 import stat
 import typing
 import datetime
@@ -171,17 +170,11 @@ class SSH(RemoteManager):
         # Determine whether the artefact is a file or directory
         isDirectory = stat.S_ISDIR(artefactStat.st_mode)
 
-        # # Created time
-        # createdTime = datetime.datetime.utcfromtimestamp(stats.st_ctime)
-        # createdTime = pytz.UTC.localize(createdTime)
-
         # Modified time
-        modifiedTime = datetime.datetime.utcfromtimestamp(artefactStat.st_mtime)
-        modifiedTime = pytz.UTC.localize(modifiedTime)
+        modifiedTime = datetime.datetime.fromtimestamp(artefactStat.st_mtime, tz=datetime.timezone.utc)
 
         # Access time
-        accessedTime = datetime.datetime.utcfromtimestamp(artefactStat.st_atime)
-        accessedTime = pytz.UTC.localize(accessedTime)
+        accessedTime = datetime.datetime.fromtimestamp(artefactStat.st_atime, tz=datetime.timezone.utc)
 
         if isDirectory:
             return Directory(

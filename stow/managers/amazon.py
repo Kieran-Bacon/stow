@@ -225,7 +225,7 @@ class Amazon(RemoteManager):
                 Callback=Callback and Callback(source, is_downloading=True)
             )
 
-    def _getBytes(self, source: Artefact) -> bytes:
+    def _getBytes(self, source: Artefact, Callback = None) -> bytes:
 
         # Get buffer to recieve bytes
         bytes_buffer = io.BytesIO()
@@ -234,7 +234,8 @@ class Amazon(RemoteManager):
         self._s3.download_fileobj(
             Bucket=self._bucketName,
             Key=self._managerPath(source.path),
-            Fileobj=bytes_buffer
+            Fileobj=bytes_buffer,
+            Callback=Callback and Callback(source, is_downloading=True)
         )
 
         # Return the bytes stored in the buffer
@@ -270,31 +271,32 @@ class Amazon(RemoteManager):
 
         if isinstance(source, Directory):
 
-            # Create a thread pool to upload multiple files in parralell
+            # Create a thread pool to upload multiple files in parallel
             with futures.ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
                 future_collection = []
 
                 for artefact in source.ls(recursive=True):
                     if isinstance(artefact, File):
 
-                        destination = self.join(
+                        file_destination = self.join(
                             destination,
                             source.relpath(artefact),
                             separator='/'
                         )
 
-                        future_collection.append(executor.submit(
-                            self._localise_put_file(
+                        future_collection.append(
+                            executor.submit(
+                                self._localise_put_file,
                                 artefact,
-                                destination,
+                                file_destination,
                                 extra_args=extra_args,
                                 Callback=Callback
                             )
-                        ))
+                        )
 
                 for future in futures.as_completed(future_collection):
                     exception = future.exception()
-                    if exception:
+                    if exception is not None:
                         raise exception
 
         else:
