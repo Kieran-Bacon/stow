@@ -4,6 +4,7 @@ import os
 
 from .artefacts import Artefact, File, Directory
 from .manager import Manager
+from . import callbacks
 from . import exceptions
 
 # Expose the util functions

@@ -4,6 +4,7 @@ import typing
 import contextlib
 
 from ..artefacts import Artefact, File, Directory
+from ..callbacks import AbstractCallback
 
 class AbstractManager():
     """ The abstract manager interface - outlines and details the methods that should be implemented
@@ -61,17 +62,17 @@ class AbstractManager():
         pass
 
     @abstractmethod
-    def _isLink(file: File):
+    def _isLink(self, file: File):
         """ Check if the file object given is a link/shortcut to another file """
         pass
 
     @abstractmethod
-    def _isMount(directory: Directory):
+    def _isMount(self, directory: Directory):
         """ Check if the file object given is a mount point """
         pass
 
     @abstractmethod
-    def _get(self, source: Artefact, destination: str):
+    def _get(self, source: Artefact, destination: str, *, Callback: typing.Type[AbstractCallback] = None):
         """ Fetch the artefact and downloads its data to the local destination path provided
 
         The existence of the file to collect has already been checked so this function can be written to assume its
@@ -80,6 +81,9 @@ class AbstractManager():
         Args:
             source: The source object and context that is to be downloaded
             destination: The local path to where the source is to be written
+            *,
+            Callback (AbstractCallback) = None: A callback class to be initialised by the
+                downloaded method, and passed bytes transfered counts.
         """
         pass
 
@@ -100,7 +104,14 @@ class AbstractManager():
         pass
 
     @abstractmethod
-    def _put(self, source: str, destination: str):
+    def _put(
+        self,
+        source: Artefact,
+        destination: str,
+        *,
+        metadata: typing.Dict = None,
+        Callback: typing.Type[AbstractCallback] = None
+        ):
         """ Put the local filesystem object onto the underlying manager implementation using the absolute paths given.
 
         To avoid user error - an artefact cannot be placed onto a Directory unless an overwrite toggle has been passed
@@ -112,11 +123,12 @@ class AbstractManager():
         Args:
             source: A local absolute path to an artefact (File or Directory)
             destination: A manager abspath path for the artefact
+            TODO
         """
         pass
 
     @abstractmethod
-    def _putBytes(self, fileBytes: bytes, destination: str):
+    def _putBytes(self, fileBytes: bytes, destination: str, *, Callback: typing.Type[AbstractCallback] = None):
         """ Put the bytes of a file object onto the underlying manager implementation using the absolute path given.
 
         This function allows processes to avoid writing files to disc for speedier transfers.
@@ -127,6 +139,7 @@ class AbstractManager():
         Args:
             fileBytes (bytes): files bytes
             destinationAbsPath (str): Remote absolute path
+            TODO
         """
         pass
 

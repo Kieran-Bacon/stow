@@ -7,10 +7,14 @@ import shutil
 import tempfile
 import mimetypes
 import contextlib
+import datetime
+
+from responses import Call
 
 from .abstract_methods import AbstractManager
 
 from ..artefacts import Artefact, ArtefactType, File, Directory
+from ..callbacks import AbstractCallback
 from .. import _utils as utils
 from .. import exceptions
 
@@ -93,7 +97,7 @@ class Manager(AbstractManager):
                 manager, path = utils.connect("FS"), self._cwd()
 
             elif isinstance(artefact, str):
-                manager, path = utils.parseURL(artefact, default_manager=self)
+                manager, path = utils.parseURL(artefact)
 
             else:
                 raise TypeError(
@@ -136,11 +140,14 @@ class Manager(AbstractManager):
         else:
             obj = None
 
-            if artefact is None:
+            if artefact in [None, '/']:
                 return self, Directory(self, '/'), '/'
 
             elif isinstance(artefact, str):
-                manager, path = utils.parseURL(artefact, default_manager=self)
+                manager, path = utils.parseURL(
+                    artefact,
+                    default_manager=self if type(self) != Manager else None
+                )
 
             else:
                 raise TypeError(
@@ -208,8 +215,8 @@ class Manager(AbstractManager):
         Raises:
             ValueError: Cannot make a remote artefact object's path absolute
         """
-        _, _, path = self._splitManagerArtefactForm(artefact)
-        return os.path.abspath(path)
+        manager, _, path = self._splitManagerArtefactForm(artefact, load=False)
+        return manager._abspath(path)
 
     def basename(self, artefact: typing.Union[Artefact, str]) -> str:
         """ Return the base name of an artefact or path. This is the second element of the pair returned by passing path
@@ -462,12 +469,28 @@ class Manager(AbstractManager):
             artefact: the artefact whose modified datetime is to be returned
 
         Returns:
-            timestamp: a float timestamp of modified time if manager holds such information else None
+            timestamp: a float timestamp of modified time if manager holds such information else
+                None
 
         Raises:
             ArtefactNotFound: If there is no artefact at the location
         """
         return self._splitManagerArtefactForm(artefact)[1].modifiedTime.timestamp()
+
+    def setmtime(
+        self,
+        artefact: typing.Union[Artefact, str],
+        _datetime: typing.Union[float, datetime.datetime]
+        ):
+        """ Update the artefacts modified time
+
+        Args:
+            artefact (Artefact): The artefact to update
+            _datetime (float, datetime): The time to set against the artefact
+        """
+        raise NotImplementedError(
+            f"Managers of type {type(self)} do not support modified time updates"
+        )
 
     def getatime(self, artefact: typing.Union[Artefact, str]) -> typing.Union[float, None]:
         """ Get the accessed time for the artefact as a UTC timestamp
@@ -476,12 +499,28 @@ class Manager(AbstractManager):
             artefact: the artefact whose accessed datetime is to be returned
 
         Returns:
-            timestamp: a float timestamp of accessed time if manager holds such information else None
+            timestamp: a float timestamp of accessed time if manager holds such information else
+                None
 
         Raises:
             ArtefactNotFound: If there is no artefact at the location
         """
         return self._splitManagerArtefactForm(artefact)[1].accessedTime.timestamp()
+
+    def setatime(
+        self,
+        artefact: typing.Union[Artefact, str],
+        _datetime: typing.Union[float, datetime.datetime]
+        ):
+        """ Update the artefacts access time
+
+        Args:
+            artefact (Artefact): The artefact to update
+            _datetime (float, datetime): The time to set against the artefact
+        """
+        raise NotImplementedError(
+            f"Managers of type {type(self)} do not support access time updates"
+        )
 
     def exists(self, artefact: typing.Union[Artefact, str]) -> bool:
         """ Return true if the given artefact is a member of the manager, or the path is correct for the manager and it
@@ -729,7 +768,14 @@ class Manager(AbstractManager):
 
         return hash_md5.hexdigest()
 
-    def get(self, source: typing.Union[Artefact, str], destination: typing.Union[str, None] = None, overwrite: bool = False) -> typing.Union[Artefact, bytes]:
+    def get(
+        self,
+        source: typing.Union[Artefact, str],
+        destination: typing.Union[str, None] = None,
+        *,
+        overwrite: bool = False,
+        Callback: typing.Type[AbstractCallback] = None
+        ) -> typing.Union[Artefact, bytes]:
         """ Get an artefact from a local or remote source and download the artefact either to a local artefact or as bytes
 
         Args:
@@ -764,7 +810,7 @@ class Manager(AbstractManager):
                 os.makedirs(self.dirname(destination), exist_ok=True)
 
             # Get the object using the underlying manager implementation
-            obj.manager._get(obj, destination)
+            obj.manager._get(obj, destination, Callback=Callback)
 
             # Load the downloaded artefact from the local location and return
             return self._localLoad(destination)
@@ -773,7 +819,7 @@ class Manager(AbstractManager):
             if not isinstance(obj, File):
                 raise exceptions.ArtefactTypeError("Cannot get file bytes of {}".format(obj))
 
-            return obj.manager._getBytes(obj)
+            return obj.manager._getBytes(obj, Callback=Callback)
 
     def put(
         self,
@@ -781,7 +827,8 @@ class Manager(AbstractManager):
         destination: typing.Union[Artefact, str],
         overwrite: bool = False,
         *,
-        metadata: typing.Dict[str, str] = None
+        metadata: typing.Dict[str, str] = None,
+        Callback: typing.Type[AbstractCallback] = None
         ) -> Artefact:
         """ Put a local artefact onto the remote at the location given.
 
@@ -809,11 +856,20 @@ class Manager(AbstractManager):
                 )
 
         if isinstance(source, bytes):
-            return destinationManager._putBytes(source, destinationPath, metadata=metadata)
+            return destinationManager._putBytes(
+                source,
+                destinationPath,
+                metadata=metadata,
+                Callback=Callback
+            )
 
         else:
-            with sourceObj.localise() as abspath:
-                return destinationManager._put(abspath, destinationPath, metadata=metadata)
+            return destinationManager._put(
+                sourceObj,
+                destinationPath,
+                metadata=metadata,
+                Callback=Callback
+            )
 
     def cp(
         self,
@@ -1017,9 +1073,10 @@ class Manager(AbstractManager):
 
         # Yield the contents of the directory
         for subArtefact in artobj.manager._ls(artPath):
+            yield subArtefact
+
             if recursive and isinstance(subArtefact, Directory):
                 yield from self.iterls(subArtefact, recursive=recursive)
-            yield subArtefact
 
     def ls(
         self,

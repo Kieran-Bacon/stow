@@ -23,15 +23,14 @@ def find(manager: str) -> typing.Type[Manager]:
     """
     return _utils.find(manager)
 
-def connect(manager: str, *, submanager: str = None, **kwargs) -> typing.Type[Manager]:
+def connect(manager: str, **kwargs) -> typing.Type[Manager]:
     """ Find and connect to a `Manager` using its name (entrypoint name) and return an instance of that `Manager`
     initialised with the kwargs provided. A path can be provided as the location on the manager for a sub manager to be
     created which will be returned instead.
 
     Args:
         manager: The name of the manager class
-        submanager: A path on the manager where a submanager is to be created
-        kwargs: Keyworded arguments to be passed to the Manager init
+        **kwargs: Keyworded arguments to be passed to the Manager init
 
     Returns:
         Manager: A storage manager or sub manager which can be used to put and get artefacts
@@ -43,7 +42,7 @@ def connect(manager: str, *, submanager: str = None, **kwargs) -> typing.Type[Ma
         The stateless interface uses this method as the backend for its functions and as such you can fetch any active
         session by using this function rather than initalising a `Manager` directly
     """
-    return _utils.connect(manager, submanager=submanager, **kwargs)
+    return _utils.connect(manager, **kwargs)
 
 
 

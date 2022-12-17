@@ -3,7 +3,6 @@ import io
 import datetime
 import contextlib
 import typing
-import weakref
 
 from . import _utils as utils
 from . import exceptions
@@ -230,11 +229,6 @@ class File(Artefact):
             handle.write(cont)
 
     @property
-    def modifiedTime(self):
-        """ UTC localised datetime of time file last modified by a write/append method """
-        return self._modifiedTime
-
-    @property
     def createdTime(self):
         """ UTC localised datetime of time file last modified by a write/append method """
         if self._createdTime is None:
@@ -242,11 +236,24 @@ class File(Artefact):
         return self._createdTime
 
     @property
+    def modifiedTime(self):
+        """ UTC localised datetime of time file last modified by a write/append method """
+        return self._modifiedTime
+
+    @modifiedTime.setter
+    def modifiedTime(self, _datetime: typing.Union[float, datetime.datetime]):
+        return self._manager.setmtime(self, _datetime)
+
+    @property
     def accessedTime(self):
         """ UTC localised datetime of time file last modified by a write/append method """
         if self._accessedTime is None:
             return self._modifiedTime
         return self._accessedTime
+
+    @accessedTime.setter
+    def accessedTime(self, _datetime: typing.Union[float, datetime.datetime]):
+        return self._manager.setatime(self, _datetime)
 
     @property
     def digest(self):
@@ -327,14 +334,20 @@ class Directory(Artefact):
     def __iter__(self): return iter(self._contents)
     def __repr__(self): return '<stow.Directory: {}>'.format(self._path)
     def __contains__(self, artefact: typing.Union[Artefact, str]) -> bool:
-        try:
-            manager, obj, _ = self._manager._splitExternalArtefactForm(artefact)
-            return manager._abspath(obj).startswith(self._manager._abspath(self._path))
-            # return type(manager) is type(self._manager) and obj
 
-        except:
-            # Directory cannot contain an artefact that doesn't exist
-            return False
+        if isinstance(artefact, str):
+            return self._manager.exists(
+                self._manager.join(self, artefact, separator='/', joinAbsolutes=True)
+            )
+
+        elif isinstance(artefact, Artefact):
+            return (
+                self._manager == artefact._manager and
+                artefact._path.startswith(self._path)
+            )
+
+        else:
+            raise TypeError(f"Directory ({self}) contains does not support type {type(artefact)} ({artefact})")
 
     @property
     def createdTime(self):
@@ -431,7 +444,11 @@ class Directory(Artefact):
         Yields:
             io.IOBase: An IO object depending on the mode for interacting with the file
         """
-        with self.manager.open(self.manager.join(self._path, self.manager._managerPath(path)[1:], separator='/'), mode, **kwargs) as handle:
+        with self.manager.open(
+            self.manager.join(self._path, path, separator='/', joinAbsolutes=True),
+            mode,
+            **kwargs
+            ) as handle:
             yield handle
 
     def rm(self, path: str = None, recursive: bool = False):
@@ -464,7 +481,46 @@ class Directory(Artefact):
         # Make the content a set and return just this level
         return set(self._contents)
 
-    def ls(self, path: str = None, recursive: bool = False) -> typing.Set[Artefact]:
+    def iterls(
+        self,
+        path: str = None,
+        recursive: bool = False,
+        *,
+        ignore_missing: bool = False
+        ) -> typing.Generator[Artefact, None, Artefact]:
+        """ Create a generator over the contents of this object (or sub-directory)
+
+        Args:
+            path (str) = None: A prefix to objects in this object to be listed
+            recursive (bool) = False: List contents of directories if True
+            *,
+            ignore_missing (bool) = False: Do not raise ArtefactNotFound if target doesn't exist
+
+        Returns:
+            Generator[Artefact]: A generator of artefact objects, generating according to the
+                underlying storage manager
+
+        Raises:
+            ArtefactNoLongerExists: If the directory can no longer be found in the manager, and
+                ignore_missing is False
+        """
+
+        try:
+            return self._manager.iterls(
+                self if path is None else self.manager.join(self.path, path, separator='/'),
+                recursive=recursive,
+                ignore_missing=ignore_missing
+            )
+        except exceptions.ArtefactNotFound as e:
+            raise exceptions.ArtefactNoLongerExists(f"Directory {self} no longer exists") from e
+
+    def ls(
+        self,
+        path: str = None,
+        recursive: bool = False,
+        *,
+        ignore_missing: bool = False
+        ) -> typing.Set[Artefact]:
         """ List the contents of this directory, or directory's directories.
 
         Args:
@@ -473,8 +529,12 @@ class Directory(Artefact):
 
         Returns:
             typing.Set[Artefact]: The collection of objects within the targeted directory
+
+        Raises:
+            ArtefactNoLongerExists: If the directory can no longer be found in the manager, and
+                ignore_missing is False
         """
-        return self._manager.ls(self.path if not path else self.manager.join(self.path, path, separator='/'), recursive=recursive)
+        return set(self.iterls(path, recursive=recursive, ignore_missing=ignore_missing))
 
     def isEmpty(self) -> bool:
         """ Check whether the directory has contents
@@ -482,7 +542,10 @@ class Directory(Artefact):
         Returns:
             bool: True when there is at least one item in the directory False when the directory is empty
         """
-        return not (bool(self._contents) or bool(len(self)))
+        for _ in self._manager.iterls(self._path):
+            return False
+        else:
+            return True
 
     def empty(self):
         """ Empty the directory of contents """
@@ -520,12 +583,18 @@ class PartialArtefact:
             # artefact being created, the artefact was not found meaning that the artefact has since been deleted.
             raise exceptions.ArtefactNoLongerExists("Artefact has been removed") from e
 
-        self.__class__ = type(artefact.__class__.__name__, (artefact.__class__,),{})
-        self.__dict__ = artefact.__dict__
+        object.__setattr__(self, '__class__', type(artefact.__class__.__name__, (artefact.__class__,),{}))
+        object.__setattr__(self, '__dict__', artefact.__dict__)
 
         if attr == "__class__":
             return artefact.__class__
         else:
             return object.__getattribute__(self, attr)
+
+    def __setattr__(self, __name: str, __value: typing.Any) -> None:
+        if __name not in ['_manager', '_path']:
+
+            getattr(self, '_path')
+        object.__setattr__(self, __name, __value)
 
 ArtefactType = typing.Union[File, Directory]

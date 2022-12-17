@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.2.0]
+
+### Added
+
+- Added support for the setting of motified/accessed time on artefacts via the manager and artefact objects.
+- Added `iterls` methods to manager and `Directory` objects for efficient iteration.
+- Add `Callbacks` objects for getting upload and download progression.
+
+### Fixed
+
+-
+
 ## [1.1.6] - 2021-03-04
 
 ### Fixed

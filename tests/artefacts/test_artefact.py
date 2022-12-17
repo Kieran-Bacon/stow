@@ -63,15 +63,9 @@ class Test_Artefacts(BasicSetup, unittest.TestCase):
             {"/directory1", "/file1.txt"}
         )
 
-        file.basename = '/another_directory/file1.txt'
-
-        self.assertEqual(
-            {art.path for art in self.manager.ls(recursive=True)},
-            {"/directory1", "/another_directory/file1.txt", '/another_directory'}
-        )
 
         # Directory changes
-
+        self.manager.touch("/another_directory/file1.txt")
         directory = self.manager["/another_directory"]
 
         self.assertEqual(directory.basename, "another_directory")
@@ -80,14 +74,7 @@ class Test_Artefacts(BasicSetup, unittest.TestCase):
 
         self.assertEqual(
             {art.path for art in self.manager.ls(recursive=True)},
-            {"/directory1", "/something_else/file1.txt", '/something_else'}
-        )
-
-        directory.basename = "something_else_again/with_level"
-
-        self.assertEqual(
-            {art.path for art in self.manager.ls(recursive=True)},
-            {"/directory1", "/something_else_again/with_level/file1.txt", '/something_else_again', "/something_else_again/with_level"}
+            {"/directory1", "/something_else/file1.txt", '/something_else', '/file1.txt'}
         )
 
     def test_name(self):
@@ -119,7 +106,7 @@ class Test_Artefacts(BasicSetup, unittest.TestCase):
 
         self.assertEqual(
             {art.path for art in self.manager.ls(recursive=True)},
-            {"/directory1", "/file1-changed.txt", '/something_else_again', "/something_else_again/with_level"}
+            {"/directory1", "/file1-changed.txt", '/with_level'}
         )
 
     def test_manager(self):

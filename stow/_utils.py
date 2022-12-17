@@ -71,7 +71,7 @@ def find(manager: str):
     return mClass
 
 @initCache
-def connect(manager: str, *, submanager: str = None, **kwargs):
+def connect(manager: str, **kwargs):
     """ Find and connect to a `Manager` using its name (entrypoint name) and return an instance of that `Manager`
     initialised with the kwargs provided. A path can be provided as the location on the manager for a sub manager to be
     created which will be returned instead.
@@ -91,10 +91,6 @@ def connect(manager: str, *, submanager: str = None, **kwargs):
         The stateless interface uses this method as the backend for its functions and as such you can fetch any active
         session by using this function rather than initalising a `Manager` directly
     """
-
-    if submanager is not None:
-        # Create the initial manager and return a sub-manager
-        return connect(manager, **kwargs).submanager(submanager)
 
     # Find the class for the manager
     mClass = find(manager)

@@ -4,6 +4,7 @@ import abc
 import typing
 import tempfile
 import contextlib
+import datetime
 
 from ..artefacts import Artefact
 from .manager import Manager
@@ -11,6 +12,33 @@ from .manager import Manager
 class LocalManager(Manager, abc.ABC):
     """ Abstract Base Class for managers that will be working with local artefacts.
     """
+
+    def _setArtefactTimes(self, path: str, modified_time: float, accessed_time: float) -> None:
+        return os.utime(path, (accessed_time, modified_time))
+
+    def setmtime(
+        self,
+        artefact: typing.Union[Artefact, str],
+        _datetime: typing.Union[float, datetime.datetime]
+        ):
+        _, obj, _ = self._splitManagerArtefactForm(artefact)
+        return self._setArtefactTimes(
+            obj.abspath,
+            _datetime if isinstance(_datetime, float) else _datetime.timestamp(),
+            obj.accessedTime
+        )
+
+    def setatime(
+        self,
+        artefact: typing.Union[Artefact, str],
+        _datetime: typing.Union[float, datetime.datetime]
+        ):
+        _, obj, _ = self._splitManagerArtefactForm(artefact)
+        return self._setArtefactTimes(
+            obj.abspath,
+            obj.modifiedTime,
+            _datetime if isinstance(_datetime, float) else _datetime.timestamp(),
+        )
 
     @contextlib.contextmanager
     def localise(self, artefact: typing.Union[Artefact, str]):

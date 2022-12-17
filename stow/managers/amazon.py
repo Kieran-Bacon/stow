@@ -1,5 +1,4 @@
-import boto3
-from botocore.exceptions import ClientError
+""" The implementation of Amazon's S3 storage manager for stow """
 
 import os
 import re
@@ -8,7 +7,12 @@ import typing
 import urllib.parse
 import enum
 import mimetypes
+import datetime
+import concurrent.futures as futures
+
 from tqdm import tqdm
+import boto3
+from botocore.exceptions import ClientError
 
 from ..artefacts import Artefact, File, Directory
 from ..manager import RemoteManager
@@ -29,6 +33,7 @@ class Amazon(RemoteManager):
     # Define regex for the object key
     _LINE_SEP = "/"
     _S3_OBJECT_KEY = re.compile(r"^[a-zA-Z0-9!_.*'()\- ]+(/[a-zA-Z0-9!_.*'()\- ]+)*$")
+    _S3_DISALLOWED_CHARACTERS = "{}^%`]'`\"<>[~#|"
 
     class StorageClass(enum.Enum):
         STANDARD = 'STANDARD'
@@ -80,29 +85,30 @@ class Amazon(RemoteManager):
 
     def _abspath(self, managerPath: str) -> str:
 
-        params = {}
-        if self._aws_access_key_id:
-            params = {
-                "aws_access_key_id": self._aws_access_key_id,
-                "aws_secret_access_key": self._aws_secret_access_key,
-                "aws_session_token": self._aws_session_token,
-                "region_name": self._region_name,
-            }
-
         return urllib.parse.ParseResult(
                 's3',
                 self._bucketName,
                 managerPath,
-                params,
+                {},
                 '',
                 ''
             ).geturl()
 
     def _managerPath(self, managerPath: str) -> str:
-        """ Difference between AWS and manager path is the removal of a leading '/'. As such remove the first character
+        """ Difference between AWS and manager path is the removal of a leading '/'. As such remove
+        the first character
         """
-        abspath = managerPath.strip("/")
-        assert not abspath or self._S3_OBJECT_KEY.match(abspath) is not None, "artefact name isn't accepted by S3: {}".format(abspath)
+        abspath = managerPath.replace("\\", "/").strip("/")
+        if (
+            abspath and
+            # self._S3_OBJECT_KEY.match(abspath) is None
+            any(c in self._S3_DISALLOWED_CHARACTERS for c in abspath)
+            ):
+            raise ValueError(
+                f"Path '{managerPath}' cannot be converted into a s3 accepted key -"
+                f" regex {self._S3_OBJECT_KEY.pattern}"
+            )
+
         return abspath
 
     def _identifyPath(self, managerPath: str) -> typing.Union[Artefact, None]:
@@ -125,15 +131,25 @@ class Amazon(RemoteManager):
                 digest=response['ETag'].strip('"')
             )
 
-        except:
-            resp = self._s3.list_objects(Bucket=self._bucketName, Prefix=key+'/', Delimiter='/',MaxKeys=1)
-            if "Contents" in resp or "CommonPrefixes" in resp:
-                return Directory(self, key)
+        except ClientError as e:
+            if e.response['ResponseMetadata']['HTTPStatusCode'] == 404:
+                # No file existed with the given key - check if directory
 
-            return None
+                resp = self._s3.list_objects(
+                    Bucket=self._bucketName,
+                    Prefix=key and key+'/',
+                    Delimiter='/',
+                    MaxKeys=1
+                )
+                if "Contents" in resp or "CommonPrefixes" in resp:
+                    return Directory(self, key)
 
-    def _exists(self, abspath: str):
-        return self._identifyPath(abspath) is not None
+                return None
+
+            raise
+
+    def _exists(self, managerPath: str):
+        return self._identifyPath(managerPath) is not None
 
     def _metadata(self, managerPath: str) -> typing.Dict[str, str]:
         key = self._managerPath(managerPath)
@@ -146,21 +162,181 @@ class Amazon(RemoteManager):
 
             return response.get('Metadata', {})
 
-        except:
-            raise exceptions.ArtefactNotAvailable(f'Failed to fetch metadata information for {key}')
+        except ClientError as e:
+            if e.response['ResponseMetadata']['HTTPStatusCode'] == 404:
+                raise exceptions.ArtefactNoLongerExists(
+                    f'Failed to fetch metadata information for {key}'
+                )
 
-    def _isLink(self, abspath: str):
+            raise
+
+    def _isLink(self, _: str):
         return False
 
-    def _isMount(self, abspath: str):
+    def _isMount(self, _: str):
         return False
+
+    def _get(self, source: Artefact, destination: str, *, Callback = None):
+
+        # Convert manager path to s3
+        keyName = self._managerPath(source.path)
+
+        # If the source object is a directory
+        if isinstance(source, Directory):
+
+            with futures.ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+
+                future_collection = []
+
+                # Loop through all objects under that prefix and create them locally
+                for artefact in self._ls(keyName, recursive=True):
+
+                    # Get the objects relative path to the directory
+                    relativePath = self.relpath(artefact.path, keyName)
+
+                    # Create object absolute path locally
+                    path = os.path.join(destination, relativePath)
+
+                    # Ensure the directory for that object
+                    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+                    # Download the artefact to that location
+                    if isinstance(artefact, File):
+
+                        future = executor.submit(
+                            self._s3.download_file,
+                            self._bucketName,
+                            artefact.path,
+                            path,
+                            Callback=Callback and Callback(artefact, is_downloading=True)
+                        )
+                        future_collection.append(future)
+
+                for future in futures.as_completed(future_collection):
+                    exception = future.exception()
+                    if exception:
+                        raise exception
+
+        else:
+            self._s3.download_file(
+                self._bucketName,
+                keyName,
+                destination,
+                Callback=Callback and Callback(source, is_downloading=True)
+            )
+
+    def _getBytes(self, source: Artefact) -> bytes:
+
+        # Get buffer to recieve bytes
+        bytes_buffer = io.BytesIO()
+
+        # Fetch the file bytes and write them to the buffer
+        self._s3.download_fileobj(
+            Bucket=self._bucketName,
+            Key=self._managerPath(source.path),
+            Fileobj=bytes_buffer
+        )
+
+        # Return the bytes stored in the buffer
+        return bytes_buffer.getvalue()
+
+    def _localise_put_file(
+        self,
+        source: File,
+        destination: str,
+        extra_args: typing.Dict,
+        Callback = None
+        ):
+
+        with source.localise() as abspath:
+            self._s3.upload_file(
+                abspath,
+                self._bucketName,
+                self._managerPath(destination),
+                ExtraArgs={
+                    "StorageClass": self._storageClass.value,
+                    "ContentType": (mimetypes.guess_type(destination)[0] or 'application/octet-stream'),
+                    **extra_args
+                },
+                Callback=Callback and Callback(source, is_downloading=False)
+            )
+
+    def _put(self, source: Artefact, destination: str, *, metadata = None, Callback = None):
+
+        # Setup metadata about the objects being put
+        extra_args = {}
+        if metadata is not None:
+            extra_args['Metadata'] = {str(k): str(v) for k, v in metadata.items()}
+
+        if isinstance(source, Directory):
+
+            # Create a thread pool to upload multiple files in parralell
+            with futures.ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+                future_collection = []
+
+                for artefact in source.ls(recursive=True):
+                    if isinstance(artefact, File):
+
+                        destination = self.join(
+                            destination,
+                            source.relpath(artefact),
+                            separator='/'
+                        )
+
+                        future_collection.append(executor.submit(
+                            self._localise_put_file(
+                                artefact,
+                                destination,
+                                extra_args=extra_args,
+                                Callback=Callback
+                            )
+                        ))
+
+                for future in futures.as_completed(future_collection):
+                    exception = future.exception()
+                    if exception:
+                        raise exception
+
+        else:
+
+            self._localise_put_file(
+                source,
+                destination,
+                extra_args=extra_args,
+                Callback=Callback
+            )
+
+    def _putBytes(
+        self,
+        fileBytes: bytes,
+        destination: str,
+        *,
+        metadata: typing.Dict[str, str] = None,
+        Callback = None
+        ):
+
+        self._s3.upload_fileobj(
+            io.BytesIO(fileBytes),
+            self._bucketName,
+            self._managerPath(destination),
+            ExtraArgs={
+                "StorageClass": self._storageClass.value,
+                "ContentType": (mimetypes.guess_type(destination)[0] or 'application/octet-stream'),
+                "Metadata": ({str(k): str(v) for k, v in metadata.items()} if metadata else {})
+            },
+            Callback=Callback and Callback(File(self, destination, len(fileBytes), datetime.datetime.now(tz=datetime.timezone.utc)), is_downloading=False)
+        )
 
     def _list_objects(self, bucket: str, key: str, delimiter: str = ""):
+
+        if key:
+            key += '/'
+
         marker = ""
         while True:
             response = self._s3.list_objects(
                 Bucket=bucket,
-                Prefix=key + '/',
+                Prefix=key,
                 Marker=marker,
                 Delimiter=delimiter
             )
@@ -172,126 +348,6 @@ class Amazon(RemoteManager):
                 break
 
             marker = response['NextMarker']
-
-    def _get(self, source: Artefact, destination: str):
-
-        # Convert manager path to s3
-        keyName = self._managerPath(source.path)
-
-        # If the source object is a directory
-        if isinstance(source, Directory):
-
-            # Loop through all objects under that prefix and create them locally
-            for artefact in self._ls(keyName):
-
-                # Get the objects relative path to the directory
-                relativePath = self.relpath(artefact.path, keyName)
-
-                # Create object absolute path locally
-                path = os.path.join(destination, relativePath)
-
-                # Ensure the directory for that object
-                os.makedirs(os.path.dirname(path), exist_ok=True)
-
-                # Download the artefact to that location
-                if isinstance(artefact, File):
-                    self._s3.download_file(
-                        self._bucketName,
-                        artefact.path,
-                        path
-                    )
-
-                else:
-                    # Recursively get the child directory
-                    self._get(artefact, path)
-
-        else:
-            self._s3.download_file(
-                self._bucketName,
-                keyName,
-                destination
-            )
-            # self._bucket.download_file(keyName, destination)
-
-    def _getBytes(self, source: Artefact) -> bytes:
-
-        # Get buffer to recieve bytes
-        bytes_buffer = io.BytesIO()
-
-        # Fetch the file bytes and write them to the buffer
-        self._s3.download_fileobj(Bucket=self._bucketName, Key=self._managerPath(source.path), Fileobj=bytes_buffer)
-
-        # Return the bytes stored in the buffer
-        return bytes_buffer.getvalue()
-
-    def _upload_file(self, path: str, key: str):
-        """ Wrapper for the boto3 upload_file method to load the file content types """
-
-        self._bucket.upload_file(
-            path,
-            key,
-            ExtraArgs = {
-                'StorageClass': self._storageClass.value,
-                'ContentType': (mimetypes.guess_type(path)[0] or 'application/octet-stream')
-            }
-        )
-
-
-    def _put(self, source: str, destination: str, metadata = None):
-
-        # TODO metadata not implemented
-
-        # destination = self._abspath(destination)
-
-        if os.path.isdir(source):
-            # A directory of items is to be uploaded - walk local directory and uploaded each file
-
-            sourcePathLength = len(source) + 1
-
-            for root, dirs, files in os.walk(source):
-
-                dRoot = self.join(destination, root[sourcePathLength:], separator='/')
-
-                if not (dirs or files):
-                    # There are no sub-directories or files to be uploaded
-                    placeholder_path = self.join(dRoot, self._PLACEHOLDER, separator='/')
-                    self._bucket.put_object(Key=placeholder_path, Body=b'', StorageClass=self._storageClass.value)
-                    continue
-
-                # For each file at this point - construct their local absolute path and their relative remote path
-                for file in files:
-                    self._upload_file(os.path.join(root, file), self.join(dRoot, file, separator='/'))
-
-        else:
-            # Putting a file
-
-            self._s3.upload_file(
-                source,
-                self._bucketName,
-                self._managerPath(destination),
-                ExtraArgs={
-                    "StorageClass": self._storageClass.value,
-                    "ContentType": (mimetypes.guess_type(destination)[0] or 'application/octet-stream'),
-                    "Metadata": ({str(k): str(v) for k, v in metadata.items()} if metadata else {})
-                }
-            )
-
-    def _putBytes(self, fileBytes: bytes, destination: str, *, metadata: typing.Dict[str, str] = None):
-
-        self._s3.put_object(
-            Bucket=self._bucketName,
-            Key=self._managerPath(destination),
-            Body=fileBytes,
-            StorageClass=self._storageClass.value,
-            ContentType=(mimetypes.guess_type(destination)[0] or 'application/octet-stream'),
-            Metadata=({str(k): str(v) for k, v in metadata.items()} if metadata else {})
-        )
-
-    def _cpFile(self, source, destination):
-        self._bucket.Object(destination).copy_from(
-            CopySource={'Bucket': self._bucketName, 'Key': source},
-            ContentType=(mimetypes.guess_type(destination)[0] or 'application/octet-stream')
-        )
 
     def _cp(self, source: Artefact, destination: str):
 
@@ -369,9 +425,11 @@ class Amazon(RemoteManager):
                 Key=sourcePath
             )
 
-    def _ls(self, directory: str):
+    def _ls(self, directory: str, recursive: bool = False):
 
-        key = self._managerPath(directory) + '/'
+        key = self._managerPath(directory)
+        if key:
+            key += '/'
 
         marker = ""
         while True:
@@ -399,50 +457,13 @@ class Amazon(RemoteManager):
             for prefix in response.get('CommonPrefixes', []):
                 yield Directory(self, prefix['Prefix'])
 
+                if recursive:
+                    yield from self._ls(prefix['Prefix'], True)
+
             if not response['IsTruncated']:
                 return
 
             marker = response['NextMarker']
-
-        if directory != "/":
-            key = self._abspath(directory) + "/"
-
-        else:
-            key = ""
-
-        # Create a pagination that looks specifically at the manager path given
-        pages = self._clientPaginator.paginate(
-            Bucket=self._bucketName,
-            Prefix=key,
-            Delimiter="/"
-        )
-
-        # Iterate over the pages
-        for page in pages:
-            if page is None:
-                break
-
-            # Check To see if there are any files with the given name
-            if "Contents" in page:
-                # There are files that lead with the manager path given
-                for file in page["Contents"]:
-
-                    if self.basename(file["Key"]) == self._PLACEHOLDER:
-                        # Don't list placeholders
-                        continue
-
-                    self._addArtefact(
-                        File(
-                            self,
-                            "/" + file["Key"],
-                            modifiedTime=file["LastModified"],
-                            size=file["Size"]
-                        )
-                    )
-
-            if "CommonPrefixes" in page:
-                for directory in page["CommonPrefixes"]:
-                    self._addArtefact(Directory(self, "/" + directory["Prefix"][:-1]))
 
     def _rm(self, artefact: Artefact):
 
