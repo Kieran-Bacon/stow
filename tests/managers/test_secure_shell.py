@@ -13,12 +13,12 @@ import stow
 from stow.managers import SSH
 
 from .. import ETC_DIR
-from .manager import ManagerTests, SubManagerTests
+from .manager import ManagerTests
 
 CONFIG_PATH = os.path.join(ETC_DIR, 'ssh_credentials.ini')
 
 @unittest.skipIf(True or not os.path.exists(CONFIG_PATH), 'No credentials at {} to connect to an SSH server'.format(CONFIG_PATH))
-class Test_SecureShell(unittest.TestCase, ManagerTests, SubManagerTests):
+class Test_SecureShell(unittest.TestCase, ManagerTests):
 
     def setUp(self):
 

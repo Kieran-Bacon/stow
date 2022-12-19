@@ -10,9 +10,9 @@ import time
 import stow
 from stow.managers import FS
 
-from .manager import ManagerTests, SubManagerTests
+from .manager import ManagerTests
 
-class Test_Filesystem(unittest.TestCase, ManagerTests, SubManagerTests):
+class Test_Filesystem(unittest.TestCase, ManagerTests):
 
     def setUp(self):
         # Make the managers local space to store files
