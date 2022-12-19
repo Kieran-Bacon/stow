@@ -189,6 +189,17 @@ class Manager(AbstractManager):
         """ Load a local file in without having to parse the path """
         return utils.connect(manager="FS")[path]
 
+    def manager(self, artefact: typing.Union[Artefact, str]) -> 'Manager':
+        """ Fetch the manager object for the artefact
+
+        Params:
+            artefact: The artefact whose manager is to be returned
+
+        Returns:
+            Manager: The Manager that produced the artefact
+        """
+        return self._splitManagerArtefactForm(artefact)[0]
+
     def artefact(self, path: str) -> Artefact:
         """ Fetch an artefact object for the given path
 
@@ -890,7 +901,7 @@ class Manager(AbstractManager):
         """
 
         # Load the source object that is to be copied
-        _, sourceObj, sourcePath = self._splitExternalArtefactForm(source)
+        _, sourceObj, sourcePath = self._splitManagerArtefactForm(source)
         destinationManager, destinationObj, destinationPath = self._splitManagerArtefactForm(destination, require=False)
 
         # Prevent the overwriting of a directory without permission
@@ -952,7 +963,7 @@ class Manager(AbstractManager):
         """
 
         manager, obj, _ = self._splitManagerArtefactForm(artefact)
-        if isinstance(obj, Directory) and not recursive:
+        if isinstance(obj, Directory) and not recursive and not obj.isEmpty():
             raise exceptions.OperationNotPermitted(
                 "Cannot delete a container object that isn't empty - set recursive to True to proceed"
             )

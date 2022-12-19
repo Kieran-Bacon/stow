@@ -19,6 +19,7 @@ env = os.environ
 # Create the stateless manager
 Manager = Manager()
 
+manager = Manager.manager
 artefact = Manager.artefact
 abspath = Manager.abspath
 basename = Manager.basename
