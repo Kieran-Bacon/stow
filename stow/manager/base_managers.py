@@ -25,7 +25,7 @@ class LocalManager(Manager, abc.ABC):
         return self._setArtefactTimes(
             obj.abspath,
             _datetime if isinstance(_datetime, float) else _datetime.timestamp(),
-            obj.accessedTime
+            obj.accessedTime.timestamp()
         )
 
     def setatime(
@@ -36,7 +36,7 @@ class LocalManager(Manager, abc.ABC):
         _, obj, _ = self._splitManagerArtefactForm(artefact)
         return self._setArtefactTimes(
             obj.abspath,
-            obj.modifiedTime,
+            obj.modifiedTime.timestamp(),
             _datetime if isinstance(_datetime, float) else _datetime.timestamp(),
         )
 

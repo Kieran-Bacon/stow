@@ -8,8 +8,7 @@ import tempfile
 import mimetypes
 import contextlib
 import datetime
-
-from responses import Call
+import hashlib
 
 from .abstract_methods import AbstractManager
 
@@ -67,6 +66,9 @@ class Manager(AbstractManager):
 
     def __reduce__(self):
         return (ManagerReloader, (self.toConfig(),))
+
+    def _ensurePath(self, artefact: typing.Tuple[Artefact, str, None]):
+        return artefact.path if isinstance(artefact, Artefact) else artefact
 
     def _splitExternalArtefactForm(
         self,
@@ -256,7 +258,7 @@ class Manager(AbstractManager):
         Returns:
             str: the extension e.g. /hello/there.txt => txt
         """
-        _, path = self._splitArtefactUnionForm(artefact)
+        path = self._ensurePath(artefact)
         basename = os.path.basename(path)
         index = basename.rfind('.')
         if index != -1:
@@ -928,10 +930,10 @@ class Manager(AbstractManager):
         destinationManager, destinationObj, destinationPath = self._splitManagerArtefactForm(destination, require=False)
 
         # Prevent the overwriting of a directory without permission
-        if destinationObj is not None and isinstance(destinationObj, Directory):
-            if not overwrite:
+        if destinationObj is not None:
+            if isinstance(destinationObj, Directory) and not overwrite:
                 raise exceptions.OperationNotPermitted("Cannot replace directory without passing overwrite True")
-            destinationManager._rm(destinationPath)
+            destinationManager._rm(destinationObj)
 
         # Check if the source and destination are from the same manager class
         if type(sourceObj._manager) == type(destinationManager) and not sourceObj._manager.ISOLATED:
