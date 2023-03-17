@@ -8,6 +8,7 @@ import tempfile
 import datetime
 
 import stow
+from stow.managers import FS
 
 from . import BasicSetup
 
@@ -207,3 +208,30 @@ class Test_Files(BasicSetup, unittest.TestCase):
 
         self.assertEqual(hydrated._manager, self.manager)
         self.assertEqual(file, hydrated)
+
+    def test_content_type(self):
+
+        with open(os.path.join(self.directory, 'video.mp4'), 'w') as handle:
+            handle.write('data')
+
+        manager = FS(self.directory)
+        self.assertEqual('video/mp4', manager['/video.mp4'].content_type)
+
+    def test_update_modified_time(self):
+
+        # Write the file data
+        with open(os.path.join(self.directory, 'file.txt'), 'w') as handle:
+            handle.write('data')
+
+        # Fetch the file
+        manager = FS(self.directory)
+        file = manager['/file.txt']
+        original_modified_time = file.modifiedTime
+
+        new_modified_time = datetime.datetime(2022, 10, 10).timestamp()
+
+        file.modifiedTime = new_modified_time
+
+        self.assertNotEqual(original_modified_time, file.modifiedTime)
+        self.assertEqual(new_modified_time, file.modifiedTime)
+

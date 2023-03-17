@@ -9,14 +9,17 @@ import enum
 import mimetypes
 import datetime
 import concurrent.futures as futures
+import logging
 
 from tqdm import tqdm
 import boto3
 from botocore.exceptions import ClientError
 
-from ..artefacts import Artefact, PartialArtefact, File, Directory
+from ..artefacts import Artefact, PartialArtefact, File, Directory, HashingAlgorithm
 from ..manager import RemoteManager
 from .. import exceptions
+
+log = logging.getLogger(__name__)
 
 class Amazon(RemoteManager):
     """ Connect to an amazon s3 bucket using an IAM user credentials or environment variables
@@ -100,7 +103,8 @@ class Amazon(RemoteManager):
 
         super().__init__()
 
-    def __repr__(self): return '<Manager(S3): {}>'.format(self._bucketName)
+    def __repr__(self):
+        return f'<Manager(S3): {self._bucketName}>'
 
     def _abspath(self, managerPath: str) -> str:
 
@@ -142,6 +146,13 @@ class Amazon(RemoteManager):
                 Key=key
             )
 
+            log.debug('Head %s: %s', key, response)
+
+            # TODO
+            # The ETag of multipart uploads is not MD5 - each part has a md5 calculated and then
+            # they are concaticated before they are MD5'd for the final etag. It is then followed
+            # by a -xxxx that stored the number of parts that made up the upload.
+
             return File(
                 self,
                 '/' + key,
@@ -149,7 +160,9 @@ class Amazon(RemoteManager):
                 size=response['ContentLength'],
                 metadata=response['Metadata'],
                 content_type=response['ContentType'],
-                digest=response['ETag'].strip('"')
+                digest={
+                    HashingAlgorithm.MD5: response['ETag'].strip('"')
+                }
             )
 
         except ClientError as e:
@@ -190,6 +203,33 @@ class Amazon(RemoteManager):
                 )
 
             raise
+
+    def _digest(self, file: File, algorithm: HashingAlgorithm):
+
+        if algorithm is HashingAlgorithm.MD5:
+            # The MD5 is downloaded and set at File creation - the object will have it set to return
+            return file.digest(algorithm=algorithm)
+
+        else:
+
+            checksums = self._s3.get_object_attributes(
+                Bucket=self._bucketName,
+                Key=self._managerPath(file.path),
+                ObjectAttributes=['Checksum']
+            )
+
+            log.debug(f'Checksums collected for {file.path}: {checksums}')
+
+            if algorithm is HashingAlgorithm.CRC32:
+                return checksums['ChecksumCRC32']
+            elif algorithm is HashingAlgorithm.CRC32C:
+                return checksums['ChecksumCRC32C']
+            elif algorithm is HashingAlgorithm.SHA1:
+                return checksums['ChecksumSHA1']
+            elif algorithm is HashingAlgorithm.SHA256:
+                return checksums['ChecksumSHA256']
+            else:
+                raise NotImplementedError(f'Amazon does not provide {algorithm} hashing')
 
     def _isLink(self, _: str):
         return False
@@ -471,7 +511,9 @@ class Amazon(RemoteManager):
                     '/' + metadata['Key'],
                     modifiedTime=metadata['LastModified'],
                     size=metadata['Size'],
-                    digest=metadata['ETag'].strip('"')
+                    digest={
+                        HashingAlgorithm.MD5: metadata['ETag'].strip('"')
+                    }
                 )
 
             else:

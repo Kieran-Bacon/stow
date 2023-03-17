@@ -3,9 +3,17 @@ import io
 import datetime
 import contextlib
 import typing
+import enum
 
 from . import _utils as utils
 from . import exceptions
+
+class HashingAlgorithm(enum.Enum):
+    MD5 = enum.auto()
+    CRC32 = enum.auto()
+    CRC32C = enum.auto()
+    SHA1 = enum.auto()
+    SHA256 = enum.auto()
 
 class ArtefactReloader:
     def __new__(self, config, path):
@@ -152,7 +160,7 @@ class File(Artefact):
         metadata: typing.Dict[str, str] = None,
         createdTime: datetime.datetime = None,
         accessedTime: datetime.datetime = None,
-        digest: str = None,
+        digest: typing.Dict[HashingAlgorithm, str] = None,
         isLink: bool = None
         ):
         super().__init__(manager, path)
@@ -163,7 +171,7 @@ class File(Artefact):
         self._createdTime = createdTime  # Time the artefact was physically created
         self._modifiedTime = modifiedTime  # Time the artefact was last modified via the os
         self._accessedTime = accessedTime  # Time the artefact was last accessed
-        self._digest = digest  # A signature for the file content
+        self._digest = digest or {}  # A signature for the file content
         self._isLink = isLink
 
     def __len__(self): return self.size
@@ -255,17 +263,14 @@ class File(Artefact):
     def accessedTime(self, _datetime: typing.Union[float, datetime.datetime]):
         return self._manager.setatime(self, _datetime)
 
-    @property
-    def digest(self):
+    def digest(self, algorithm: HashingAlgorithm = HashingAlgorithm.MD5):
         """ Get the file digest to verify validaty - if a manager does not have it's own method of creatin file digests
         the md5 checksum will be used for the file contents.
         """
+        if algorithm not in self._digest:
+            self._digest[algorithm] = self._manager.digest(self, algorithm)
 
-        if not self._digest:
-            with self.localise() as abspath:
-                self._digest = self.manager.md5(abspath)
-
-        return self._digest
+        return self._digest[algorithm]
 
     @property
     def size(self):
@@ -294,12 +299,6 @@ class File(Artefact):
         """ Context manager to allow the pulling down and opening of a file """
         with self._manager.open(self, mode, **kwargs) as handle:
             yield handle
-
-    def _update(self, other: Artefact):
-        self._createdTime = other._createdTime
-        self._modifiedTime = other._modifiedTime
-        self._accessedTime = other._accessedTime
-        self._size = other._size
 
 class Directory(Artefact):
     """ A directory represents an local filesystems directory or folder. Directories hold references to other
@@ -551,14 +550,6 @@ class Directory(Artefact):
         """ Empty the directory of contents """
         for artefact in self.ls():
             self._manager.rm(artefact, recursive=True)
-
-    def _update(self, other: 'Directory'):
-
-        self._contents = self._contents.union(other._contents)
-        self._createdTime = other._createdTime
-        self._modifiedTime = other._modifiedTime
-        self._accessedTime = other._accessedTime
-        self._collected = False
 
 class PartialArtefact:
 

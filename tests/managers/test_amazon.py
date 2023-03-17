@@ -5,6 +5,9 @@ import os
 import io
 import tempfile
 
+import hashlib
+import zlib
+
 import unittest
 import pytest
 from moto import mock_s3
@@ -560,6 +563,49 @@ class Test_Amazon(unittest.TestCase):
             'region_name': 'eu-west-2',
             'profile_name': 'default',
             }, manager.toConfig())
+
+    def test_digest_md5(self):
+
+        self.s3.put_object(
+            Bucket="bucket_name",
+            Key="file-1.txt",
+            Body=b"Content"
+        )
+
+        manager = Amazon('bucket_name')
+
+        art_checksum = manager['/file-1.txt'].digest(stow.HashingAlgorithm.MD5)
+        man_checksum = manager.digest('/file-1.txt', stow.HashingAlgorithm.MD5)
+        md5_checksum = hashlib.md5(b"Content").hexdigest()
+
+        self.assertEqual(art_checksum, man_checksum)
+        self.assertEqual(md5_checksum, man_checksum)
+
+    def test_digest_crc32(self):
+
+        self.s3.put_object(
+            Bucket="bucket_name",
+            Key="file-1.txt",
+            Body=b"Content",
+            # ChecksumAlgorithm="CRC32"
+        )
+
+        response = self.s3.get_object_attributes(
+            Bucket='bucket_name',
+            Key='file-1.txt',
+            ObjectAttributes=[]
+        )
+
+        manager = Amazon('bucket_name')
+
+        art_checksum = manager['/file-1.txt'].digest(stow.HashingAlgorithm.CRC32)
+        man_checksum = manager.digest('/file-1.txt', stow.HashingAlgorithm.CRC32)
+        crc32_checksun = zlib.crc32(b'Content')
+
+
+        self.assertEqual(art_checksum, man_checksum)
+        self.assertEqual(crc32_checksun, man_checksum)
+
 
 
 
