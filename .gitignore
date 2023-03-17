@@ -1,12 +1,14 @@
+.DS_store
 .vscode
 .pytest_cache
+build
 pyenv
 *venv*
 
 *.egg-info
 *.pyc
 
-.coverage
+.coverage*
 htmlcov
 aws_credentials.ini
 ssh_credentials.ini

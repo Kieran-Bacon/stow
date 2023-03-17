@@ -2,7 +2,7 @@ __version__ = "1.1.6"
 
 import os
 
-from .artefacts import Artefact, File, Directory
+from .artefacts import Artefact, File, Directory, HashingAlgorithm
 from .manager import Manager
 from . import callbacks
 from . import exceptions
@@ -19,6 +19,7 @@ env = os.environ
 # Create the stateless manager
 Manager = Manager()
 
+manager = Manager.manager
 artefact = Manager.artefact
 abspath = Manager.abspath
 basename = Manager.basename
@@ -61,6 +62,7 @@ get = Manager.get
 put = Manager.put
 cp = Manager.cp
 mv = Manager.mv
+digest = Manager.digest
 sync = Manager.sync
 rm = Manager.rm
 supports_unicode_filenames = os.path.supports_unicode_filenames

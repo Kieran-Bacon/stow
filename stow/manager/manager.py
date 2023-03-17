@@ -12,7 +12,7 @@ import hashlib
 
 from .abstract_methods import AbstractManager
 
-from ..artefacts import Artefact, ArtefactType, File, Directory
+from ..artefacts import Artefact, PartialArtefact, File, Directory, HashingAlgorithm
 from ..callbacks import AbstractCallback
 from .. import _utils as utils
 from .. import exceptions
@@ -39,9 +39,6 @@ class Manager(AbstractManager):
     _MULTI_SEP_REGEX = re.compile(r"(\\{2,})|(\/{2,})")
     _RELPATH_REGEX = re.compile(r"^([a-zA-Z0-9]+:)?([/\\\w\.!-_*'() ]*)$")
 
-    def __init__(self):
-        self._submanagers = {}
-
     def __contains__(self, artefact: typing.Union[Artefact, str]) -> bool:
         return self.exists(artefact)
 
@@ -67,7 +64,14 @@ class Manager(AbstractManager):
     def __reduce__(self):
         return (ManagerReloader, (self.toConfig(),))
 
-    def _ensurePath(self, artefact: typing.Union[Artefact, str, None]):
+    def _ensurePath(self, artefact: typing.Union[Artefact, str, None]) -> str:
+        """ Collapse artefact into path - Convert an artefact into a path or return. This returns
+        the manager relative path instead. To be used when the response is to be in turns of the
+        manager. For simple checks, artefacts can be used directly (which uses the abspath)
+
+        Args:
+            artefact: The artefact to be ensured is a path str
+        """
         return artefact.path if isinstance(artefact, Artefact) else artefact
 
     def _splitExternalArtefactForm(
@@ -90,7 +94,7 @@ class Manager(AbstractManager):
         """
 
         if isinstance(artefact, Artefact):
-            return artefact._manager, artefact, artefact.path
+            return artefact.manager, artefact, artefact.path
 
         else:
             obj = None
@@ -102,8 +106,9 @@ class Manager(AbstractManager):
                 manager, path = utils.parseURL(artefact)
 
             else:
+                t = type(artefact)
                 raise TypeError(
-                    "Artefact reference must be either `stow.Artefact` or string not type {}".format(type(artefact))
+                    f"Artefact reference must be either `stow.Artefact` or string not type {t}"
                 )
 
 
@@ -137,7 +142,7 @@ class Manager(AbstractManager):
         """
 
         if isinstance(artefact, Artefact):
-            return artefact._manager, artefact, artefact.path
+            return artefact.manager, artefact, artefact.path
 
         else:
             obj = None
@@ -152,8 +157,9 @@ class Manager(AbstractManager):
                 )
 
             else:
+                t = type(artefact)
                 raise TypeError(
-                    "Artefact reference must be either `stow.Artefact` or string not type {}".format(type(artefact))
+                    f"Artefact reference must be either `stow.Artefact` or string not type {t}"
                 )
 
 
@@ -178,7 +184,6 @@ class Manager(AbstractManager):
         """ Set the content type of the file """
         raise NotImplementedError('Manager does not have an method for changing the content-type for the path given')
 
-
     def _cwd(self) -> str:
         """ Return the default working directory for the manager - used to default the artefact path if no path provided
 
@@ -187,9 +192,16 @@ class Manager(AbstractManager):
         """
         return os.getcwd()
 
-    def _localLoad(self, path: str):
-        """ Load a local file in without having to parse the path """
-        return utils.connect(manager="FS")[path]
+    def manager(self, artefact: typing.Union[Artefact, str]) -> 'Manager':
+        """ Fetch the manager object for the artefact
+
+        Params:
+            artefact: The artefact whose manager is to be returned
+
+        Returns:
+            Manager: The Manager that produced the artefact
+        """
+        return self._splitManagerArtefactForm(artefact)[0]
 
     def artefact(self, path: str) -> Artefact:
         """ Fetch an artefact object for the given path
@@ -230,8 +242,7 @@ class Manager(AbstractManager):
         Returns:
             str: the basename
         """
-        _, _, path = self._splitManagerArtefactForm(artefact, load=False)
-        return os.path.basename(path)
+        return os.path.basename(self._ensurePath(artefact))
 
     def name(self, artefact: typing.Union[Artefact, str]) -> str:
         """ Return the name of an artefact or path (basename without extension).
@@ -242,8 +253,7 @@ class Manager(AbstractManager):
         Returns:
             str: the name e.g. /hello/there.txt => there
         """
-        _, _, path = self._splitManagerArtefactForm(artefact, load=False)
-        basename = os.path.basename(path)
+        basename = os.path.basename(self._ensurePath(artefact))
         index = basename.rfind('.')
         if index != -1:
             return basename[:index]
@@ -258,8 +268,8 @@ class Manager(AbstractManager):
         Returns:
             str: the extension e.g. /hello/there.txt => txt
         """
-        path = self._ensurePath(artefact)
-        basename = os.path.basename(path)
+
+        basename = os.path.basename(self._ensurePath(artefact))
         index = basename.rfind('.')
         if index != -1:
             return basename[index+1:]
@@ -280,7 +290,7 @@ class Manager(AbstractManager):
         Raises:
             ValueError: If there is no crossover at all
         """
-        return os.path.commonpath([self._splitArtefactUnionForm(path)[1] for path in paths])
+        return os.path.commonpath([self._ensurePath(path) for path in paths])
 
     def commonprefix(self, paths: typing.Iterable[typing.Union[Artefact, str]]) -> str:
         """ Return the longest common string literal for a collection of path/artefacts
@@ -294,7 +304,7 @@ class Manager(AbstractManager):
         Returns:
             str: A string that all paths startwith (may be empty string)
         """
-        return os.path.commonprefix([self._splitArtefactUnionForm(path)[1] for path in paths])
+        return os.path.commonprefix([self._ensurePath(path) for path in paths])
 
     def dirname(self, artefact: typing.Union[Artefact, str]) -> str:
         """ Return the directory name of path or artefact. Preserve the protocol of the path if a protocol is given
@@ -307,11 +317,7 @@ class Manager(AbstractManager):
         """
 
         # Covert the path - do not parse the path
-        if isinstance(artefact, Artefact):
-            path = artefact.abspath
-
-        else:
-            path = artefact
+        path = self._ensurePath(artefact)
 
         if path.find(":") == -1:
             # Path with no protocol and therefore no need to url parse
@@ -387,13 +393,7 @@ class Manager(AbstractManager):
         Returns:
             Bool: True or False in answer to the question
         """
-
-        try:
-            _, obj, _ = self._splitManagerArtefactForm(artefact)
-            return isinstance(obj, File)
-
-        except exceptions.ArtefactNotFound:
-            return False
+        return isinstance(self._splitManagerArtefactForm(artefact, require=False)[1], File)
 
     def isdir(self, artefact: typing.Union[Artefact, str]) -> bool:
         """ Check if the artefact provided is a directory
@@ -404,13 +404,7 @@ class Manager(AbstractManager):
         Returns:
             Bool: True or False in answer to the question
         """
-
-        try:
-            _, obj, _ = self._splitManagerArtefactForm(artefact)
-            return isinstance(obj, Directory)
-
-        except:
-            return False
+        return isinstance(self._splitManagerArtefactForm(artefact, require=False)[1], Directory)
 
     def islink(self, artefact: typing.Union[Artefact, str]) -> bool:
         """ Check if the artefact provided is a link
@@ -423,13 +417,8 @@ class Manager(AbstractManager):
         Returns:
             Bool: True or False in answer to the question
         """
-
-        try:
-            _, obj, _ = self._splitManagerArtefactForm(artefact)
-            return isinstance(obj, File) and obj.isLink()
-
-        except:
-            return False
+        manager, _, path = self._splitManagerArtefactForm(artefact, load = False)
+        return manager._isLink(path)
 
     def ismount(self, artefact: typing.Union[Artefact, str]) -> bool:
         """ Check if the artefact provided is a link
@@ -442,12 +431,8 @@ class Manager(AbstractManager):
         Returns:
             Bool: True or False in answer to the question
         """
-        try:
-            _, obj, _ = self._splitManagerArtefactForm(artefact)
-            return isinstance(obj, Directory) and obj.isMount()
-
-        except:
-            return False
+        manager, _, path = self._splitManagerArtefactForm(artefact, load = False)
+        return manager._isMount(path)
 
     def getctime(self, artefact: typing.Union[Artefact, str]) -> typing.Union[float, None]:
         """ Get the created time for the artefact as a UTC timestamp
@@ -461,7 +446,6 @@ class Manager(AbstractManager):
         Raises:
             ArtefactNotFound: If there is no artefact at the location
         """
-
         return self._splitManagerArtefactForm(artefact)[1].createdTime.timestamp()
 
     def getmtime(self, artefact: typing.Union[Artefact, str]) -> typing.Union[float, None]:
@@ -536,7 +520,7 @@ class Manager(AbstractManager):
         Returns:
             bool: True if artefact exists else False
         """
-        manager, _,path = self._splitManagerArtefactForm(artefact, load=False)
+        manager, _, path = self._splitManagerArtefactForm(artefact, load=False)
         return manager._exists(path)
 
     def lexists(self, artefact: typing.Union[Artefact, str]) -> str:
@@ -551,7 +535,7 @@ class Manager(AbstractManager):
         Returns:
             bool: True if artefact exists else False
         """
-        return self.islink(artefact)
+        return os.path.lexists(artefact)
 
     @classmethod
     def join(cls, *paths: typing.Iterable[str], separator=os.sep, joinAbsolutes: bool = False) -> str:
@@ -691,14 +675,7 @@ class Manager(AbstractManager):
         Returns:
             bool: True if the artefacts are the same
         """
-        obj1, path1 = self._splitArtefactUnionForm(artefact1)
-        obj2, path2 = self._splitArtefactUnionForm(artefact2)
-
-        if obj1 is None or obj2 is None:
-            return os.path.samefile(path1, path2)
-
-        else:
-            return obj1 is obj2
+        return os.path.samefile(artefact1, artefact2)
 
     @staticmethod
     def sameopenfile(handle1: io.IOBase, handle2: io.IOBase) -> bool:
@@ -716,10 +693,7 @@ class Manager(AbstractManager):
         Returns:
             bool: True if the artefacts are the same
         """
-        _, path1 = self._splitArtefactUnionForm(artefact1)
-        _, path2 = self._splitArtefactUnionForm(artefact2)
-
-        return os.path.samestat(path1, path2)
+        return os.path.samestat(artefact1, artefact2)
 
     def split(self, artefact: typing.Union[Artefact, str]) -> typing.Tuple[str, str]:
         """ Split the pathname path into a pair, (head, tail) where tail is the last pathname component and head is
@@ -731,8 +705,7 @@ class Manager(AbstractManager):
         Returns:
             (dirname, basename): the split parts of the artefact
         """
-
-        _, path = self._splitArtefactUnionForm(artefact)
+        path = artefact.path if isinstance(artefact, Artefact) else artefact
         return (self.dirname(path), self.basename(path))
 
     def splitdrive(self, path: str) -> typing.Tuple[str, str]:
@@ -757,8 +730,7 @@ class Manager(AbstractManager):
         Returns:
             (root, ext): The root path without the extension and the extension
         """
-        _, path = self._splitArtefactUnionForm(artefact)
-        return os.path.splitext(path)
+        return os.path.splitext(artefact)
 
     @staticmethod
     def md5(path):
@@ -769,6 +741,19 @@ class Manager(AbstractManager):
                 hash_md5.update(chunk)
 
         return hash_md5.hexdigest()
+
+    def digest(
+        self,
+        artefact: typing.Union[File, str],
+        algorithm: HashingAlgorithm = HashingAlgorithm.MD5
+        ):
+
+        manager, obj, _ = self._splitManagerArtefactForm(artefact)
+        if isinstance(obj, File):
+            return manager._digest(obj, algorithm)
+
+        else:
+            raise ValueError(f'Cannot get file digest for directory {obj}')
 
     def get(
         self,
@@ -815,7 +800,7 @@ class Manager(AbstractManager):
             obj.manager._get(obj, destination, Callback=Callback)
 
             # Load the downloaded artefact from the local location and return
-            return self._localLoad(destination)
+            return PartialArtefact(utils.connect(manager="FS"), destination)
 
         else:
             if not isinstance(obj, File):
@@ -892,7 +877,7 @@ class Manager(AbstractManager):
         """
 
         # Load the source object that is to be copied
-        _, sourceObj, sourcePath = self._splitExternalArtefactForm(source)
+        _, sourceObj, sourcePath = self._splitManagerArtefactForm(source)
         destinationManager, destinationObj, destinationPath = self._splitManagerArtefactForm(destination, require=False)
 
         # Prevent the overwriting of a directory without permission
@@ -954,7 +939,7 @@ class Manager(AbstractManager):
         """
 
         manager, obj, _ = self._splitManagerArtefactForm(artefact)
-        if isinstance(obj, Directory) and not recursive:
+        if isinstance(obj, Directory) and not recursive and not obj.isEmpty():
             raise exceptions.OperationNotPermitted(
                 "Cannot delete a container object that isn't empty - set recursive to True to proceed"
             )

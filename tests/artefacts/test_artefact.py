@@ -1,13 +1,23 @@
 """ Test the base artefact object behaviour """
 
+import os
+import shutil
 import unittest
 import pytest
+import tempfile
 
 import stow
+from stow.managers import FS
 
-from . import BasicSetup
+class Test_Artefacts(unittest.TestCase):
 
-class Test_Artefacts(BasicSetup, unittest.TestCase):
+    def setUp(self) -> None:
+        self.directory = tempfile.TemporaryDirectory()
+
+        self.manager = FS(self.directory)
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.directory)
 
     def test_existence(self):
 
@@ -20,9 +30,13 @@ class Test_Artefacts(BasicSetup, unittest.TestCase):
         # Detele the file from the manager
         self.manager.rm("/file1")
 
-        print(self.assertTrue(len(file)))
         with pytest.raises(stow.exceptions.ArtefactNoLongerExists):
             self.assertTrue(len(file))
+
+    def test_abspath(self):
+
+        file = self.manager['/file1']
+        self.assertEqual(file.abspath, os.path.join(self.directory, 'file1'))
 
     def test_path(self):
 
@@ -50,6 +64,13 @@ class Test_Artefacts(BasicSetup, unittest.TestCase):
             {art.path for art in self.manager.ls(recursive=True)},
             {"/another_directory", "/another_directory/directory2", '/another_directory/directory2/file1'}
         )
+
+    def test_directory(self):
+
+        file = self.manager['/file1']
+
+        self.assertIsInstance(file.directory, stow.Directory)
+        self.assertEqual(file.directory.path, '/')
 
     def test_basename(self):
 

@@ -3,7 +3,7 @@ import urllib.parse
 import typing
 import contextlib
 
-from ..artefacts import Artefact, File, Directory
+from ..artefacts import Artefact, File, Directory, HashingAlgorithm
 from ..callbacks import AbstractCallback
 
 class AbstractManager():
@@ -62,12 +62,12 @@ class AbstractManager():
         pass
 
     @abstractmethod
-    def _isLink(self, file: File):
+    def _isLink(self, file: str):
         """ Check if the file object given is a link/shortcut to another file """
         pass
 
     @abstractmethod
-    def _isMount(self, directory: Directory):
+    def _isMount(self, directory: str):
         """ Check if the file object given is a mount point """
         pass
 
@@ -199,6 +199,10 @@ class AbstractManager():
         """
         pass
 
+    @abstractmethod
+    def _digest(self, file: File, algorithm: HashingAlgorithm):
+        pass
+
     @classmethod
     @abstractmethod
     def _signatureFromURL(cls, url: urllib.parse.ParseResult):
@@ -215,6 +219,12 @@ class AbstractManager():
         Raises:
             Error: Errors due to missing information and so on
         """
+        pass
+
+    @property
+    @abstractmethod
+    def root(self) -> str:
+        """ Returns the root information for the manager (name or path) """
         pass
 
     @contextlib.contextmanager

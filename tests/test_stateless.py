@@ -29,7 +29,7 @@ class Test_Stateless(unittest.TestCase):
 
             filesystem = stow.connect(manager="FS", path=directory)
 
-            self.assertEqual(filesystem._path, directory)
+            self.assertIsInstance(filesystem, stow.managers.FS)
             self.assertEqual(len(filesystem.ls()), 1)
 
     def test_parseURL(self):
@@ -37,15 +37,9 @@ class Test_Stateless(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
 
             # Get the manager and path of the directory
-            fsManager, path = stow.parseURL(directory)
-            self.assertIsInstance(fsManager, stow.managers.FS)
-
-            if os.name == 'nt':
-                # remove the leading drive letter - it becomes lower for some reason
-                self.assertEqual(directory[1:], path[1:])
-
-            else:
-                self.assertEqual(directory, path)
+            parsed = stow.parseURL(directory)
+            self.assertIsInstance(parsed.manager, stow.managers.FS)
+            self.assertEqual(parsed.relpath, directory)
 
 
 
@@ -716,9 +710,7 @@ class Test_Stateless(unittest.TestCase):
             stow.rm(file)
 
             self.assertFalse(stow.exists(filepath1))
-
-            with self.assertRaises(stow.exceptions.ArtefactNoLongerExists):
-                self.assertFalse(stow.exists(file))
+            self.assertFalse(stow.exists(file))
 
 
 

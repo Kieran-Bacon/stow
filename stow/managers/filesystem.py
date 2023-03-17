@@ -55,13 +55,13 @@ class FS(LocalManager):
     def _exists(self, managerPath: str):
         return os.path.exists(self._abspath(managerPath))
 
-    def _metadata(self, path: str):
+    def _metadata(self, _: str):
         return {}
 
-    def _isLink(self, file: File):
+    def _isLink(self, file: str):
         return os.path.islink(self._abspath(file))
 
-    def _isMount(self, directory: Directory):
+    def _isMount(self, directory: str):
         return os.path.ismount(self._abspath(directory))
 
     def _identifyPath(self, managerPath: str):
@@ -99,7 +99,7 @@ class FS(LocalManager):
         except:
             return None
 
-    def _get(self, source: Artefact, destination: str):
+    def _get(self, source: Artefact, destination: str, *, Callback = None):
 
         # Convert source path
         sourceAbspath = self._abspath(source.path)
@@ -110,12 +110,12 @@ class FS(LocalManager):
         # Download
         method(sourceAbspath, destination)
 
-    def _getBytes(self, source: Artefact) -> bytes:
+    def _getBytes(self, source: Artefact, *, Callback = None) -> bytes:
 
         with open(self._abspath(source.path), "rb") as handle:
             return handle.read()
 
-    def _put(self, source: Artefact, destination: str, metadata = None, Callback=None):
+    def _put(self, source: str, destination: str, *, metadata = None, Callback = None):
 
         # Convert destination path
         destinationAbspath = self._abspath(destination)
@@ -132,7 +132,7 @@ class FS(LocalManager):
 
         return PartialArtefact(self, destination)
 
-    def _putBytes(self, fileBytes: bytes, destination: str, metadata = None):
+    def _putBytes(self, fileBytes: bytes, destination: str, *, metadata = None, Callback = None):
 
         # Convert destination path
         destinationAbspath = self._abspath(destination)
@@ -197,6 +197,10 @@ class FS(LocalManager):
         # print("mate", _getfullpathname(url.path))
 
         return {}, os.path.abspath(os.path.expanduser(url.path))
+
+    @property
+    def root(self):
+        return self._root
 
     def toConfig(self):
         return {'manager': 'FS', 'path': self._root}
