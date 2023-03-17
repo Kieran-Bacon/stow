@@ -67,12 +67,12 @@ class Manager(AbstractManager):
     def __reduce__(self):
         return (ManagerReloader, (self.toConfig(),))
 
-    def _ensurePath(self, artefact: typing.Tuple[Artefact, str, None]):
+    def _ensurePath(self, artefact: typing.Union[Artefact, str, None]):
         return artefact.path if isinstance(artefact, Artefact) else artefact
 
     def _splitExternalArtefactForm(
         self,
-        artefact: typing.Tuple[Artefact, str, None],
+        artefact: typing.Union[Artefact, str, None],
         load: bool = True,
         require: bool = True
         ) -> typing.Tuple['Manager', Artefact, str]:
@@ -120,10 +120,10 @@ class Manager(AbstractManager):
 
     def _splitManagerArtefactForm(
         self,
-        artefact: typing.Tuple[Artefact, str, None],
+        artefact: typing.Union[Artefact, str, None],
         load: bool = True,
         require: bool = True
-        ) -> typing.Tuple['Manager', Artefact, str]:
+        ) -> typing.Tuple['Manager', typing.Union[File, Directory], str]:
         """ Convert the incoming object which could be either an artefact or relative path into a standardised form for
         both such that functions can be easily convert and use what they require
 
@@ -962,7 +962,17 @@ class Manager(AbstractManager):
         # Remove the artefact from the manager
         manager._rm(obj)  # Remove the underlying data objects
 
-    def sync(self, source: typing.Union[Directory, str], destination: typing.Union[Directory, str], overwrite: bool = False, delete: bool = False) -> None:
+
+    def sync(
+        self,
+        source: typing.Union[File, Directory, str],
+        destination: typing.Union[Artefact, str],
+        *,
+        overwrite: bool = False,
+        delete: bool = False,
+        check_modified_times: bool = True,
+        digest_comparator: typing.Callable[[File, File], bool] = None
+        ) -> None:
         """ Put artefacts in the source location into the destination location if they have more recently been edited
 
         Args:
@@ -970,79 +980,98 @@ class Manager(AbstractManager):
             destination (Directory): destination directory artefact on the manager
             delete: Togger the deletion of artefacts that are members of the destination which do not conflict with
                 the source.
+            check_modified_times (bool): Prevent sync even if digest is different, if destination is newer than source
+            digest_comparator: (Callable): A comparison method that takes possible syncing targets and allows for
+                dynamic sync checking of tags or custom digests
 
         Raises:
             ArtefactNotFound: In the event that the source directory doesn't exist
-
         """
 
-        # Fetch the destination - sync target
-        try:
-            destinationManager, destinationObj, destinationPath = self._splitExternalArtefactForm(destination)
-
-        except exceptions.ArtefactNotFound:
-            # There is no destination to sync with, therefore we can put the entire source
-            log.debug("Syncing: No destination therefore putting entire source")
-            return self.put(source, destinationPath)
-
-        # Fetch the source object and require that it be an Artefact so we can check object states
+        # Fetch the source object
         _, sourceObj, sourcePath = self._splitManagerArtefactForm(source)
 
-        # Ensure that the two passed artefacts are directories
-        if not (isinstance(sourceObj, Directory) and isinstance(destinationObj, Directory)):
-            raise exceptions.ArtefactTypeError("Cannot Synchronise non directory objects {} -> {} - must sync directories".format(sourceObj, destinationObj))
+        # Check the destination object
+        destinationManager, destinationObj, destinationPath = self._splitExternalArtefactForm(destination, require=False)
+        if destinationObj is None:
+            # The destination doesn't exist - sync the entire source
+            log.debug("Syncing: No destination therefore putting entire source")
+            self.put(sourceObj, destination)
 
-        # Get the mappings of source artefacts and destination objects
-        sourceMapped = {
-            source.relpath(artefact): artefact
-            for artefact in source.ls(recursive=True)
-            if isinstance(artefact, File)
-        }
+        elif isinstance(destinationObj, File):
+            if isinstance(sourceObj, Directory):
+                # The source is a directory - we simply replace the file
+                self.put(sourceObj, destinationObj, overwrite=overwrite)
 
-        destinationMapped = {
-            destinationObj.relpath(artefact): artefact
-            for artefact in destinationObj.ls(recursive=True)
-        }
-
-        # Iterate over all the files in the source
-        for relpath, sourceArtefact in sourceMapped.items():
-
-            # Look to see if there is a conflict
-            if relpath not in destinationMapped:
-                # The file doesn't conflict so we will push to destination
-                log.debug(f'Syncing: Putting source object {sourceArtefact}')
-                self.put(sourceArtefact, self.join(destinationObj.path, relpath, separator='/'))
+            elif (
+                (not check_modified_times or destinationObj.modifiedTime < sourceObj.modifiedTime) and
+                (digest_comparator is None or not digest_comparator(sourceObj, destinationObj))
+                ):
+                self.put(sourceObj, destinationObj)
 
             else:
-                # There is a conflict - lets compare local and destination
-                destinationArtefact = destinationMapped.pop(relpath)
+                log.debug('%s already synced', destination)
 
-                # Don't perform sync
-                if isinstance(destinationArtefact, Directory) and not overwrite:
-                    raise exceptions.OperationNotPermitted(
-                        "Cannot sync source file {} to destination is a directory {}, and operation not permitted".format(
-                            sourceArtefact, destinationArtefact
+        else:
+
+            # TODO if the source is a file, and overwrite is passed then replace the directory
+            raise NotImplementedError('Cannot yet sync directories correctly')
+
+            # Ensure that the two passed artefacts are directories
+            if not (isinstance(sourceObj, Directory)):
+                raise exceptions.ArtefactTypeError("Cannot Synchronise non directory objects {} -> {} - must sync directories".format(sourceObj, destinationObj))
+
+            # Get the mappings of source artefacts and destination objects
+            sourceMapped = {
+                source.relpath(artefact): artefact
+                for artefact in source.ls(recursive=True)
+                if isinstance(artefact, File)
+            }
+
+            destinationMapped = {
+                destinationObj.relpath(artefact): artefact
+                for artefact in destinationObj.ls(recursive=True)
+            }
+
+            # Iterate over all the files in the source
+            for relpath, sourceArtefact in sourceMapped.items():
+
+                # Look to see if there is a conflict
+                if relpath not in destinationMapped:
+                    # The file doesn't conflict so we will push to destination
+                    log.debug(f'Syncing: Putting source object {sourceArtefact}')
+                    self.put(sourceArtefact, self.join(destinationObj.path, relpath, separator='/'))
+
+                else:
+                    # There is a conflict - lets compare local and destination
+                    destinationArtefact = destinationMapped.pop(relpath)
+
+                    # Don't perform sync
+                    if isinstance(destinationArtefact, Directory) and not overwrite:
+                        raise exceptions.OperationNotPermitted(
+                            "Cannot sync source file {} to destination is a directory {}, and operation not permitted".format(
+                                sourceArtefact, destinationArtefact
+                            )
                         )
-                    )
 
-                elif sourceArtefact.modifiedTime > destinationArtefact.modifiedTime:
-                    # File is more up to date than destination
-                    log.debug(f'Syncing: Updating destination object {destinationArtefact} with {sourceArtefact}')
-                    self.put(sourceArtefact, destinationArtefact, overwrite=overwrite)
+                    elif sourceArtefact.modifiedTime > destinationArtefact.modifiedTime:
+                        # File is more up to date than destination
+                        log.debug(f'Syncing: Updating destination object {destinationArtefact} with {sourceArtefact}')
+                        self.put(sourceArtefact, destinationArtefact, overwrite=overwrite)
 
-        # Remove destination artefacts if delete is toggled
-        if delete:
-            # As updated artefacts were popped during their sync - any left File artefacts are to be deleted
+            # Remove destination artefacts if delete is toggled
+            if delete:
+                # As updated artefacts were popped during their sync - any left File artefacts are to be deleted
 
-            # Sort to ensure that nested files appear before their directories
-            # This allows us to check to see if the directory is empty knowning that everything to be deleted from it
-            # has been, as all nested artefacts will appear sooner and be removed before hand.
-            for artefact in sorted(destinationMapped.values(), key=lambda x: len(x.path)):
+                # Sort to ensure that nested files appear before their directories
+                # This allows us to check to see if the directory is empty knowning that everything to be deleted from it
+                # has been, as all nested artefacts will appear sooner and be removed before hand.
+                for artefact in sorted(destinationMapped.values(), key=lambda x: len(x.path)):
 
-                if isinstance(artefact, File) or (artefact.isEmpty()):
-                    # Delete the file or remove the directory if it is now empty
-                    log.debug(f"Syncing: Deleting unfound source object from destionation {artefact}")
-                    artefact.manager._rm(artefact)
+                    if isinstance(artefact, File) or (artefact.isEmpty()):
+                        # Delete the file or remove the directory if it is now empty
+                        log.debug(f"Syncing: Deleting unfound source object from destionation {artefact}")
+                        artefact.manager._rm(artefact)
 
     def iterls(
         self,
@@ -1050,7 +1079,7 @@ class Manager(AbstractManager):
         recursive: bool = False,
         *,
         ignore_missing: bool = False
-        ) -> typing.Generator[Artefact, None, Artefact]:
+        ) -> typing.Generator[typing.Union[File, Directory], None, None]:
         """ List contents of the directory path/artefact given.
 
         Args:
@@ -1070,7 +1099,7 @@ class Manager(AbstractManager):
 
         except exceptions.ArtefactNotFound:
             if ignore_missing:
-                return []
+                return
             raise
 
         # Yield the contents of the directory
@@ -1086,7 +1115,7 @@ class Manager(AbstractManager):
         recursive: bool = False,
         *,
         ignore_missing: bool = False
-        ) -> typing.Set[Artefact]:
+        ) -> typing.Set[typing.Union[File, Directory]]:
         """ List contents of the directory path/artefact given.
 
         Args:

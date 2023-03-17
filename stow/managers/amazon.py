@@ -5,6 +5,7 @@ import re
 import io
 import typing
 import urllib.parse
+import hashlib
 import enum
 import mimetypes
 import datetime
@@ -17,6 +18,47 @@ from botocore.exceptions import ClientError
 from ..artefacts import Artefact, File, Directory
 from ..manager import RemoteManager
 from .. import exceptions
+
+def getS3ETag(bytes_readable):
+
+    md5s = []
+    while True:
+        data = bytes_readable.read(8 * 1024 * 1024)
+        if not data:
+            break
+        md5s.append(hashlib.md5(data))
+
+    if len(md5s) < 1:
+        return '"{}"'.format(hashlib.md5().hexdigest())
+
+    if len(md5s) == 1:
+        return '"{}"'.format(md5s[0].hexdigest())
+
+    digests = b''.join(m.digest() for m in md5s)
+    digests_md5 = hashlib.md5(digests)
+    return '"{}-{}"'.format(digests_md5.hexdigest(), len(md5s))
+
+def etagComparator(*files: File) -> bool:
+    """ A basic file comparator using S3 ETag calculation - generates ETag values for non s3 files by localising and
+    processing, retrieves ETag from s3 for s3 files.
+
+    Args:
+        *files (List[File]): A list of files to compare
+
+    Returns:
+        bool: True if the files are the same
+    """
+
+    digests = []
+    for f in files:
+        if isinstance(f._manager, Amazon):
+            digests.append(f.metadata['ETag'])
+
+        else:
+            with f.open('rb') as handle:
+                digests.append(getS3ETag(handle))
+
+    return digests[0] == digests[1]
 
 class Amazon(RemoteManager):
     """ Connect to an amazon s3 bucket using an IAM user credentials or environment variables
@@ -111,6 +153,14 @@ class Amazon(RemoteManager):
 
         return abspath
 
+    @staticmethod
+    def _getMetadataFromHead(head_object_data):
+
+        metadata = head_object_data.get('Metadata', {})
+        metadata['ETag'] = head_object_data['ETag']
+
+        return metadata
+
     def _identifyPath(self, managerPath: str) -> typing.Union[Artefact, None]:
 
         key = self._managerPath(managerPath)
@@ -121,14 +171,16 @@ class Amazon(RemoteManager):
                 Key=key
             )
 
+
+
             return File(
                 self,
                 key,
                 modifiedTime=response['LastModified'],
                 size=response['ContentLength'],
-                metadata=response['Metadata'],
+                metadata=self._getMetadataFromHead(response),
                 content_type=response['ContentType'],
-                digest=response['ETag'].strip('"')
+                # digest=
             )
 
         except ClientError as e:
@@ -160,7 +212,7 @@ class Amazon(RemoteManager):
                 Key=key
             )
 
-            return response.get('Metadata', {})
+            return self._getMetadataFromHead(response)
 
         except ClientError as e:
             if e.response['ResponseMetadata']['HTTPStatusCode'] == 404:

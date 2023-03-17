@@ -115,7 +115,7 @@ class FS(LocalManager):
         with open(self._abspath(source.path), "rb") as handle:
             return handle.read()
 
-    def _put(self, source: str, destination: str, metadata = None, Callback=None):
+    def _put(self, source: Artefact, destination: str, metadata = None, Callback=None):
 
         # Convert destination path
         destinationAbspath = self._abspath(destination)
@@ -124,10 +124,11 @@ class FS(LocalManager):
         os.makedirs(os.path.dirname(destinationAbspath), exist_ok=True)
 
         # Select the put method
-        method = shutil.copytree if os.path.isdir(source) else shutil.copy
+        with source.localise() as sourceAbspath:
+            method = shutil.copytree if os.path.isdir(sourceAbspath) else shutil.copy
 
-        # Perform the putting
-        method(source, destinationAbspath)
+            # Perform the putting
+            method(sourceAbspath, destinationAbspath)
 
         return PartialArtefact(self, destination)
 
