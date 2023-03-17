@@ -7,10 +7,12 @@
 - Added support for the setting of motified/accessed time on artefacts via the manager and artefact objects.
 - Added `iterls` methods to manager and `Directory` objects for efficient iteration.
 - Add `Callbacks` objects for getting upload and download progression.
+- Add `manager` method to interface
+- Add `root` property to managers
 
 ### Fixed
 
--
+- Fixed inability to delete empty directories without passing overwrite set `True`
 
 ## [1.1.6] - 2021-03-04
 
