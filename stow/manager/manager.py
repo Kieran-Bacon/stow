@@ -64,7 +64,7 @@ class Manager(AbstractManager):
     def __reduce__(self):
         return (ManagerReloader, (self.toConfig(),))
 
-    def _ensurePath(self, artefact: typing.Tuple[Artefact, str, None]) -> str:
+    def _ensurePath(self, artefact: typing.Union[Artefact, str, None]) -> str:
         """ Collapse artefact into path - Convert an artefact into a path or return. This returns
         the manager relative path instead. To be used when the response is to be in turns of the
         manager. For simple checks, artefacts can be used directly (which uses the abspath)
@@ -915,10 +915,10 @@ class Manager(AbstractManager):
         destinationManager, destinationObj, destinationPath = self._splitManagerArtefactForm(destination, require=False)
 
         # Prevent the overwriting of a directory without permission
-        if destinationObj is not None and isinstance(destinationObj, Directory):
-            if not overwrite:
+        if destinationObj is not None:
+            if isinstance(destinationObj, Directory) and not overwrite:
                 raise exceptions.OperationNotPermitted("Cannot replace directory without passing overwrite True")
-            destinationManager._rm(destinationPath)
+            destinationManager._rm(destinationObj)
 
         # Check if the source and destination are from the same manager class
         if type(sourceObj._manager) == type(destinationManager) and not sourceObj._manager.ISOLATED:

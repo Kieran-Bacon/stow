@@ -14,11 +14,11 @@ class FS(LocalManager):
         path (str): The local relative path to where the manager is to be initialised
     """
 
-    def __new__(cls, path: str = '/'):
+    def __new__(cls, path: str = os.path.sep):
 
         manager = super().__new__(cls)
 
-        if path != '/':
+        if path != os.path.sep:
             # The class is not the default system wide FS manager - overload the functions to
             # perform a translation of provided paths
 
@@ -39,7 +39,7 @@ class FS(LocalManager):
 
         return manager
 
-    def __init__(self, path: str = '/'):
+    def __init__(self, path: str = os.path.sep):
         super().__init__()
         self._root = path
 
@@ -188,6 +188,13 @@ class FS(LocalManager):
 
     @classmethod
     def _signatureFromURL(cls, url: urllib.parse.ParseResult):
+        # TODO figure this out
+        # print("what", url.path)
+        # print("the", (os.path.expanduser(url.path)))
+        # print("fuck", os.path.abspath(os.path.expanduser(url.path)))
+        # from nt import _getfullpathname
+        # print("mate", _getfullpathname(url.path))
+
         return {}, os.path.abspath(os.path.expanduser(url.path))
 
     @property
