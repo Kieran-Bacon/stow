@@ -162,7 +162,6 @@ class Manager(AbstractManager):
                     f"Artefact reference must be either `stow.Artefact` or string not type {t}"
                 )
 
-
             if load:
 
                 try:
@@ -463,20 +462,23 @@ class Manager(AbstractManager):
         """
         return self._splitManagerArtefactForm(artefact)[1].modifiedTime.timestamp()
 
+    def _setmtime(self, *args, **kwargs):
+        raise NotImplementedError(
+            f"Managers of type {type(self)} do not support modified time updates"
+        )
     def setmtime(
         self,
         artefact: typing.Union[Artefact, str],
         _datetime: typing.Union[float, datetime.datetime]
-        ):
+        ) -> datetime.datetime:
         """ Update the artefacts modified time
 
         Args:
             artefact (Artefact): The artefact to update
             _datetime (float, datetime): The time to set against the artefact
         """
-        raise NotImplementedError(
-            f"Managers of type {type(self)} do not support modified time updates"
-        )
+        manager, artefact, _ = self._splitManagerArtefactForm(artefact, require=True)
+        return manager._setmtime(artefact, _datetime)
 
     def getatime(self, artefact: typing.Union[Artefact, str]) -> typing.Union[float, None]:
         """ Get the accessed time for the artefact as a UTC timestamp
@@ -493,20 +495,23 @@ class Manager(AbstractManager):
         """
         return self._splitManagerArtefactForm(artefact)[1].accessedTime.timestamp()
 
+    def _setatime(self, *args, **kwargs):
+        raise NotImplementedError(
+            f"Managers of type {type(self)} do not support access time updates"
+        )
     def setatime(
         self,
         artefact: typing.Union[Artefact, str],
         _datetime: typing.Union[float, datetime.datetime]
-        ):
+        ) -> datetime.datetime:
         """ Update the artefacts access time
 
         Args:
             artefact (Artefact): The artefact to update
             _datetime (float, datetime): The time to set against the artefact
         """
-        raise NotImplementedError(
-            f"Managers of type {type(self)} do not support access time updates"
-        )
+        manager, artefact, _ = self._splitManagerArtefactForm(artefact, require=True)
+        return manager._setatime(artefact, _datetime)
 
     def exists(self, artefact: typing.Union[Artefact, str]) -> bool:
         """ Return true if the given artefact is a member of the manager, or the path is correct for the manager and it
@@ -656,14 +661,15 @@ class Manager(AbstractManager):
         """
         return os.path.realpath(path)
 
-    def relpath(self, path: str, start=os.curdir) -> str:
+    def relpath(self, path: str, start: str = os.curdir, separator: str = os.sep) -> str:
         """ Return a relative filepath to path either from the current directory or from an optional start directory
 
         Args:
             path: the path to be made relative
             start: the location to become relative to
         """
-        return os.path.relpath(path, start)
+        relpath = os.path.relpath(path, start)
+        return relpath if separator == os.sep else relpath.replace(os.sep, separator)
 
     def samefile(self, artefact1: typing.Union[Artefact, str], artefact2: typing.Union[Artefact, str]) -> bool:
         """ Check if provided artefacts are represent the same data on disk
@@ -958,7 +964,7 @@ class Manager(AbstractManager):
         check_modified_times: bool = True,
         digest_comparator: typing.Callable[[File, File], bool] = None
         ) -> None:
-        """ Put artefacts in the source location into the destination location if they have more recently been edited
+        """ Put artefacts from the source location into the destination location if they have more recently been edited.
 
         Args:
             source (Directory): source directory artefact
@@ -976,10 +982,12 @@ class Manager(AbstractManager):
         # Fetch the source object
         _, sourceObj, sourcePath = self._splitManagerArtefactForm(source)
 
-        # Check the destination object
+        # Fetch the destination object
         destinationManager, destinationObj, destinationPath = self._splitExternalArtefactForm(destination, require=False)
+
         if destinationObj is None:
             # The destination doesn't exist - sync the entire source
+
             log.debug("Syncing: No destination therefore putting entire source")
             self.put(sourceObj, destination)
 
@@ -998,65 +1006,26 @@ class Manager(AbstractManager):
                 log.debug('%s already synced', destination)
 
         else:
+            # Desintation object is a dictionary
+            if isinstance(sourceObj, File):
+                # We are trying to sync a file to a directory - this is a put
+                return self.put(sourceObj, destinationObj, overwrite=overwrite)
 
-            # TODO if the source is a file, and overwrite is passed then replace the directory
-            raise NotImplementedError('Cannot yet sync directories correctly')
+            # Syncing a source directory to a destination directory
+            destinationMap = {artefact.basename: artefact for artefact in destinationObj.ls()}
 
-            # Ensure that the two passed artefacts are directories
-            if not (isinstance(sourceObj, Directory)):
-                raise exceptions.ArtefactTypeError("Cannot Synchronise non directory objects {} -> {} - must sync directories".format(sourceObj, destinationObj))
-
-            # Get the mappings of source artefacts and destination objects
-            sourceMapped = {
-                source.relpath(artefact): artefact
-                for artefact in source.ls(recursive=True)
-                if isinstance(artefact, File)
-            }
-
-            destinationMapped = {
-                destinationObj.relpath(artefact): artefact
-                for artefact in destinationObj.ls(recursive=True)
-            }
-
-            # Iterate over all the files in the source
-            for relpath, sourceArtefact in sourceMapped.items():
-
-                # Look to see if there is a conflict
-                if relpath not in destinationMapped:
-                    # The file doesn't conflict so we will push to destination
-                    log.debug(f'Syncing: Putting source object {sourceArtefact}')
-                    self.put(sourceArtefact, self.join(destinationObj.path, relpath, separator='/'))
+            # Recursively fill in destination at this recursion level
+            for artefact in sourceObj.ls():
+                if artefact.basename in destinationMap:
+                    self.sync(artefact, destinationMap.pop(artefact.basename))
 
                 else:
-                    # There is a conflict - lets compare local and destination
-                    destinationArtefact = destinationMapped.pop(relpath)
+                    self.put(artefact, self.join(destinationObj.path, artefact.basename))
 
-                    # Don't perform sync
-                    if isinstance(destinationArtefact, Directory) and not overwrite:
-                        raise exceptions.OperationNotPermitted(
-                            "Cannot sync source file {} to destination is a directory {}, and operation not permitted".format(
-                                sourceArtefact, destinationArtefact
-                            )
-                        )
-
-                    elif sourceArtefact.modifiedTime > destinationArtefact.modifiedTime:
-                        # File is more up to date than destination
-                        log.debug(f'Syncing: Updating destination object {destinationArtefact} with {sourceArtefact}')
-                        self.put(sourceArtefact, destinationArtefact, overwrite=overwrite)
-
-            # Remove destination artefacts if delete is toggled
+            # Any remaining destionation objects were not targets of sync - delete if argument passed
             if delete:
-                # As updated artefacts were popped during their sync - any left File artefacts are to be deleted
-
-                # Sort to ensure that nested files appear before their directories
-                # This allows us to check to see if the directory is empty knowning that everything to be deleted from it
-                # has been, as all nested artefacts will appear sooner and be removed before hand.
-                for artefact in sorted(destinationMapped.values(), key=lambda x: len(x.path)):
-
-                    if isinstance(artefact, File) or (artefact.isEmpty()):
-                        # Delete the file or remove the directory if it is now empty
-                        log.debug(f"Syncing: Deleting unfound source object from destionation {artefact}")
-                        artefact.manager._rm(artefact)
+                for artefact in destinationMap.values():
+                    destinationManager.rm(artefact, recursive=overwrite)
 
     def iterls(
         self,
@@ -1143,6 +1112,22 @@ class Manager(AbstractManager):
 
         with tempfile.TemporaryDirectory() as directory:
             return self.put(Directory(utils.connect("FS"), directory), path, overwrite=overwrite)
+
+    def _mklink(self, *args, **kwargs):
+        raise NotImplementedError(f'Manager {self} does not support symbolic links')
+
+    def mklink(self, source: Artefact, destination: str) -> Artefact:
+        """ Create a symbolic link
+
+        Args:
+            source (Artefact): The concrete artefact to belinked to
+            destination (str): The path to where the link should be created
+
+        Returns:
+            Artefact: The link artefact object
+        """
+        manager, artefact, path = self._splitManagerArtefactForm(source)
+        return manager._mklink(path, destination)
 
     def touch(self, relpath: str) -> Artefact:
         """ Perform the linux touch command to create a empty file at the path provided, or for existing files, update

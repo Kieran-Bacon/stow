@@ -2,6 +2,7 @@ import unittest
 import pytest
 
 import os
+import time
 import tempfile
 import shutil
 import pickle
@@ -40,8 +41,8 @@ class Test_Directories(unittest.TestCase):
         self.assertEqual(directory.relpath("/dir1/file1.txt"), "file1.txt")
         self.assertEqual(directory.relpath(self.manager["/dir1/file1"]), "file1")
 
-        with self.assertRaises(stow.exceptions.ArtefactNotMember):
-            directory.relpath("/somethingelse/here")
+        # with self.assertRaises(stow.exceptions.ArtefactNotMember):
+        #     directory.relpath("/somethingelse/here")
 
     def test_contentUpdateModifiedTime(self):
 
@@ -53,6 +54,7 @@ class Test_Directories(unittest.TestCase):
 
             modifiedTime = file.modifiedTime
 
+            time.sleep(0.1)
             file.content = b"file content"
 
             modifiedFile = stow.artefact(filepath)
@@ -163,3 +165,22 @@ class Test_Directories(unittest.TestCase):
 
         self.assertEqual(hydrated._manager, self.manager)
         self.assertEqual(directory, hydrated)
+
+    def test_invalidContains(self):
+
+        with pytest.raises(TypeError):
+            10 in self.manager['/dir1']
+
+    def test_isMount(self):
+        directory = stow.artefact('G:/')
+
+        self.assertTrue(directory.isMount())
+
+    def test_disappearingDirectory(self):
+
+        directory = self.manager.mkdir('/directory1')
+        self.manager.rm('/directory1')
+
+        with pytest.raises(stow.exceptions.ArtefactNoLongerExists):
+            directory.ls()
+

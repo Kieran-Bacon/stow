@@ -16,29 +16,45 @@ class LocalManager(Manager, abc.ABC):
     def _setArtefactTimes(self, path: str, modified_time: float, accessed_time: float) -> None:
         return os.utime(path, (accessed_time, modified_time))
 
-    def setmtime(
+    def _setmtime(
         self,
-        artefact: typing.Union[Artefact, str],
+        artefact: Artefact,
         _datetime: typing.Union[float, datetime.datetime]
-        ):
-        _, obj, _ = self._splitManagerArtefactForm(artefact)
-        return self._setArtefactTimes(
-            obj.abspath,
-            _datetime if isinstance(_datetime, float) else _datetime.timestamp(),
-            obj.accessedTime.timestamp()
+        ) -> datetime.datetime:
+
+        if isinstance(_datetime, float):
+            timestamp = _datetime
+            _datetime = datetime.datetime.fromtimestamp(_datetime)
+        else:
+            timestamp = _datetime.timestamp()
+
+        self._setArtefactTimes(
+            artefact.abspath,
+            timestamp,
+            artefact.accessedTime.timestamp()
         )
 
-    def setatime(
+        return _datetime
+
+    def _setatime(
         self,
-        artefact: typing.Union[Artefact, str],
+        artefact: Artefact,
         _datetime: typing.Union[float, datetime.datetime]
         ):
-        _, obj, _ = self._splitManagerArtefactForm(artefact)
-        return self._setArtefactTimes(
-            obj.abspath,
-            obj.modifiedTime.timestamp(),
-            _datetime if isinstance(_datetime, float) else _datetime.timestamp(),
+
+        if isinstance(_datetime, float):
+            timestamp = _datetime
+            _datetime = datetime.datetime.fromtimestamp(_datetime)
+        else:
+            timestamp = _datetime.timestamp()
+
+        self._setArtefactTimes(
+            artefact.abspath,
+            artefact.modifiedTime.timestamp(),
+            timestamp
         )
+
+        return _datetime
 
     @contextlib.contextmanager
     def localise(self, artefact: typing.Union[Artefact, str]):

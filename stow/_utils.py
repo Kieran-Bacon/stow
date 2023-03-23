@@ -3,33 +3,10 @@
 import functools
 import pkg_resources
 import collections
-import dataclasses
 import urllib
 
 MANAGERS = {}
-INITIALISED_MANAGERS = {}
-
-def initCache(function):
-    """ Cache results and return previously created manager objects
-    """
-
-    @functools.wraps(function)
-    def wrapper(manager, **kwargs):
-
-        identifier = hash((
-            manager, "-".join([f"{k}-{v}" for k,v in sorted(kwargs.items(), key=lambda x: x[0])])
-        ))
-
-        if identifier in INITIALISED_MANAGERS:
-            return INITIALISED_MANAGERS[identifier]
-
-        manager = function(manager, **kwargs)
-
-        INITIALISED_MANAGERS[identifier] = manager
-
-        return manager
-
-    return wrapper
+INITIALISED_MANAGERS = {}  # TODO replace with weaklink dict
 
 def find(manager: str):
     """ Fetch the `Manager` class hosted on the 'stow_managers' entrypoint with
@@ -70,7 +47,6 @@ def find(manager: str):
 
     return mClass
 
-@initCache
 def connect(manager: str, **kwargs):
     """ Find and connect to a `Manager` using its name (entrypoint name) and return an instance of that `Manager`
     initialised with the kwargs provided. A path can be provided as the location on the manager for a sub manager to be
@@ -92,11 +68,20 @@ def connect(manager: str, **kwargs):
         session by using this function rather than initalising a `Manager` directly
     """
 
-    # Find the class for the manager
-    mClass = find(manager)
+    identifier = hash((
+        manager, "-".join([f"{k}-{v}" for k,v in sorted(kwargs.items(), key=lambda x: x[0])])
+    ))
 
-    # Create the Manager - pass all the kwarg arguments
-    return mClass(**kwargs)
+    if identifier in INITIALISED_MANAGERS:
+        return INITIALISED_MANAGERS[identifier]
+
+    # Find the class for the manager and initialise it with the arguments
+    manager = find(manager)(**kwargs)
+
+    # Record against the identifier the mananger object for
+    INITIALISED_MANAGERS[identifier] = manager
+
+    return manager
 
 # Parsed URL tuple definition
 ParsedURL = collections.namedtuple("ParsedURL", ["manager", "relpath"])

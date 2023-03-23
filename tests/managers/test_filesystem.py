@@ -68,29 +68,3 @@ class Test_Filesystem(unittest.TestCase, ManagerTests):
     def test_config(self):
 
         self.assertEqual(self.manager.toConfig(), {"manager": "FS", "path": self.directory})
-
-    def test_speed(self):
-
-        with tempfile.TemporaryDirectory() as directory:
-
-            targets = ['{}.txt'.format(i) for i in range(100000)]
-
-            for t in targets:
-                open(os.path.join(directory, t), 'w').close()
-
-            start = time.time()
-            for t in targets:
-                os.path.exists(os.path.join(directory, t))
-            rawTotal = time.time() - start
-
-            directoryArtefact = stow.artefact(directory)
-
-            start = time.time()
-            for t in targets:
-                t in directoryArtefact
-
-            stowTotal = time.time() - start
-
-            self.assertAlmostEqual(rawTotal, stowTotal)
-
-

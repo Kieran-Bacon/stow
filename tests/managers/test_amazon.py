@@ -5,6 +5,7 @@ import os
 import io
 import tempfile
 
+import binascii
 import hashlib
 import zlib
 
@@ -124,11 +125,14 @@ class Test_Amazon(unittest.TestCase):
         manager = Amazon("bucket_name")
         file = manager['/file.txt']
 
-        self.assertEqual({'key': 'value'}, file.metadata)
+        metadata = file.metadata
+        metadata.pop('ETag')
+
+        self.assertEqual({'key': 'value'}, metadata)
 
         file = list(manager.ls())[0]
 
-        self.assertEqual({'key': 'value'}, file.metadata)
+        self.assertEqual({'key': 'value'}, metadata)
 
     def test_metadata_missing(self):
 
@@ -317,19 +321,14 @@ class Test_Amazon(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
 
-            if os.name == "nt":
-                directory = directory[:directory.index(':')].lower() + directory[directory.index(':'):]
-
-            local_path = os.path.join(directory, 'file.txt')
+            local_path = os.path.abspath(os.path.splitdrive(os.path.join(directory, 'file.txt'))[1])
 
             with open(local_path, "w", encoding="utf-8") as handle:
                 handle.write('Content')
 
             manager = Amazon("bucket_name")
-            manager.put(local_path, '/file.txt', Callback=stow.testing.mock.TestCallback)
+            artefact = manager.put(local_path, '/file.txt', Callback=stow.testing.mock.TestCallback)
 
-
-        # raise ValueError(f"{stow.testing.mock.TestCallback.artefacts.keys()}")
         data = stow.testing.mock.TestCallback.artefacts[local_path]
 
         self.assertEqual(data['artefact'].path, local_path)
@@ -388,6 +387,25 @@ class Test_Amazon(unittest.TestCase):
         )
 
         self.assertEqual(b"These are some contents bytes", bytes_buffer.getvalue())
+
+    def test_ls_empty_directory(self):
+        """ Test that the way the console will create empty directories correctly comes back as a directory only """
+
+        self.s3.put_object(Bucket="bucket_name", Key="source/empty-directory/", Body=b"")
+
+        manager = Amazon('bucket_name')
+
+        expected_artefacts = {
+            '/source': stow.Directory,
+            '/source/empty-directory': stow.Directory
+        }
+
+        for artefact in manager.ls(recursive=True):
+            expected_type = expected_artefacts.pop(artefact.path)
+            self.assertIsInstance(artefact, expected_type)
+
+        if expected_artefacts:
+            raise ValueError(f'Expected artefacts remaining {list(expected_artefacts.keys())}')
 
     def test_copy_file(self):
 
@@ -477,16 +495,20 @@ class Test_Amazon(unittest.TestCase):
 
         manager.mv('/source', '/destination')
 
-        self.assertEqual(
-            {
-                "/destination",
-                "/destination/file-1.txt",
-                "/destination/sub-directory",
-                "/destination/sub-directory/file-2.txt",
-                "/destination/empty-directory",
-            },
-            {art.path for art in manager.ls(recursive=True)}
-        )
+        expected_artefacts = {
+            "/destination": stow.Directory,
+            "/destination/file-1.txt": stow.File,
+            "/destination/sub-directory": stow.Directory,
+            "/destination/sub-directory/file-2.txt": stow.File,
+            "/destination/empty-directory": stow.Directory,
+        }
+
+        for artefact in manager.ls(recursive=True):
+            expected_type = expected_artefacts.pop(artefact.path)
+            self.assertIsInstance(artefact, expected_type)
+
+        if expected_artefacts:
+            raise ValueError(f'Remaining expected artefacts: {list(expected_artefacts)}')
 
     def test_remove_file(self):
 
@@ -574,12 +596,67 @@ class Test_Amazon(unittest.TestCase):
 
         manager = Amazon('bucket_name')
 
-        art_checksum = manager['/file-1.txt'].digest(stow.HashingAlgorithm.MD5)
-        man_checksum = manager.digest('/file-1.txt', stow.HashingAlgorithm.MD5)
-        md5_checksum = hashlib.md5(b"Content").hexdigest()
+        with pytest.raises(NotImplementedError):
+            manager['/file-1.txt'].digest(stow.HashingAlgorithm.MD5)
+
+        with pytest.raises(NotImplementedError):
+            manager.digest('/file-1.txt', stow.HashingAlgorithm.MD5)
+
+    def test_digest_sha1(self):
+
+        self.s3.put_object(
+            Bucket="bucket_name",
+            Key="file-1.txt",
+            Body=b"Content",
+            ChecksumAlgorithm="SHA1"
+        )
+
+        manager = Amazon('bucket_name')
+
+        art_checksum = manager['/file-1.txt'].digest(stow.HashingAlgorithm.SHA1)
+        man_checksum = manager.digest('/file-1.txt', stow.HashingAlgorithm.SHA1)
+        sha1_checksum = hashlib.sha1(b'Content').hexdigest()
+
 
         self.assertEqual(art_checksum, man_checksum)
-        self.assertEqual(md5_checksum, man_checksum)
+        self.assertEqual(sha1_checksum, man_checksum)
+
+    def test_digest_sha256(self):
+
+        self.s3.put_object(
+            Bucket="bucket_name",
+            Key="file-1.txt",
+            Body=b"Content",
+            ChecksumAlgorithm="SHA256"
+        )
+
+        manager = Amazon('bucket_name')
+
+        art_checksum = manager['/file-1.txt'].digest(stow.HashingAlgorithm.SHA256)
+        man_checksum = manager.digest('/file-1.txt', stow.HashingAlgorithm.SHA256)
+        sha1_checksum = hashlib.sha256(b'Content').hexdigest()
+
+
+        self.assertEqual(art_checksum, man_checksum)
+        self.assertEqual(sha1_checksum, man_checksum)
+
+    def test_digest_sha256(self):
+
+        self.s3.put_object(
+            Bucket="bucket_name",
+            Key="file-1.txt",
+            Body=b"Content",
+            ChecksumAlgorithm="SHA256"
+        )
+
+        manager = Amazon('bucket_name')
+
+        art_checksum = manager['/file-1.txt'].digest(stow.HashingAlgorithm.SHA256)
+        man_checksum = manager.digest('/file-1.txt', stow.HashingAlgorithm.SHA256)
+        sha256_checksum = hashlib.sha256(b'Content').hexdigest()
+
+        self.assertEqual(art_checksum, man_checksum)
+        self.assertEqual(sha256_checksum, man_checksum)
 
     def test_digest_crc32(self):
 
@@ -587,28 +664,38 @@ class Test_Amazon(unittest.TestCase):
             Bucket="bucket_name",
             Key="file-1.txt",
             Body=b"Content",
-            # ChecksumAlgorithm="CRC32"
-        )
-
-        response = self.s3.get_object_attributes(
-            Bucket='bucket_name',
-            Key='file-1.txt',
-            ObjectAttributes=[]
+            ChecksumAlgorithm="CRC32"
         )
 
         manager = Amazon('bucket_name')
 
         art_checksum = manager['/file-1.txt'].digest(stow.HashingAlgorithm.CRC32)
         man_checksum = manager.digest('/file-1.txt', stow.HashingAlgorithm.CRC32)
-        crc32_checksun = zlib.crc32(b'Content')
-
+        crc32_checksum = hex(binascii.crc32(b'Content') & 0xFFFFFFFF)[2:]
 
         self.assertEqual(art_checksum, man_checksum)
-        self.assertEqual(crc32_checksun, man_checksum)
+        self.assertEqual(crc32_checksum, man_checksum)
 
+    @unittest.skip("No crc32c certificate")
+    def test_digest_crc32c(self):
 
+        self.s3.put_object(
+            Bucket="bucket_name",
+            Key="file-1.txt",
+            Body=b"Content",
+            ChecksumAlgorithm="CRC32C"
+        )
 
+        manager = Amazon('bucket_name')
 
+        art_checksum = manager['/file-1.txt'].digest(stow.HashingAlgorithm.CRC32C)
+        man_checksum = manager.digest('/file-1.txt', stow.HashingAlgorithm.CRC32C)
+        # crc32c_checksun = hex(zlib.crc32(b'Content') & 0xffffffff)[2:]
+        from crc32c import crc32c
+        crc32c_checksum = crc32c(b'Content')
+
+        self.assertEqual(art_checksum, man_checksum)
+        self.assertEqual(crc32c_checksum, man_checksum)
 
 
 

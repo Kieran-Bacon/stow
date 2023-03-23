@@ -35,11 +35,12 @@ class Test_Stateless(unittest.TestCase):
     def test_parseURL(self):
 
         with tempfile.TemporaryDirectory() as directory:
+            _, pdirectory = stow.splitdrive(directory)
 
             # Get the manager and path of the directory
             parsed = stow.parseURL(directory)
             self.assertIsInstance(parsed.manager, stow.managers.FS)
-            self.assertEqual(parsed.relpath, directory)
+            self.assertEqual(stow.splitdrive(parsed.relpath)[1], pdirectory)
 
 
 
@@ -221,7 +222,16 @@ class Test_Stateless(unittest.TestCase):
             self.assertTrue(stow.sameopenfile(fd1, fd2))
             self.assertTrue(stow.sameopenfile(fd1, fd3))
 
-            self.assertFalse(stow.sameopenfile(fd1, os.open(os.path.join(directory, "file2.txt"), os.O_RDONLY)))
+            fd3 = os.open(os.path.join(directory, "file2.txt"), os.O_RDONLY)
+
+            self.assertFalse(stow.sameopenfile(fd1, fd3))
+
+            os.close(fd1)
+            os.close(fd2)
+            os.close(fd3)
+            file.close()
+
+            print('what?')
 
     def test_samestat(self):
 
@@ -307,6 +317,17 @@ class Test_Stateless(unittest.TestCase):
             self.assertTrue(stow.isdir(stow.artefact(directory)))
             self.assertFalse(stow.isdir(filepath))
 
+    def test_createLink(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+            file = stow.touch(stow.join(directory, 'file1.txt'))
+
+            linked_file = stow.mklink(file, stow.join(directory, 'file-linked.txt'))
+
+            stow.islink(linked_file)
+            os.path.islink(linked_file.abspath)
+
+
     def test_islink(self):
 
         with tempfile.TemporaryDirectory() as directory:
@@ -330,7 +351,7 @@ class Test_Stateless(unittest.TestCase):
     def test_ismount(self):
 
         if os.name == 'nt':
-            self.assertTrue(stow.ismount('C:'))
+            self.assertTrue(stow.ismount('G:\\'))
             self.assertFalse(stow.ismount(stow.expanduser('~')))
         else:
             self.assertTrue(stow.ismount('/dev'))
@@ -362,6 +383,22 @@ class Test_Stateless(unittest.TestCase):
             self.assertAlmostEqual(stow.getmtime(stow.artefact(directory)), os.path.getmtime(directory), places=5)
             self.assertAlmostEqual(stow.getmtime(stow.artefact(filepath)), os.path.getmtime(filepath), places=5)
 
+    def test_setmtime(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+            filepath = os.path.join(directory, "file.txt")
+
+            with open(filepath, "w") as handle:
+                handle.write("Hero")
+
+            timestamp = time.time()
+            stow.setmtime(filepath, timestamp)
+            self.assertEqual(os.path.getmtime(filepath), timestamp)
+
+            timestamp = datetime.datetime.now()
+            stow.setmtime(filepath, timestamp)
+            self.assertEqual(os.path.getmtime(filepath), timestamp.timestamp())
+
     def test_getatime(self):
 
         with tempfile.TemporaryDirectory() as directory:
@@ -375,6 +412,22 @@ class Test_Stateless(unittest.TestCase):
 
             self.assertAlmostEqual(stow.getatime(stow.artefact(directory)), os.path.getatime(directory), places=5)
             self.assertAlmostEqual(stow.getatime(stow.artefact(filepath)), os.path.getatime(filepath), places=5)
+
+    def test_setatime(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+            filepath = os.path.join(directory, "file.txt")
+
+            with open(filepath, "w") as handle:
+                handle.write("Hero")
+
+            timestamp = time.time()
+            stow.setatime(filepath, timestamp)
+            self.assertEqual(os.path.getatime(filepath), timestamp)
+
+            timestamp = datetime.datetime.now()
+            stow.setatime(filepath, timestamp)
+            self.assertEqual(os.path.getatime(filepath), timestamp.timestamp())
 
     def test_exists(self):
 
@@ -432,14 +485,13 @@ class Test_Stateless(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
 
-            if os.name == 'nt':
-                directory = directory[0].lower() + directory[1:]
+            sd = lambda x: stow.splitdrive(x)[1]
 
             with stow.localise(directory) as abspath:
-                self.assertEqual(directory, abspath)
+                self.assertEqual(sd(directory), sd(abspath))
 
             with stow.localise(stow.artefact(directory)) as abspath:
-                self.assertEqual(directory, abspath)
+                self.assertEqual(sd(directory), sd(abspath))
 
 
     def test_ls(self):

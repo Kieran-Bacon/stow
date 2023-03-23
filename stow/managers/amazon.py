@@ -11,6 +11,7 @@ import mimetypes
 import datetime
 import concurrent.futures as futures
 import logging
+import base64
 
 from tqdm import tqdm
 import boto3
@@ -259,29 +260,31 @@ class Amazon(RemoteManager):
     def _digest(self, file: File, algorithm: HashingAlgorithm):
 
         if algorithm is HashingAlgorithm.MD5:
-            # The MD5 is downloaded and set at File creation - the object will have it set to return
-            return file.digest(algorithm=algorithm)
+            raise NotImplementedError('AWS does not support conventional MD5 - use the ETag comparison method or localise file to calculate MD5')
 
         else:
 
-            checksums = self._s3.get_object_attributes(
+            attributes = self._s3.get_object_attributes(
                 Bucket=self._bucketName,
                 Key=self._managerPath(file.path),
                 ObjectAttributes=['Checksum']
             )
+            checksums = attributes['Checksum']
 
             log.debug(f'Checksums collected for {file.path}: {checksums}')
 
             if algorithm is HashingAlgorithm.CRC32:
-                return checksums['ChecksumCRC32']
+                value = checksums['ChecksumCRC32']
             elif algorithm is HashingAlgorithm.CRC32C:
-                return checksums['ChecksumCRC32C']
+                value = checksums['ChecksumCRC32C']
             elif algorithm is HashingAlgorithm.SHA1:
-                return checksums['ChecksumSHA1']
+                value = checksums['ChecksumSHA1']
             elif algorithm is HashingAlgorithm.SHA256:
-                return checksums['ChecksumSHA256']
+                value = checksums['ChecksumSHA256']
             else:
                 raise NotImplementedError(f'Amazon does not provide {algorithm} hashing')
+
+            return base64.b64decode(value).hex()
 
     def _isLink(self, _: str):
         return False
@@ -454,6 +457,8 @@ class Amazon(RemoteManager):
                 Callback=Callback
             )
 
+        return PartialArtefact(self, destination)
+
     def _putBytes(
         self,
         fileBytes: bytes,
@@ -512,6 +517,11 @@ class Amazon(RemoteManager):
         if isinstance(source, Directory):
             for fileMetadata, _ in tqdm(self._list_objects(sourceBucket, sourcePath), desc=f"Copying {sourcePath} -> {destinationPath}"):
                 # Copy the object from the source object to the relative location in the destination location
+                relpath = self.relpath(fileMetadata['Key'], sourcePath, separator='/')
+                if fileMetadata['Key'][-1] == '/':
+                    # Resolve the relpath method removing trailing separators
+                    relpath += '/'
+
                 self._s3.copy_object(
                     CopySource={
                         "Bucket": sourceBucket,
@@ -519,7 +529,7 @@ class Amazon(RemoteManager):
                     },
                     Bucket=self._bucketName,
                     # The Relative path to the source joined onto the destination path
-                    Key=self.join(destinationPath, self.relpath(fileMetadata['Key'], sourcePath), separator='/')
+                    Key=self.join(destinationPath, relpath, separator='/')
                 )
 
         else:
@@ -562,10 +572,7 @@ class Amazon(RemoteManager):
                     self,
                     '/' + metadata['Key'],
                     modifiedTime=metadata['LastModified'],
-                    size=metadata['Size'],
-                    digest={
-                        HashingAlgorithm.MD5: metadata['ETag'].strip('"')
-                    }
+                    size=metadata['Size']
                 )
 
             else:

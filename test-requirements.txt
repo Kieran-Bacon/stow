@@ -1,4 +1,4 @@
 pyini
 pytest
 pytest-cov
-moto[s3]
+moto[s3]>=4.1.5.dev40

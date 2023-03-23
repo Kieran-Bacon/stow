@@ -17,23 +17,18 @@ class Resource:
 
 class Test_UtilFunctions(unittest.TestCase):
 
-    @unittest.mock.patch('pkg_resources.iter_entry_points')
-    def test_findFS(self, package_iter):
+    def setUp(self) -> None:
+        self.pkg_patcher = unittest.mock.patch('pkg_resources.iter_entry_points')
+        self.package_iter = self.pkg_patcher.start()
+        self.package_iter.side_effect = lambda x: [Resource()]
 
-        # Overload entrypoint loader to return this entry
-        package_iter.side_effect = lambda x: [Resource()]
+        stow.utils._utils.MANAGERS = {}
 
-        # Ensure that the manager hasn't already been cached
-        stow.utils.MANAGERS = {}
+    def tearDown(self) -> None:
+        self.pkg_patcher.stop()
 
-        # Test that this returns the manager class
-        managerClass = stow.utils.find("FS")
-
-        # Check that the
-        self.assertEqual(managerClass, FS)
-
-        # Check that the package iter was only called once
-        self.assertEqual(package_iter.call_count, 1)
+    # @unittest.mock.patch('pkg_resources.iter_entry_points')
+    def test_findFS(self):
 
         # Test that this returns the manager class
         managerClass = stow.utils.find("FS")
@@ -42,21 +37,23 @@ class Test_UtilFunctions(unittest.TestCase):
         self.assertEqual(managerClass, FS)
 
         # Check that the package iter was only called once
-        self.assertEqual(package_iter.call_count, 1)
+        self.assertEqual(self.package_iter.call_count, 1)
+
+        # Test that this returns the manager class
+        managerClass = stow.utils.find("FS")
+
+        # Check that the
+        self.assertEqual(managerClass, FS)
+
+        # Check that the package iter was only called once
+        self.assertEqual(self.package_iter.call_count, 1)
 
     def test_findFails(self):
 
         with self.assertRaises(ValueError):
             stow.utils.find("Somethingthatdoesntexist")
 
-    @unittest.mock.patch('stow.utils.find')
-    def test_connect(self, mockFind):
-
-        # Add a mock layer to the mock object
-        mockFind.side_effect = lambda x: FS
-
-        # Ensure that the cache is clear
-        # stow.utils.connect.cache_clear()
+    def test_connect(self):
 
         with tempfile.TemporaryDirectory() as directory:
             os.makedirs(os.path.join(directory, "demo"))
@@ -65,32 +62,31 @@ class Test_UtilFunctions(unittest.TestCase):
             manager = stow.utils.connect(manager="FS", path=directory)
 
             # We had to find the manager and return it
-            self.assertEqual(mockFind.call_count, 1)
+            self.assertEqual(self.package_iter.call_count, 1)
 
             managerB = stow.utils.connect(manager="FS", path=directory)
 
             # Assert that there is caching of the params at the connect level
-            self.assertEqual(mockFind.call_count, 1)
+            self.assertEqual(self.package_iter.call_count, 1)
             self.assertIs(manager, managerB)
 
-            # Craete a submanager
-            managerC = stow.utils.connect(manager="FS", path=directory, submanager="/demo")
+            # Create another FS manager
+            managerC = stow.utils.connect(manager="FS", path=os.path.join(directory, 'submanager'))
 
-            # Assert that there is caching of the params at the connect level
-            # print(stow.utils.connect.cache_info())
-            # print(stow.utils.connect.cache_parameters())
-            self.assertEqual(mockFind.call_count, 1)
+            self.assertEqual(self.package_iter.call_count, 1)
             self.assertIsNot(manager, managerC)
-            self.assertIs(manager, managerC._owner)
 
     def test_parseURL(self):
 
         with tempfile.TemporaryDirectory() as directory:
-            manager, relpath = stow.parseURL(directory)
+            parsedURL = stow.parseURL(directory)
 
-            self.assertIsInstance(manager, FS)
-            if os.name == 'nt':
-                self.assertEqual(manager._abspath(manager[relpath].path)[1:], directory[1:])
-            else:
-                self.assertEqual(manager._abspath(manager[relpath].path), directory)
+            self.assertIsInstance(parsedURL.manager, FS)
+            self.assertEqual(stow.splitdrive(parsedURL.relpath)[1], stow.splitdrive(directory)[1])
+
+            # self.assertIsInstance(manager, FS)
+            # if os.name == 'nt':
+            #     self.assertEqual(manager._abspath(manager[relpath].path)[1:], directory[1:])
+            # else:
+            #     self.assertEqual(manager._abspath(manager[relpath].path), directory)
 

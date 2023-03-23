@@ -1,7 +1,6 @@
 """ House utilities for the finding and creation of Managers """
 
 import typing
-import urllib
 import functools
 import dataclasses
 
@@ -44,8 +43,6 @@ def connect(manager: str, **kwargs) -> typing.Type[Manager]:
     """
     return _utils.connect(manager, **kwargs)
 
-
-
 @dataclasses.dataclass
 class ParsedURL:
     """ House pointers to manager """
@@ -70,24 +67,3 @@ def parseURL(stowURL: str, default_manager = None) -> ParsedURL:
         typing.NamedTuple: Holding the manager and relative path of
     """
     return ParsedURL(*_utils.parseURL(stowURL))
-
-    # Parse the url provided
-    parsedURL = urllib.parse.urlparse(stowURL)
-
-    # Handle protocol managers vs local file system
-    if parsedURL.scheme and parsedURL.netloc:
-        manager = find(parsedURL.scheme)
-        scheme = parsedURL.scheme
-
-    elif default_manager is not None:
-        return ParsedURL(default_manager, stowURL)
-
-    else:
-        manager = find("FS")
-        scheme = "FS"
-
-    # Get the signature for the manager from the url
-    signature, relpath = manager._signatureFromURL(parsedURL)
-
-    # Has to use connect otherwise it will just create lots and lots of new managers
-    return ParsedURL(connect(scheme, **signature), relpath)

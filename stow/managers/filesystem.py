@@ -4,7 +4,13 @@ import shutil
 import urllib
 import typing
 
-from ..artefacts import Artefact, File, Directory, PartialArtefact
+import binascii
+import hashlib
+
+if os.name == 'nt':
+    import ctypes
+
+from ..artefacts import Artefact, File, Directory, PartialArtefact, HashingAlgorithm
 from ..manager.base_managers import LocalManager
 
 class FS(LocalManager):
@@ -18,39 +24,43 @@ class FS(LocalManager):
 
         manager = super().__new__(cls)
 
-        if path != os.path.sep:
-            # The class is not the default system wide FS manager - overload the functions to
-            # perform a translation of provided paths
+        if path == os.path.sep:
+            return super().__new__(RootFS)
 
-            # Update the current working directory information
-            cwd = path if os.path.isdir(path) else os.path.dirname(path)
-            manager._cwd = lambda: cwd
+        else:
+            return super().__new__(SubdirectoryFS)
 
-            # Update the absolute path method to become relative to the root
-            def relativeAbspath(managerPath: str) -> str:
-                return os.path.abspath(cls.join(path, managerPath, joinAbsolutes=True))
-            manager._abspath = relativeAbspath
+        os.symlink()
 
-            # Absolute to relative
-            rootLength = len(path)
-            def relative(abspath: str) -> str:
-                return abspath[rootLength:]
-            manager._relative = relative
+    if os.name == 'nt':
+        def __init__(self, path: str = os.path.sep):
+            super().__init__()
+            self._drive, self._path = os.path.splitdrive(path)
+            self._drive = self._drive or 'C:'
+            self._root = self._drive + self._path
 
-        return manager
+        # def _mklink(self, source: str, destination: str):
 
-    def __init__(self, path: str = os.path.sep):
-        super().__init__()
-        self._root = path
+        #     source, destination = self._abspath(source), self._abspath(destination)
+
+        #     kdll = ctypes.windll.LoadLibrary("kernel32.dll")
+        #     kdll.CreateSymbolicLinkA(source, destination, 0)
+        #     return PartialArtefact(self, destination)
+
+        #     # win32file.CreateSymbolicLink(source.abspath, destination, 1)
+
+    else:
+        def __init__(self, path: str = os.path.sep):
+            super().__init__()
+            self._drive, self._root = os.path.splitdrive(path)
+            self._path = self._root
+
+    def _mklink(self, source: str, destination: str):
+        os.symlink(self._abspath(source), self._abspath(destination))
+        return PartialArtefact(self, destination)
 
     def __repr__(self):
         return '<Manager(FS)>'
-
-    def _abspath(self, managerPath: str) -> str:
-        return os.path.abspath(managerPath)
-
-    def _relative(self, abspath: str) -> str:
-        return abspath
 
     def _exists(self, managerPath: str):
         return os.path.exists(self._abspath(managerPath))
@@ -98,6 +108,20 @@ class FS(LocalManager):
 
         except:
             return None
+
+    def _digest(self, file: File, algorithm: HashingAlgorithm):
+
+        with file.open('rb') as handle:
+            if algorithm is HashingAlgorithm.MD5:
+                return hashlib.md5(handle.read()).hexdigest()
+            elif algorithm is HashingAlgorithm.CRC32:
+                return hex(binascii.crc32(handle.read()) & 0xFFFFFFFF)
+            elif algorithm is HashingAlgorithm.SHA1:
+                return hashlib.sha1(handle.read()).hexdigest()
+            elif algorithm is HashingAlgorithm.SHA256:
+                return hashlib.sha256(handle.read()).hexdigest()
+            else:
+                raise NotImplementedError(f'Amazon does not provide {algorithm} hashing')
 
     def _get(self, source: Artefact, destination: str, *, Callback = None):
 
@@ -147,7 +171,7 @@ class FS(LocalManager):
         return PartialArtefact(self, destination)
 
     def _cp(self, source: Artefact, destination: str):
-        return self._put(self._abspath(source.path), destination)
+        return self._put(source, destination)
 
     def _mv(self, source: str, destination: str):
 
@@ -204,3 +228,26 @@ class FS(LocalManager):
 
     def toConfig(self):
         return {'manager': 'FS', 'path': self._root}
+
+class RootFS(FS):
+
+    def _abspath(self, managerPath: str) -> str:
+        return os.path.abspath(managerPath)
+
+    def _relative(self, abspath: str) -> str:
+        return abspath
+
+class SubdirectoryFS(FS):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._rootLength = len(self._root)
+
+    def _cwd(self):
+        return self._root
+
+    def _abspath(self, managerPath: str) -> str:
+        return os.path.abspath(self.join(self._root, managerPath, joinAbsolutes=True))
+
+    def _relative(self, abspath: str) -> str:
+        return abspath[self._rootLength:] or os.sep

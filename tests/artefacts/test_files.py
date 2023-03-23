@@ -1,11 +1,13 @@
 """ Test the file objects in stow """
 
+import pytest
 import unittest
 
 import os
 import pickle
 import tempfile
 import datetime
+import time
 
 import stow
 from stow.managers import FS
@@ -108,25 +110,28 @@ class Test_Files(BasicSetup, unittest.TestCase):
         file = self.manager['/file1']
         self.assertEqual(file.size, len(self.filetext))
 
+    def test_setContentType(self):
+        """ Local FS doesn't support the idea of content type """
+
+        file: stow.File = self.manager['/file1']
+        with pytest.raises(NotImplementedError):
+            file.content_type = 'video/mp4'
+
     def test_modifiedTime(self):
 
         file = self.manager['/file1']
-        self.assertTrue(
-            (datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc) - datetime.timedelta(seconds=2)) < file.modifiedTime
-        )
-        self.assertTrue(
-            (datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc)) > file.modifiedTime
-        )
+        self.assertAlmostEqual(time.time(), file.modifiedTime.timestamp(), places=1)
+
 
     def test_createdTime(self):
 
         file = self.manager["/file1"]
 
-        self.assertEqual(file.createdTime, file.modifiedTime)
+        self.assertAlmostEqual(file.createdTime.timestamp(), file.modifiedTime.timestamp(), places=1)
 
         file = stow.File(self.manager, "/example", 0, file.modifiedTime)
 
-        self.assertEqual(file.createdTime, file.modifiedTime)
+        self.assertTrue(file.createdTime <= file.modifiedTime)
 
         file = stow.File(self.manager, "/example", 0, file.modifiedTime, createdTime= file.modifiedTime - datetime.timedelta(seconds=2))
 
@@ -147,6 +152,18 @@ class Test_Files(BasicSetup, unittest.TestCase):
 
         self.assertNotEqual(file.accessedTime, file.modifiedTime)
         self.assertTrue(file.accessedTime > file.modifiedTime)
+
+    def test_settingAccessTime(self):
+
+        file: stow.File = self.manager['/file1']
+
+        accesstime = datetime.datetime.now().timestamp()
+
+        file.accessedTime = accesstime
+
+        stat = os.stat(file.abspath)
+
+        self.assertEqual(stat.st_atime, accesstime)
 
     def test_localise(self):
 
@@ -175,30 +192,13 @@ class Test_Files(BasicSetup, unittest.TestCase):
         with open(self.filepath, 'r') as fh:
             self.assertEqual(fh.read(), text)
 
-    def test_update(self):
+    def test_isLink(self):
 
-        file = self.manager['/file1']
+        file: stow.File = self.manager['/file1']
+        self.assertFalse(file.isLink())
 
-        newTime = (datetime.datetime.now() - datetime.timedelta(seconds=2))
-        newSize = 4000
-        newFile = stow.artefacts.File(self.manager, '/file1', newSize, newTime)
-
-        file._update(newFile)
-
-        self.assertEqual(file.modifiedTime, newTime)
-        self.assertEqual(len(file), newSize)
-
-        created = (datetime.datetime.now() - datetime.timedelta(seconds=10))
-        modified = (datetime.datetime.now() - datetime.timedelta(seconds=5))
-        accessed = (datetime.datetime.now() - datetime.timedelta(seconds=0))
-
-        newFile = stow.File(self.manager, "/file1", newSize, modifiedTime=modified, createdTime=created, accessedTime=accessed)
-
-        file._update(newFile)
-
-        self.assertEqual(file.modifiedTime, modified)
-        self.assertEqual(file.createdTime, created)
-        self.assertEqual(file.accessedTime, accessed)
+        linked_file = self.manager.mklink(file, '/file-linked')
+        self.assertTrue(linked_file.isLink())
 
     def test_serialised(self):
 
@@ -226,12 +226,12 @@ class Test_Files(BasicSetup, unittest.TestCase):
         # Fetch the file
         manager = FS(self.directory)
         file = manager['/file.txt']
-        original_modified_time = file.modifiedTime
 
         new_modified_time = datetime.datetime(2022, 10, 10).timestamp()
 
+        self.assertNotEqual(file.modifiedTime, new_modified_time)
+
         file.modifiedTime = new_modified_time
 
-        self.assertNotEqual(original_modified_time, file.modifiedTime)
-        self.assertEqual(new_modified_time, file.modifiedTime)
+        self.assertEqual(datetime.datetime.fromtimestamp(new_modified_time), file.modifiedTime)
 

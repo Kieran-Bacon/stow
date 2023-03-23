@@ -1,3 +1,4 @@
+import os
 import abc
 import io
 import datetime
@@ -40,10 +41,13 @@ class Artefact:
     def __reduce__(self):
         return (ArtefactReloader, (self._manager.toConfig(), self._path))
 
-    def __hash__(self): return hash(id(self))
+    def __hash__(self):
+        return hash(self.abspath)
+
     def __eq__(self, other: "Artefact"):
         return (
             self.manager is other.manager and
+            type(self) == type(other) and
             self.path == other.path
         )
 
@@ -250,7 +254,7 @@ class File(Artefact):
 
     @modifiedTime.setter
     def modifiedTime(self, _datetime: typing.Union[float, datetime.datetime]):
-        return self._manager.setmtime(self, _datetime)
+        self._modifiedTime = self._manager.setmtime(self, _datetime)
 
     @property
     def accessedTime(self):
@@ -261,7 +265,7 @@ class File(Artefact):
 
     @accessedTime.setter
     def accessedTime(self, _datetime: typing.Union[float, datetime.datetime]):
-        return self._manager.setatime(self, _datetime)
+        self._accessedTime = self._manager.setatime(self, _datetime)
 
     def digest(self, algorithm: HashingAlgorithm = HashingAlgorithm.MD5):
         """ Get the file digest to verify validaty - if a manager does not have it's own method of creatin file digests
@@ -278,11 +282,9 @@ class File(Artefact):
         return self._size
 
     def isLink(self):
-
-        if self._isLink is not None:
-            return self._isLink
-        else:
-            return self._manager._isLink(self)
+        if self._isLink is None:
+            self._isLink = self._manager._isLink(self)
+        return self._isLink
 
     @contextlib.contextmanager
     def localise(self) -> str:
@@ -390,7 +392,7 @@ class Directory(Artefact):
         """
         return self.manager.touch(self.manager.join(self._path, path, separator='/', joinAbsolutes=True))
 
-    def relpath(self, artefact: typing.Union[Artefact, str]) -> str:
+    def relpath(self, artefact: typing.Union[Artefact, str], separator: str = os.sep) -> str:
         """ Assuming the artefact is a member of this directory, return a filepath which is relative to this directory
 
         Args:
@@ -409,14 +411,14 @@ class Directory(Artefact):
         else:
             path = artefact
 
-        # Raise error if the artefact is not a member of the directory
-        if not path.startswith(self.path):
-            raise exceptions.ArtefactNotMember(
-                "Cannot create relative path for Artefact {} as its not a member of {}".format(artefact, self)
-            )
+        # # Raise error if the artefact is not a member of the directory
+        # if not path.startswith(self.path):
+        #     raise exceptions.ArtefactNotMember(
+        #         "Cannot create relative path for Artefact {} as its not a member of {}".format(artefact, self)
+        #     )
 
         # Return the path
-        return self.manager.relpath(path, self.path)
+        return self.manager.relpath(path, self.path, separator=separator)
 
     @contextlib.contextmanager
     def localise(self, path: str = None) -> str:
@@ -461,24 +463,6 @@ class Directory(Artefact):
             OperationNotPermitted: In the even the target is a directory and recursive has not been toggled
         """
         return self.manager.rm(self.manager.join(self.path, path, separator='/', joinAbsolutes=True), recursive)
-
-    def _ls(self, recursive: bool = False):
-        """ Get the current contents from this directory, do not update or edit state """
-
-        if recursive:
-            # Iterate through contents and recursively add lower level artifacts
-            contents = set()
-            for art in self._contents:
-                if isinstance(art, Directory):
-                    contents |= art._ls(True)
-
-                contents.add(art)
-
-            # Return all child content
-            return contents
-
-        # Make the content a set and return just this level
-        return set(self._contents)
 
     def iterls(
         self,
@@ -560,8 +544,8 @@ class PartialArtefact:
     def __getattribute__(self, attr: str):
 
         # For debugger only (only way this function can be called twice)
-        if object.__getattribute__(self, "__class__").__name__ != "PartialArtefact":
-            return object.__getattribute__(self, attr)
+        if object.__getattribute__(self, "__class__").__name__ != "PartialArtefact":                  # pragma: no cover
+            return object.__getattribute__(self, attr)                                                # pragma: no cover
 
         # Get the artefact information
         manager = object.__getattribute__(self, "_manager")

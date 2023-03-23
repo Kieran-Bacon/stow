@@ -9,10 +9,25 @@
 - Add `Callbacks` objects for getting upload and download progression.
 - Add `manager` method to interface
 - Add `root` property to managers
+- Add `setmtime`, `setatime` and `mklink` to manager and stateless interface
+- Add hashing algorithm support for Amazon objects
+
+
+### Changed
+
+- Extended `relpath` to take `separator` parameter so that the separator used isn't platform specific.
+- Updated `sync` to work for files and directories. Extended the interface to allow the choice between a simply modified time comparison or a more complicated digest comparason function
+- Updated the hash of artefacts to be the hash of their `abspath`
+- Updated the equality method for artefacts to take type into account
+- Refactored `Filesystem` manager to work better between linux and windows
 
 ### Fixed
 
 - Fixed inability to delete empty directories without passing overwrite set `True`
+- Simplified utils decorator method
+- Fixed issue where artefact timestamps were not updated when set
+- Fixed `Amazon.cp` issue effecting empty directories leading to new files
+
 
 ## [1.1.6] - 2021-03-04
 
