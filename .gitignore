@@ -4,7 +4,7 @@
 build
 pyenv
 *venv*
-
+dist
 *.egg-info
 *.pyc
 
