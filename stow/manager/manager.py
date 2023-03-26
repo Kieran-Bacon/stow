@@ -767,7 +767,7 @@ class Manager(AbstractManager):
         destination: typing.Union[str, None] = None,
         *,
         overwrite: bool = False,
-        Callback: typing.Type[AbstractCallback] = None
+        callback: typing.Type[AbstractCallback] = None
         ) -> typing.Union[Artefact, bytes]:
         """ Get an artefact from a local or remote source and download the artefact either to a local artefact or as bytes
 
@@ -782,6 +782,9 @@ class Manager(AbstractManager):
 
         # Split into object and path - Ensure that the artefact to get is from this manager
         _, obj, _ = self._splitManagerArtefactForm(source)
+
+        if issubclass(callback, AbstractCallback):
+            callback = callback('get')
 
         # Ensure the destination - Remove or raise issue for a local artefact at the location where the get is called
         if destination is not None:
@@ -803,7 +806,7 @@ class Manager(AbstractManager):
                 os.makedirs(self.dirname(destination), exist_ok=True)
 
             # Get the object using the underlying manager implementation
-            obj.manager._get(obj, destination, Callback=Callback)
+            obj.manager._get(obj, destination, callback=callback)
 
             # Load the downloaded artefact from the local location and return
             return PartialArtefact(utils.connect(manager="FS"), destination)
@@ -812,7 +815,7 @@ class Manager(AbstractManager):
             if not isinstance(obj, File):
                 raise exceptions.ArtefactTypeError("Cannot get file bytes of {}".format(obj))
 
-            return obj.manager._getBytes(obj, Callback=Callback)
+            return obj.manager._getBytes(obj, callback=callback)
 
     def put(
         self,
@@ -821,7 +824,7 @@ class Manager(AbstractManager):
         overwrite: bool = False,
         *,
         metadata: typing.Dict[str, str] = None,
-        Callback: typing.Type[AbstractCallback] = None
+        callback: typing.Type[AbstractCallback] = None
         ) -> Artefact:
         """ Put a local artefact onto the remote at the location given.
 
@@ -848,12 +851,16 @@ class Manager(AbstractManager):
                     "Cannot put {} as destination is a directory, and overwrite has not been set to True"
                 )
 
+        if issubclass(callback, AbstractCallback):
+            # Need to instantiate the callback
+            callback = callback('put')
+
         if isinstance(source, bytes):
             return destinationManager._putBytes(
                 source,
                 destinationPath,
                 metadata=metadata,
-                Callback=Callback
+                callback=callback
             )
 
         else:
@@ -861,7 +868,7 @@ class Manager(AbstractManager):
                 sourceObj,
                 destinationPath,
                 metadata=metadata,
-                Callback=Callback
+                callback=callback
             )
 
     def cp(

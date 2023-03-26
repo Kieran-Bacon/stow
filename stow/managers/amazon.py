@@ -12,6 +12,7 @@ import datetime
 import concurrent.futures as futures
 import logging
 import base64
+import functools
 
 from tqdm import tqdm
 import boto3
@@ -19,6 +20,7 @@ from botocore.exceptions import ClientError
 
 from ..artefacts import Artefact, PartialArtefact, File, Directory, HashingAlgorithm
 from ..manager import RemoteManager
+from ..callbacks import AbstractCallback
 from .. import exceptions
 
 log = logging.getLogger(__name__)
@@ -292,7 +294,14 @@ class Amazon(RemoteManager):
     def _isMount(self, _: str):
         return False
 
-    def _get(self, source: Artefact, destination: str, *, Callback = None):
+    def _s3Callback(self, callback: typing.Optional[AbstractCallback], source: str):
+        if callback is not None:
+            def wrapper(bytes_transferred):
+                return callback.bytes_transfered(source, count=bytes_transferred)
+            return wrapper
+        return callback
+
+    def _get(self, source: Artefact, destination: str, *, callback = None):
 
         # Convert manager path to s3
         keyName = self._managerPath(source.path)
@@ -327,7 +336,7 @@ class Amazon(RemoteManager):
                             self._bucketName,
                             artefactPath,
                             path,
-                            Callback=Callback and Callback(artefact, is_downloading=True)
+                            Callback=self._s3Callback(callback, artefact)
                         )
                         future_collection.append(future)
 
@@ -340,14 +349,15 @@ class Amazon(RemoteManager):
                         raise exception
 
         else:
+
             self._s3.download_file(
                 self._bucketName,
                 keyName,
                 destination,
-                Callback=Callback and Callback(source, is_downloading=True)
+                Callback=self._s3Callback(callback, source)
             )
 
-    def _getBytes(self, source: Artefact, Callback = None) -> bytes:
+    def _getBytes(self, source: Artefact, callback = None) -> bytes:
 
         # Get buffer to recieve bytes
         bytes_buffer = io.BytesIO()
@@ -357,7 +367,7 @@ class Amazon(RemoteManager):
             Bucket=self._bucketName,
             Key=self._managerPath(source.path),
             Fileobj=bytes_buffer,
-            Callback=Callback and Callback(source, is_downloading=True)
+            Callback=self._s3Callback(callback, source)
         )
 
         # Return the bytes stored in the buffer
@@ -368,7 +378,7 @@ class Amazon(RemoteManager):
         source: File,
         destination: str,
         extra_args: typing.Dict,
-        Callback = None
+        callback = None
         ):
 
         with source.localise() as abspath:
@@ -381,10 +391,10 @@ class Amazon(RemoteManager):
                     "ContentType": (mimetypes.guess_type(destination)[0] or 'application/octet-stream'),
                     **extra_args
                 },
-                Callback=Callback and Callback(source, is_downloading=False)
+                Callback=self._s3Callback(callback, source)
             )
 
-    def _put(self, source: Artefact, destination: str, *, metadata = None, Callback = None):
+    def _put(self, source: Artefact, destination: str, *, metadata = None, callback = None):
 
         # Setup metadata about the objects being put
         extra_args = {}
@@ -418,7 +428,7 @@ class Amazon(RemoteManager):
                                     artefact,
                                     file_destination,
                                     extra_args=extra_args,
-                                    Callback=Callback
+                                    callback=callback
                                 )
                             )
 
@@ -454,7 +464,7 @@ class Amazon(RemoteManager):
                 source,
                 destination,
                 extra_args=extra_args,
-                Callback=Callback
+                callback=callback
             )
 
         return PartialArtefact(self, destination)
@@ -465,8 +475,9 @@ class Amazon(RemoteManager):
         destination: str,
         *,
         metadata: typing.Dict[str, str] = None,
-        Callback = None
+        callback = None
         ):
+
 
         self._s3.upload_fileobj(
             io.BytesIO(fileBytes),
@@ -477,7 +488,7 @@ class Amazon(RemoteManager):
                 "ContentType": (mimetypes.guess_type(destination)[0] or 'application/octet-stream'),
                 "Metadata": ({str(k): str(v) for k, v in metadata.items()} if metadata else {})
             },
-            Callback=Callback and Callback(File(self, destination, len(fileBytes), datetime.datetime.now(tz=datetime.timezone.utc)), is_downloading=False)
+            Callback=self._s3Callback(callback, fileBytes)
         )
 
         return PartialArtefact(self, destination)
