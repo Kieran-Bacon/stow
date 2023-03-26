@@ -121,7 +121,8 @@ def _identifyPath(self, managerPath: str):
             return handle.read()
 ```
 
-### ![mkapi](stow.manager.Manager._put)
+<!-- ### ![mkapi](stow.manager.Manager._put) -->
+### _put TODO fix
 
 <div style='margin-top: -20px'></div>
 

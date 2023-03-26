@@ -10,9 +10,9 @@ import time
 import stow
 from stow.managers import FS
 
-from .manager import ManagerTests, SubManagerTests
+from .manager import ManagerTests
 
-class Test_Filesystem(unittest.TestCase, ManagerTests, SubManagerTests):
+class Test_Filesystem(unittest.TestCase, ManagerTests):
 
     def setUp(self):
         # Make the managers local space to store files
@@ -68,29 +68,3 @@ class Test_Filesystem(unittest.TestCase, ManagerTests, SubManagerTests):
     def test_config(self):
 
         self.assertEqual(self.manager.toConfig(), {"manager": "FS", "path": self.directory})
-
-    def test_speed(self):
-
-        with tempfile.TemporaryDirectory() as directory:
-
-            targets = ['{}.txt'.format(i) for i in range(100000)]
-
-            for t in targets:
-                open(os.path.join(directory, t), 'w').close()
-
-            start = time.time()
-            for t in targets:
-                os.path.exists(os.path.join(directory, t))
-            rawTotal = time.time() - start
-
-            directoryArtefact = stow.artefact(directory)
-
-            start = time.time()
-            for t in targets:
-                t in directoryArtefact
-
-            stowTotal = time.time() - start
-
-            self.assertAlmostEqual(rawTotal, stowTotal)
-
-

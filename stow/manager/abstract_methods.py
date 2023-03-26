@@ -1,19 +1,23 @@
-from abc import ABC, abstractmethod, abstractclassmethod
+from abc import abstractmethod
 import urllib.parse
 import typing
 import contextlib
 
-from ..artefacts import Artefact, File, Directory
+from ..artefacts import Artefact, File, Directory, HashingAlgorithm
+from ..callbacks import AbstractCallback
 
-class AbstractManager(ABC):
+class AbstractManager():
+    """ The abstract manager interface - outlines and details the methods that should be implemented
+    by developers that want to extend the stow manager library
+    """
 
-    @abstractmethod
-    def __repr__(self):
-        pass
+    # @abstractmethod
+    # def __repr__(self):
+    #     pass
 
     @abstractmethod
     def _abspath(self, managerPath: str) -> str:
-        """ Return the absolute path on the backend provider from the standardised manager path.
+        """ Return the absolute path for a manager path, including the managers protocol, hostname, and parameters.
 
         Args:
             managerPath: The manager relative path which is to be converted to an absolute path
@@ -32,6 +36,17 @@ class AbstractManager(ABC):
         """
         pass
 
+    @abstractmethod
+    def _exists(self, managerPath: str) -> bool:
+        """ Return whether a artefact exists at the path given
+
+        Args:
+            managerPath (str): The path to the artefact
+
+        Returns:
+            bool: True if it exists else False
+        """
+        pass
 
     @abstractmethod
     def _identifyPath(self, managerPath: str) -> typing.Union[Artefact, None]:
@@ -47,7 +62,17 @@ class AbstractManager(ABC):
         pass
 
     @abstractmethod
-    def _get(self, source: Artefact, destination: str):
+    def _isLink(self, file: str):
+        """ Check if the file object given is a link/shortcut to another file """
+        pass
+
+    @abstractmethod
+    def _isMount(self, directory: str):
+        """ Check if the file object given is a mount point """
+        pass
+
+    @abstractmethod
+    def _get(self, source: Artefact, destination: str, *, callback: typing.Type[AbstractCallback] = None):
         """ Fetch the artefact and downloads its data to the local destination path provided
 
         The existence of the file to collect has already been checked so this function can be written to assume its
@@ -56,6 +81,9 @@ class AbstractManager(ABC):
         Args:
             source: The source object and context that is to be downloaded
             destination: The local path to where the source is to be written
+            *,
+            Callback (AbstractCallback) = None: A callback class to be initialised by the
+                downloaded method, and passed bytes transfered counts.
         """
         pass
 
@@ -76,7 +104,14 @@ class AbstractManager(ABC):
         pass
 
     @abstractmethod
-    def _put(self, source: str, destination: str):
+    def _put(
+        self,
+        source: Artefact,
+        destination: str,
+        *,
+        metadata: typing.Dict = None,
+        callback: typing.Type[AbstractCallback] = None
+        ):
         """ Put the local filesystem object onto the underlying manager implementation using the absolute paths given.
 
         To avoid user error - an artefact cannot be placed onto a Directory unless an overwrite toggle has been passed
@@ -92,7 +127,7 @@ class AbstractManager(ABC):
         pass
 
     @abstractmethod
-    def _putBytes(self, fileBytes: bytes, destination: str):
+    def _putBytes(self, fileBytes: bytes, destination: str, *, Callback: typing.Type[AbstractCallback] = None):
         """ Put the bytes of a file object onto the underlying manager implementation using the absolute path given.
 
         This function allows processes to avoid writing files to disc for speedier transfers.
@@ -103,6 +138,7 @@ class AbstractManager(ABC):
         Args:
             fileBytes (bytes): files bytes
             destinationAbsPath (str): Remote absolute path
+            TODO
         """
         pass
 
@@ -124,24 +160,25 @@ class AbstractManager(ABC):
 
     @abstractmethod
     def _mv(self, source: Artefact, destination: str):
-        """ Method for moving an artefact local to the manager to another location on the manager. Implementation
-        would avoid having to download data from a manager to re-upload that data.
+        """ Move an artefact from its location to another location managed by the same manager class. This method should
+        attempt exploit manager implementation to have transfer done remotely, and avoid having data downloaded to be
+        pushed.
 
-        If there isn't a method of duplicating the data on the manager, you can call
-            self._put(self._abspath(source.path), destination)
-            self._rm(self._abspath(source.path))
+        An example of this could be the s3 mv feature - though an artefact and its destination maybe in different
+        buckets, it is possible to transfer artefacts inside s3.
 
-        Which will mean the behaviour defaults to the put action and then a delete of the original file. Achieving the
-        same goal.
+        As such, it is important that the method can handle destinations that would be managed by other manager
+        instances. If this is not possible, the static final variable cls.ISOLATED should be set TRUE. Which will mean
+        the behaviour defaults to the put action and then a delete of the original file. Achieving the same goal.
 
         Args:
-            source: the manager local source file
-            destination: a manager abspath path for destination
+            source (str): An absolute path to the source object (from _abspath) to be moved
+            destination (str): An absolute path to the destination (from _abspath of the destination manager)
         """
         pass
 
     @abstractmethod
-    def _ls(self, directory: str):
+    def _ls(self, directory: str) -> typing.Generator[Artefact, None, Artefact]:
         """ List all artefacts that are present at the directory objects location and add them into the manager.
 
         Args:
@@ -161,7 +198,12 @@ class AbstractManager(ABC):
         """
         pass
 
-    @abstractclassmethod
+    @abstractmethod
+    def _digest(self, file: File, algorithm: HashingAlgorithm):
+        pass
+
+    @classmethod
+    @abstractmethod
     def _signatureFromURL(cls, url: urllib.parse.ParseResult):
         """ Create the signature that can be passed to the init of the manager to create a new instance using the
         information passed via the url ParseResult object that will have been created via the stateless interface
@@ -176,6 +218,12 @@ class AbstractManager(ABC):
         Raises:
             Error: Errors due to missing information and so on
         """
+        pass
+
+    @property
+    @abstractmethod
+    def root(self) -> str:
+        """ Returns the root information for the manager (name or path) """
         pass
 
     @contextlib.contextmanager
@@ -198,8 +246,8 @@ class AbstractManager(ABC):
 
     @abstractmethod
     def toConfig(self) -> dict:
-        """ Generate a config which can be unpacked into the `connect` interface to initialise this manager. To be
-        used to seralise and de-seralise a manager object.
+        """ Generate a config which can be unpacked into the `connect` interface to initialise this
+        manager. To be used to seralise and de-seralise a manager object.
 
         NOTE Defaulted values or environment variables are not guaranteed to be saved
 
