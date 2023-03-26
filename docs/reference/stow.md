@@ -57,4 +57,6 @@
 
 ## Variables
 
-### ![mkapi](stow.supports_unicode_filenames|short)
+### supports_unicode_filenames
+
+bool: True if arbitrary Unicode strings can be used as filenames.

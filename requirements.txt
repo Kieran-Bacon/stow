@@ -1,3 +1,0 @@
-pytz
-boto3
-paramiko

@@ -8,8 +8,7 @@
 	// Use 'settings' to set *default* container specific settings.json values on container create.
 	// You can edit these settings after create using File > Preferences > Settings > Remote.
 	"settings": {
-		"terminal.integrated.shell.linux": "/bin/bash",
-		"python.pythonPath": "/usr/local/bin/python",
+		"python.pythonPath": "/usr/local/bin/python"
 	},
 
 	// Use 'appPort' to create a container with published ports. If the port isn't working, be sure
@@ -31,16 +30,10 @@
 	"extensions": [
 		"ms-python.python",
 		"mechatroner.rainbow-csv",
-		"redhat.vscode-yaml",
 		"mhutchie.git-graph",
-		"brunnerh.file-properties-viewer"
 	],
 
 	"runArgs": [
-        "--net", "host",
-		"-v", "${env:HOMEDRIVE}${env:HOMEPATH}\\.aws:/home/vscode/.aws",
-		"-v", "${env:HOMEDRIVE}${env:HOMEPATH}:/home/kieran",
-		"-e", "MODELS=/home/kieran/Models",
-		"-e", "DATASETS=/home/kieran/Datasets"
+        "--net", "host"
 	]
 }
