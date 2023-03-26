@@ -4,6 +4,13 @@ Documentation can be found in [docs/index.md](docs/index.md)
 
 Change log can be found here [docs/changelog.md](docs/changelog.md)
 
+## Running Docs
+
+```
+pip install -r docs/requirements.txt
+mkdocs serve
+```
+
 ## Running tests
 
 Run the tests with coverage and profiling on

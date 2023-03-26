@@ -123,7 +123,7 @@ class FS(LocalManager):
             else:
                 raise NotImplementedError(f'Amazon does not provide {algorithm} hashing')
 
-    def _get(self, source: Artefact, destination: str, *, Callback = None):
+    def _get(self, source: Artefact, destination: str, *, callback = None):
 
         # Convert source path
         sourceAbspath = self._abspath(source.path)
@@ -134,12 +134,12 @@ class FS(LocalManager):
         # Download
         method(sourceAbspath, destination)
 
-    def _getBytes(self, source: Artefact, *, Callback = None) -> bytes:
+    def _getBytes(self, source: Artefact, *, callback = None) -> bytes:
 
         with open(self._abspath(source.path), "rb") as handle:
             return handle.read()
 
-    def _put(self, source: str, destination: str, *, metadata = None, Callback = None):
+    def _put(self, source: str, destination: str, *, metadata = None, callback = None):
 
         # Convert destination path
         destinationAbspath = self._abspath(destination)
@@ -156,7 +156,7 @@ class FS(LocalManager):
 
         return PartialArtefact(self, destination)
 
-    def _putBytes(self, fileBytes: bytes, destination: str, *, metadata = None, Callback = None):
+    def _putBytes(self, fileBytes: bytes, destination: str, *, metadata = None, callback = None):
 
         # Convert destination path
         destinationAbspath = self._abspath(destination)

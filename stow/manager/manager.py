@@ -783,7 +783,7 @@ class Manager(AbstractManager):
         # Split into object and path - Ensure that the artefact to get is from this manager
         _, obj, _ = self._splitManagerArtefactForm(source)
 
-        if issubclass(callback, AbstractCallback):
+        if callback is not None and issubclass(callback, AbstractCallback):
             callback = callback('get')
 
         # Ensure the destination - Remove or raise issue for a local artefact at the location where the get is called
@@ -851,7 +851,7 @@ class Manager(AbstractManager):
                     "Cannot put {} as destination is a directory, and overwrite has not been set to True"
                 )
 
-        if issubclass(callback, AbstractCallback):
+        if callback is not None and issubclass(callback, AbstractCallback):
             # Need to instantiate the callback
             callback = callback('put')
 

@@ -11,9 +11,9 @@ class AbstractManager():
     by developers that want to extend the stow manager library
     """
 
-    @abstractmethod
-    def __repr__(self):
-        pass
+    # @abstractmethod
+    # def __repr__(self):
+    #     pass
 
     @abstractmethod
     def _abspath(self, managerPath: str) -> str:
@@ -72,7 +72,7 @@ class AbstractManager():
         pass
 
     @abstractmethod
-    def _get(self, source: Artefact, destination: str, *, Callback: typing.Type[AbstractCallback] = None):
+    def _get(self, source: Artefact, destination: str, *, callback: typing.Type[AbstractCallback] = None):
         """ Fetch the artefact and downloads its data to the local destination path provided
 
         The existence of the file to collect has already been checked so this function can be written to assume its
@@ -110,7 +110,7 @@ class AbstractManager():
         destination: str,
         *,
         metadata: typing.Dict = None,
-        Callback: typing.Type[AbstractCallback] = None
+        callback: typing.Type[AbstractCallback] = None
         ):
         """ Put the local filesystem object onto the underlying manager implementation using the absolute paths given.
 
@@ -123,7 +123,6 @@ class AbstractManager():
         Args:
             source: A local absolute path to an artefact (File or Directory)
             destination: A manager abspath path for the artefact
-            TODO
         """
         pass
 

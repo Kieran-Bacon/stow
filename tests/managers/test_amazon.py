@@ -327,7 +327,7 @@ class Test_Amazon(unittest.TestCase):
                 handle.write('Content')
 
             manager = Amazon("bucket_name")
-            artefact = manager.put(local_path, '/file.txt', Callback=stow.testing.mock.TestCallback)
+            artefact = manager.put(local_path, '/file.txt', callback=stow.testing.mock.TestCallback)
 
         data = stow.testing.mock.TestCallback.artefacts[local_path]
 
