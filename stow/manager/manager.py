@@ -324,7 +324,7 @@ class Manager(AbstractManager):
 
         else:
             # Preserve protocol (if there is one) - dirname the path
-            result = urllib.parse.urlparse(artefact)
+            result = urllib.parse.urlparse(path)
             return urllib.parse.ParseResult(
                 result.scheme,
                 result.netloc,

@@ -114,7 +114,7 @@ class Test_Stateless(unittest.TestCase):
 
         self.assertEqual(stow.commonpath(artefacts), testDirectory)
 
-    def test_dirname(self):
+    def test_dirname_with_path(self):
 
         self.assertEqual(stow.dirname("/hello/there"), "/hello")
         self.assertEqual(stow.dirname("hello/there"), "hello")
@@ -123,6 +123,11 @@ class Test_Stateless(unittest.TestCase):
         self.assertEqual(stow.dirname("s3://bucket/there"), "s3://bucket/")
         self.assertEqual(stow.dirname("s3://bucket/hello/there"), "s3://bucket/hello")
         self.assertEqual(stow.dirname("s3://hello/there?param1=value1"), "s3://hello/?param1=value1")
+
+    def test_dirname_with_artefact(self):
+
+        test_file = stow.artefact(__file__)
+        self.assertEqual(stow.dirname(test_file), os.path.dirname(__file__))
 
     def test_expandusers(self):
 
