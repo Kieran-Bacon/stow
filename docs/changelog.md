@@ -1,6 +1,12 @@
 # Changelog
 
-## [1.2.0]
+## [1.2.1] - 2023-04-03
+
+### Fixed
+
+- Fixed issue with `dirname` where it incorrectly handled artefacts leading to a `urllib` parse error.
+
+## [1.2.0] - 2023-03-20
 
 ### Added
 
