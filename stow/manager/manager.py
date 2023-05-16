@@ -2,6 +2,7 @@ import os
 import re
 import io
 import typing
+from typing import (Union, Optional)
 import urllib
 import shutil
 import tempfile
@@ -32,6 +33,7 @@ class Manager(AbstractManager):
 
     """
 
+    SEPARATOR = os.sep
     SEPARATORS = ['\\', '/']
     ISOLATED = False
 
@@ -542,8 +544,8 @@ class Manager(AbstractManager):
         """
         return os.path.lexists(artefact)
 
-    @classmethod
-    def join(cls, *paths: typing.Iterable[str], separator=os.sep, joinAbsolutes: bool = False) -> str:
+    # @classmethod
+    def join(self, *paths: typing.Iterable[str], separator=None, joinAbsolutes: bool = False) -> str:
         """ Join one or more path components intelligently. The return value is the concatenation of path and any
         members of *paths with exactly one directory separator following each non-empty part except the last,
         meaning that the result will only end in a separator if the last part is empty. If a component is an absolute
@@ -562,6 +564,8 @@ class Manager(AbstractManager):
         if not paths:
             return ""
 
+        separator = separator or self.SEPARATOR
+
         parsedResult = None  # Store the network information while path is joined
         joined = ""  # Constructed path
 
@@ -579,7 +583,7 @@ class Manager(AbstractManager):
             if joined:
                 # A path is in the midst of being created
 
-                if any(segment.startswith(sep) for sep in cls.SEPARATORS):
+                if any(segment.startswith(sep) for sep in self.SEPARATORS):
                     if joinAbsolutes:
                         joined = joined.rstrip('\\/') + segment
 
@@ -587,7 +591,7 @@ class Manager(AbstractManager):
                         joined = segment
 
                 else:
-                    if any(joined.endswith(sep) for sep in cls.SEPARATORS):
+                    if any(joined.endswith(sep) for sep in self.SEPARATORS):
                         joined += segment
 
                     else:
@@ -824,15 +828,24 @@ class Manager(AbstractManager):
         overwrite: bool = False,
         *,
         metadata: typing.Dict[str, str] = None,
-        callback: typing.Type[AbstractCallback] = None
-        ) -> Artefact:
+        callback: typing.Type[AbstractCallback] = None,
+        modified_time: Optional[datetime.datetime] = None,
+        accessed_time: Optional[datetime.datetime] = None
+        ) -> Union[File, Directory]:
         """ Put a local artefact onto the remote at the location given.
 
         Args:
-            src_local (str): The path to the local artefact that is to be put on the remote
-            dest_remote (Artefact/str): A file object to overwrite or the relative path to a destination on the
-                remote
-            overwrite (bool) = False: Whether to accept the overwriting of a target destination when it is a directory
+            source (Artefact, str, bytes): The artefact to be put, either artefact, path to file or file bytes.
+            destination (Artefact, str): The artefact of the location object or the path to destination.
+            overwrite (bool) = False: Protection against overwritting directories
+            *,
+            metadata (Dict[str,str]): A dictionary of metadata to write with the file artefact
+            callback (AbstractCallback): A callback method to monitor file upload progress
+            modified_time (Optional[datetime.datetime]): The modified time of the new artefact (if manager supports)
+            accessed_time (Optional[datetime.datetime]): The accessed time of the new artefact (if manager supports)
+
+        Returns:
+
         """
 
         # Validate source before deleting destination
@@ -860,7 +873,9 @@ class Manager(AbstractManager):
                 source,
                 destinationPath,
                 metadata=metadata,
-                callback=callback
+                callback=callback,
+                modified_time=modified_time,
+                accessed_time=accessed_time,
             )
 
         else:
@@ -868,7 +883,9 @@ class Manager(AbstractManager):
                 sourceObj,
                 destinationPath,
                 metadata=metadata,
-                callback=callback
+                callback=callback,
+                modified_time=modified_time,
+                accessed_time=accessed_time,
             )
 
     def cp(
@@ -996,7 +1013,10 @@ class Manager(AbstractManager):
             # The destination doesn't exist - sync the entire source
 
             log.debug("Syncing: No destination therefore putting entire source")
-            self.put(sourceObj, destination)
+            self.put(
+                sourceObj,
+                destination
+            )
 
         elif isinstance(destinationObj, File):
             if isinstance(sourceObj, Directory):
@@ -1024,10 +1044,17 @@ class Manager(AbstractManager):
             # Recursively fill in destination at this recursion level
             for artefact in sourceObj.ls():
                 if artefact.basename in destinationMap:
-                    self.sync(artefact, destinationMap.pop(artefact.basename))
+                    self.sync(
+                        artefact,
+                        destinationMap.pop(artefact.basename),
+                        overwrite=overwrite,
+                        delete=delete,
+                        check_modified_times=check_modified_times,
+                        digest_comparator=digest_comparator,
+                    )
 
                 else:
-                    self.put(artefact, self.join(destinationObj.path, artefact.basename))
+                    self.put(artefact, destinationManager.join(destinationObj.abspath, artefact.basename))
 
             # Any remaining destionation objects were not targets of sync - delete if argument passed
             if delete:
