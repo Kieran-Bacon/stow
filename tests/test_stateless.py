@@ -11,6 +11,22 @@ import stow.managers
 
 class Test_Stateless(unittest.TestCase):
 
+    def test_open_object(self):
+        """ Use stow open like a normal file handle """
+
+        with tempfile.TemporaryDirectory() as directory:
+            file_path = stow.join(directory, 'new_file.txt')
+            fileDescriptor = stow.open(file_path, 'w')
+            fileDescriptor.write("Hello there")
+            fileDescriptor.close()
+
+            fileDescriptor2 = open(file_path)
+            self.assertEqual(os.path.splitdrive(fileDescriptor.name)[1], os.path.splitdrive(fileDescriptor2.name)[1])
+
+            self.assertEqual(fileDescriptor2.read(), 'Hello there')
+
+            fileDescriptor2.close()
+
     def test_find(self):
 
         filesystemManager = stow.find("FS")
@@ -127,7 +143,7 @@ class Test_Stateless(unittest.TestCase):
     def test_dirname_with_artefact(self):
 
         test_file = stow.artefact(__file__)
-        self.assertEqual(stow.dirname(test_file), os.path.dirname(__file__))
+        self.assertEqual(os.path.splitdrive(stow.dirname(test_file))[1], os.path.splitdrive(os.path.dirname(__file__))[1])
 
     def test_expandusers(self):
 

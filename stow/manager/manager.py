@@ -21,6 +21,27 @@ from .. import exceptions
 import logging
 log = logging.getLogger(__name__)
 
+class Localiser(contextlib.AbstractContextManager):
+
+    def __init__(self):
+        pass
+
+    def start(self) -> str:
+        """ Returns path to the localised artefact """
+        pass
+
+    def close(self):
+        pass
+
+    def __enter__(self) -> str:
+        return self.start()
+
+    def __exit__(self, exeception_type, exeception_value, exeception_traceback):
+        self.close()
+
+        if exeception_type:
+            return False
+
 class ManagerReloader:
     """ Class to manage the reloading of a reduced Manager """
     def __new__(cls, config):
@@ -1180,8 +1201,7 @@ class Manager(AbstractManager):
 
     _READONLYMODES = ["r", "rb"]
 
-    @contextlib.contextmanager
-    def open(self, artefact: typing.Union[File, str], mode: str = "r", **kwargs) -> io.IOBase:
+    def open(self, artefact: typing.Union[File, str], mode: str = "r", **kwargs) -> typing.IO[typing.AnyStr]:
         """ Open a file and create a stream to that file. Expose interface of `open`
 
         Args:
@@ -1193,18 +1213,26 @@ class Manager(AbstractManager):
             io.IOBase: An IO object depending on the mode for interacting with the file
         """
 
+        # Parse the artefact
         manager, obj, path = self._splitManagerArtefactForm(artefact, load=mode in self._READONLYMODES)
 
-        with manager.localise(path) as abspath:
-            with open(abspath, mode, **kwargs) as handle:
-                yield handle
+        # Setup a localiser for the artefact
+        localiser = manager.localise(obj or path)
+        abspath = localiser.start()
 
-    @contextlib.contextmanager
-    def localise(self, artefact: typing.Union[Artefact, str]) -> str:
+        # Create a handle to the file - update the close to close the localiser
+        handle = open(abspath, mode, **kwargs)
+        _close = handle.close
+        def closer():
+            _close()
+            localiser.close()
+        handle.close = closer
+
+        return handle
+
+    def localise(self, artefact: typing.Union[Artefact, str]) -> Localiser:
 
         # Get the manager instance to handle the localise method
         manager, obj, path = self._splitManagerArtefactForm(artefact, load=False)
 
-        # Call localise on the manager with the path
-        with manager.localise(path) as handle:
-            yield handle
+        return manager.localise(obj or path)

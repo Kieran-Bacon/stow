@@ -7,72 +7,32 @@ import contextlib
 import datetime
 
 from ..artefacts import Artefact
-from .manager import Manager
+from .manager import Manager, Localiser
 
-class LocalManager(Manager, abc.ABC):
-    """ Abstract Base Class for managers that will be working with local artefacts.
-    """
+class LocalLocaliser(Localiser):
 
-    def _setArtefactTimes(self, path: str, modified_time: float, accessed_time: float) -> None:
-        return os.utime(path, (accessed_time, modified_time))
+    def __init__(self, abspath: str):
 
-    def _setmtime(
-        self,
-        artefact: Artefact,
-        _datetime: typing.Union[float, datetime.datetime]
-        ) -> datetime.datetime:
-
-        if isinstance(_datetime, float):
-            timestamp = _datetime
-            _datetime = datetime.datetime.fromtimestamp(_datetime)
-        else:
-            timestamp = _datetime.timestamp()
-
-        self._setArtefactTimes(
-            artefact.abspath,
-            timestamp,
-            artefact.accessedTime.timestamp()
-        )
-
-        return _datetime
-
-    def _setatime(
-        self,
-        artefact: Artefact,
-        _datetime: typing.Union[float, datetime.datetime]
-        ):
-
-        if isinstance(_datetime, float):
-            timestamp = _datetime
-            _datetime = datetime.datetime.fromtimestamp(_datetime)
-        else:
-            timestamp = _datetime.timestamp()
-
-        self._setArtefactTimes(
-            artefact.abspath,
-            artefact.modifiedTime.timestamp(),
-            timestamp
-        )
-
-        return _datetime
-
-    @contextlib.contextmanager
-    def localise(self, artefact: typing.Union[Artefact, str]):
-
-        _, _, path = self._splitManagerArtefactForm(artefact, load=False)
-
-        abspath = self._abspath(path)
+        self._abspath = abspath
         os.makedirs(os.path.dirname(abspath), exist_ok=True)
 
-        try:
-            yield abspath
-        except Exception as e:
-            raise
+    def start(self):
+        return self._abspath
 
-class RemoteManager(Manager, abc.ABC):
-    """ Abstract Base Class for managers that will be working with remote artefacts so efficiency with fetching and
-    pushing files is important for time and bandwidth
-    """
+    def close(self):
+        pass
+
+
+class RemoteLocaliser(Localiser):
+
+    def __init__(self, manager: Manager, artefact: typing.Optional[Artefact], path: str):
+
+        self._manager = manager
+        self._artefact = artefact
+        self._path = path
+
+        self._local_path = None
+        self._checksum = None
 
     @staticmethod
     def _compare(dict1, dict2, key):
@@ -131,62 +91,115 @@ class RemoteManager(Manager, abc.ABC):
 
         return toPush, toDelete
 
-    @contextlib.contextmanager
-    def localise(self, artefact):
-
-        # Load the artefacts from the remote
-        _, obj, path = self._splitManagerArtefactForm(artefact, require=False)
+    def start(self):
 
         # Setup a location locally to be able to work with the files
-        exception = None
-        with tempfile.TemporaryDirectory() as directory:
+        directory = tempfile.mkdtemp()
 
-            # Generate a temporay path for the file to be downloaded into
-            local_path = os.path.join(directory, self.basename(path))
+        # Generate a temporay path for the file to be downloaded into
+        self._local_path = local_path = os.path.join(directory, self._manager.basename(self._path))
 
-            # Get the contents and put it into the temporay directory
-            if obj is not None:
-                self.get(path, local_path)
+        # Get the contents and put it into the temporay directory
+        if self._obj is not None:
+            self.get(self._path, local_path)
 
-                if os.path.isdir(local_path):
-                    # To collected item is a directory - walk the directory and record its state
-                    checksum = self._parseHierarchy(local_path)
-
-                else:
-                    # Generate a checksum for the file
-                    checksum = self.md5(local_path)
+            if os.path.isdir(local_path):
+                # To collected item is a directory - walk the directory and record its state
+                self._checksum = self._parseHierarchy(local_path)
 
             else:
-                # No checksum for no object
-                checksum = None
+                # Generate a checksum for the file
+                self._checksum = self._manager.md5(local_path)
 
-            # Return the local path to the object
-            try:
-                yield local_path
-            except Exception as e:
-                exception = e
+        else:
+            # No checksum for no object
+            self._checksum = None
 
-            # The user has stopped interacting with the artefact - resolve any differences with manager
-            if os.path.exists(local_path):
-                if checksum:
-                    if os.path.isdir(local_path):
-                        # Compare the new hiearchy - update only affected files/directories
-                        put, delete = self._compareHierarhy(checksum, self._parseHierarchy(local_path))
+        return local_path
 
-                        # Define the method for converting the abspath back to the manager relative path
-                        contexualise = lambda x: self.join(path, x[len(local_path)+1:], separator='/')
+    def close(self, exception_type, exception_value, exception_traceback):
 
-                        # Put/delete the affected artefacts
-                        for abspath in put: self.put(abspath, contexualise(abspath))
-                        for abspath in delete: self.rm(contexualise(abspath), recursive=True)
+        # The user has stopped interacting with the artefact - resolve any differences with manager
+        if os.path.exists(self._local_path):
+            if self._checksum:
+                if os.path.isdir(self._local_path):
+                    # Compare the new hiearchy - update only affected files/directories
+                    put, delete = self._compareHierarhy(self._checksum, self._parseHierarchy(self._local_path))
 
-                    elif self.md5(local_path) != checksum:
-                        # The file has been changed - upload the file's contents
-                        self.put(self._localLoad(local_path), path)
+                    # Define the method for converting the abspath back to the manager relative path
+                    contexualise = lambda x: self.join(self._path, x[len(self._local_path)+1:], separator='/')
 
-                else:
-                    # New item - put the artefact into the manager
-                    self.put(self._localLoad(local_path), path)
+                    # Put/delete the affected artefacts
+                    for abspath in put: self.put(abspath, contexualise(abspath))
+                    for abspath in delete: self.rm(contexualise(abspath), recursive=True)
 
-        if exception is not None:
-            raise exception
+                elif self.md5(self._local_path) != self._checksum:
+                    # The file has been changed - upload the file's contents
+                    self.put(self._localLoad(self._local_path), self._path)
+
+            else:
+                # New item - put the artefact into the manager
+                self.put(self._manager._localLoad(self._local_path), self._path)
+
+        if exception_type:
+            return False
+
+class LocalManager(Manager, abc.ABC):
+    """ Abstract Base Class for managers that will be working with local artefacts.
+    """
+
+    def _setArtefactTimes(self, path: str, modified_time: float, accessed_time: float) -> None:
+        return os.utime(path, (accessed_time, modified_time))
+
+    def _setmtime(
+        self,
+        artefact: Artefact,
+        _datetime: typing.Union[float, datetime.datetime]
+        ) -> datetime.datetime:
+
+        if isinstance(_datetime, float):
+            timestamp = _datetime
+            _datetime = datetime.datetime.fromtimestamp(_datetime)
+        else:
+            timestamp = _datetime.timestamp()
+
+        self._setArtefactTimes(
+            artefact.abspath,
+            timestamp,
+            artefact.accessedTime.timestamp()
+        )
+
+        return _datetime
+
+    def _setatime(
+        self,
+        artefact: Artefact,
+        _datetime: typing.Union[float, datetime.datetime]
+        ):
+
+        if isinstance(_datetime, float):
+            timestamp = _datetime
+            _datetime = datetime.datetime.fromtimestamp(_datetime)
+        else:
+            timestamp = _datetime.timestamp()
+
+        self._setArtefactTimes(
+            artefact.abspath,
+            artefact.modifiedTime.timestamp(),
+            timestamp
+        )
+
+        return _datetime
+
+    def localise(self, artefact: typing.Union[Artefact, str]) -> Localiser:
+        _, _, path = self._splitManagerArtefactForm(artefact, load=False)
+        return LocalLocaliser(self._abspath(path))
+
+class RemoteManager(Manager, abc.ABC):
+    """ Abstract Base Class for managers that will be working with remote artefacts so efficiency with fetching and
+    pushing files is important for time and bandwidth
+    """
+
+    def localise(self, artefact: typing.Union[Artefact, str]) -> Localiser:
+        _, obj, path = self._splitManagerArtefactForm(artefact, require=False)
+        return RemoteLocaliser(self, obj, path)
