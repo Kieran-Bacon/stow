@@ -1033,7 +1033,7 @@ class Manager(AbstractManager):
         if destinationObj is None:
             # The destination doesn't exist - sync the entire source
 
-            log.debug("Syncing: No destination therefore putting entire source")
+            log.debug("Syncing: Destination doesn't exist therefore putting entire source")
             self.put(
                 sourceObj,
                 destination

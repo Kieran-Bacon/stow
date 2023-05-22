@@ -184,11 +184,6 @@ class FS(LocalManager):
                     for updator in fileUpdators:
                         updator(destinationAbspath)
 
-            method = shutil.copytree if os.path.isdir(sourceAbspath) else shutil.copy
-
-            # Perform the putting
-            method(sourceAbspath, destinationAbspath)
-
         return PartialArtefact(self, destination)
 
     def _putBytes(

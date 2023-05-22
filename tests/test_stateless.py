@@ -766,6 +766,21 @@ class Test_Stateless(unittest.TestCase):
             self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file3.txt")).content, b"Original")
             self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file4.txt")).content, b"copied")
 
+    def test_sync_to_non_existent_location(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            stow.touch(stow.join(directory, 'dir1', 'hello.txt'))
+
+            stow.sync(
+                stow.join(directory, 'dir1'),
+                stow.join(directory, 'dir2')
+            )
+
+            self.assertTrue(stow.exists(stow.join(directory, 'dir2', 'hello.txt')))
+
+
+
     def test_rm(self):
 
         with tempfile.TemporaryDirectory() as directory:
