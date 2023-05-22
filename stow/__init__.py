@@ -1,4 +1,4 @@
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 
 import os
 
@@ -15,6 +15,7 @@ from .utils import (
 )
 
 env = os.environ
+getcwd = os.getcwd
 
 # Create the stateless manager
 Manager = Manager()

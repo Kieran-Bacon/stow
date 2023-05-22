@@ -652,7 +652,12 @@ class ManagerTests:
 
             self.assertEqual(
                 {art.path for art in self.manager.ls(recursive=True)},
-                {f"{os.sep}sync_folder{os.sep}file1.txt", f"{os.sep}sync_folder{os.sep}nested", f"{os.sep}sync_folder{os.sep}nested{os.sep}file2.txt", f"{os.sep}sync_folder"}
+                {
+                    f"{os.sep}sync_folder{os.sep}file1.txt",
+                    f"{os.sep}sync_folder{os.sep}nested",
+                    f"{os.sep}sync_folder{os.sep}nested{os.sep}file2.txt",
+                    f"{os.sep}sync_folder"
+                }
             )
 
     def test_sync_update(self):

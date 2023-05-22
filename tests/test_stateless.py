@@ -7,17 +7,34 @@ import datetime
 import time
 
 import stow
-import stow.managers
+from stow.managers.filesystem import FS
+from stow.managers.amazon import Amazon
 
 class Test_Stateless(unittest.TestCase):
+
+    def test_open_object(self):
+        """ Use stow open like a normal file handle """
+
+        with tempfile.TemporaryDirectory() as directory:
+            file_path = stow.join(directory, 'new_file.txt')
+            fileDescriptor = stow.open(file_path, 'w')
+            fileDescriptor.write("Hello there")
+            fileDescriptor.close()
+
+            fileDescriptor2 = open(file_path)
+            self.assertEqual(os.path.splitdrive(fileDescriptor.name)[1], os.path.splitdrive(fileDescriptor2.name)[1])
+
+            self.assertEqual(fileDescriptor2.read(), 'Hello there')
+
+            fileDescriptor2.close()
 
     def test_find(self):
 
         filesystemManager = stow.find("FS")
-        self.assertTrue(filesystemManager, stow.managers.FS)
+        self.assertTrue(filesystemManager, FS)
 
         amazonS3 = stow.find("s3")
-        self.assertTrue(amazonS3, stow.managers.Amazon)
+        self.assertTrue(amazonS3, Amazon)
 
         with self.assertRaises(ValueError):
             stow.find("missing")
@@ -114,7 +131,7 @@ class Test_Stateless(unittest.TestCase):
 
         self.assertEqual(stow.commonpath(artefacts), testDirectory)
 
-    def test_dirname(self):
+    def test_dirname_with_path(self):
 
         self.assertEqual(stow.dirname("/hello/there"), "/hello")
         self.assertEqual(stow.dirname("hello/there"), "hello")
@@ -123,6 +140,11 @@ class Test_Stateless(unittest.TestCase):
         self.assertEqual(stow.dirname("s3://bucket/there"), "s3://bucket/")
         self.assertEqual(stow.dirname("s3://bucket/hello/there"), "s3://bucket/hello")
         self.assertEqual(stow.dirname("s3://hello/there?param1=value1"), "s3://hello/?param1=value1")
+
+    def test_dirname_with_artefact(self):
+
+        test_file = stow.artefact(__file__)
+        self.assertEqual(os.path.splitdrive(stow.dirname(test_file))[1], os.path.splitdrive(os.path.dirname(__file__))[1])
 
     def test_expandusers(self):
 
@@ -499,6 +521,12 @@ class Test_Stateless(unittest.TestCase):
         files = {filename for filename in os.listdir()}
         self.assertEqual(arts, files)
 
+    def test_ls_none(self):
+        arts = {os.path.basename(art.path) for art in stow.ls()}
+        files = {filename for filename in os.listdir()}
+        self.assertEqual(arts, files)
+
+
     def test_join(self):
 
         for s in [
@@ -744,6 +772,21 @@ class Test_Stateless(unittest.TestCase):
             self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file2.txt")).content, b"file2")
             self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file3.txt")).content, b"Original")
             self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file4.txt")).content, b"copied")
+
+    def test_sync_to_non_existent_location(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            stow.touch(stow.join(directory, 'dir1', 'hello.txt'))
+
+            stow.sync(
+                stow.join(directory, 'dir1'),
+                stow.join(directory, 'dir2')
+            )
+
+            self.assertTrue(stow.exists(stow.join(directory, 'dir2', 'hello.txt')))
+
+
 
     def test_rm(self):
 

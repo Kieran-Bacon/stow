@@ -2,7 +2,7 @@ import os
 import datetime
 import shutil
 import urllib
-import typing
+from typing import Optional
 
 import binascii
 import hashlib
@@ -139,7 +139,17 @@ class FS(LocalManager):
         with open(self._abspath(source.path), "rb") as handle:
             return handle.read()
 
-    def _put(self, source: str, destination: str, *, metadata = None, callback = None):
+    def _put(
+        self,
+        source: str,
+        destination: str,
+        *,
+        metadata = None,
+        callback = None,
+        modified_time: Optional[datetime.datetime] = None,
+        accessed_time: Optional[datetime.datetime] = None,
+        **kwargs
+        ):
 
         # Convert destination path
         destinationAbspath = self._abspath(destination)
@@ -147,16 +157,46 @@ class FS(LocalManager):
         # Ensure the destination
         os.makedirs(os.path.dirname(destinationAbspath), exist_ok=True)
 
+        fileUpdators = []
+        if modified_time is not None or accessed_time is not None:
+            def updateFileTimes(artefact: Artefact):
+                self._setArtefactTimes(
+                    modified_time=(modified_time or artefact.modifiedTime.timestamp()),
+                    accessed_time=(accessed_time or artefact.accessedTime.timestamp())
+                )
+            fileUpdators.append(updateFileTimes)
+
         # Select the put method
         with source.localise() as sourceAbspath:
-            method = shutil.copytree if os.path.isdir(sourceAbspath) else shutil.copy
 
-            # Perform the putting
-            method(sourceAbspath, destinationAbspath)
+            if os.path.isdir(sourceAbspath):
+                shutil.copytree(sourceAbspath, destinationAbspath)
+
+                if fileUpdators:
+                    for artefact in self._ls(destinationAbspath):
+                        for updator in fileUpdators:
+                            updator(artefact)
+
+            else:
+                shutil.copy(sourceAbspath, destinationAbspath)
+
+                if fileUpdators:
+                    for updator in fileUpdators:
+                        updator(destinationAbspath)
 
         return PartialArtefact(self, destination)
 
-    def _putBytes(self, fileBytes: bytes, destination: str, *, metadata = None, callback = None):
+    def _putBytes(
+        self,
+        fileBytes: bytes,
+        destination: str,
+        *,
+        metadata = None,
+        callback = None,
+        modified_time: Optional[datetime.datetime] = None,
+        accessed_time: Optional[datetime.datetime] = None,
+        **kwargs
+        ):
 
         # Convert destination path
         destinationAbspath = self._abspath(destination)
@@ -194,7 +234,7 @@ class FS(LocalManager):
         # Iterate over the folder and identify every object - add the created
         for art in os.listdir(abspath):
             artefact = self._identifyPath(
-                self.join(directory, art, separator='/')
+                self.join(directory, art)
             )
 
             if artefact is not None:
@@ -244,7 +284,7 @@ class SubdirectoryFS(FS):
         self._rootLength = len(self._root)
 
     def _cwd(self):
-        return self._root
+        return self.SEPARATOR
 
     def _abspath(self, managerPath: str) -> str:
         return os.path.abspath(self.join(self._root, managerPath, joinAbsolutes=True))

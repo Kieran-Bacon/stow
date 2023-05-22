@@ -25,18 +25,18 @@ from .. import exceptions
 
 log = logging.getLogger(__name__)
 
-def getS3ETag(bytes_readable):
-    """
+def calculateBytesS3ETag(bytes_readable: typing.BinaryIO) -> str:
+    """ For a given set of bytes, calculate their AWS's etag value.
 
     The ETag of multipart uploads is not MD5 - each part has a md5 calculated and then
     they are concaticated before they are MD5'd for the final etag. It is then followed
     by a -xxxx that stored the number of parts that made up the upload.
 
     Args:
-        bytes_readable (_type_): _description_
+        bytes_readable (typing.BinaryIO): A readable object containing the file bytes
 
     Returns:
-        _type_: _description_
+        str: the string literal ETag value as found in aws api responses.
     """
 
     md5s = []
@@ -74,7 +74,7 @@ def etagComparator(*files: File) -> bool:
 
         else:
             with f.open('rb') as handle:
-                digests.append(getS3ETag(handle))
+                digests.append(calculateBytesS3ETag(handle))
 
     return digests[0] == digests[1]
 
@@ -90,6 +90,8 @@ class Amazon(RemoteManager):
         TODO
 
     """
+
+    SEPARATOR = '/'
 
     # Define regex for the object key
     _LINE_SEP = "/"
@@ -394,7 +396,7 @@ class Amazon(RemoteManager):
                 Callback=self._s3Callback(callback, source)
             )
 
-    def _put(self, source: Artefact, destination: str, *, metadata = None, callback = None):
+    def _put(self, source: Artefact, destination: str, *, metadata = None, callback = None, **kwargs):
 
         # Setup metadata about the objects being put
         extra_args = {}
@@ -475,7 +477,8 @@ class Amazon(RemoteManager):
         destination: str,
         *,
         metadata: typing.Dict[str, str] = None,
-        callback = None
+        callback = None,
+        **kwargs
         ):
 
 
@@ -563,7 +566,7 @@ class Amazon(RemoteManager):
         copied_artefact = self._cp(source, destination)
 
         # Delete the source objects now it has been entirely copied
-        self._rm(source)
+        source.manager._rm(source)
 
         return copied_artefact
 
