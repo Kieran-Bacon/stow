@@ -7,7 +7,8 @@ import datetime
 import time
 
 import stow
-import stow.managers
+from stow.managers.filesystem import FS
+from stow.managers.amazon import Amazon
 
 class Test_Stateless(unittest.TestCase):
 
@@ -30,10 +31,10 @@ class Test_Stateless(unittest.TestCase):
     def test_find(self):
 
         filesystemManager = stow.find("FS")
-        self.assertTrue(filesystemManager, stow.managers.FS)
+        self.assertTrue(filesystemManager, FS)
 
         amazonS3 = stow.find("s3")
-        self.assertTrue(amazonS3, stow.managers.Amazon)
+        self.assertTrue(amazonS3, Amazon)
 
         with self.assertRaises(ValueError):
             stow.find("missing")
@@ -519,6 +520,12 @@ class Test_Stateless(unittest.TestCase):
         arts = {os.path.basename(art.path) for art in stow.ls(".")}
         files = {filename for filename in os.listdir()}
         self.assertEqual(arts, files)
+
+    def test_ls_none(self):
+        arts = {os.path.basename(art.path) for art in stow.ls()}
+        files = {filename for filename in os.listdir()}
+        self.assertEqual(arts, files)
+
 
     def test_join(self):
 

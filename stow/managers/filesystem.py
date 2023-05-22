@@ -234,7 +234,7 @@ class FS(LocalManager):
         # Iterate over the folder and identify every object - add the created
         for art in os.listdir(abspath):
             artefact = self._identifyPath(
-                self.join(directory, art, separator='/')
+                self.join(directory, art)
             )
 
             if artefact is not None:
@@ -284,7 +284,7 @@ class SubdirectoryFS(FS):
         self._rootLength = len(self._root)
 
     def _cwd(self):
-        return self._root
+        return self.SEPARATOR
 
     def _abspath(self, managerPath: str) -> str:
         return os.path.abspath(self.join(self._root, managerPath, joinAbsolutes=True))

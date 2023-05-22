@@ -123,7 +123,8 @@ class Manager(AbstractManager):
             obj = None
 
             if artefact is None:
-                manager, path = utils.connect("FS"), self._cwd()
+                manager = utils.connect("FS")
+                path = manager._cwd()
 
             elif isinstance(artefact, str):
                 manager, path = utils.parseURL(artefact)
@@ -164,20 +165,22 @@ class Manager(AbstractManager):
             str: The relative path of the object/the passed value
         """
 
-        if isinstance(artefact, Artefact):
+
+        if self.__class__ == Manager:
+            return self._splitExternalArtefactForm(artefact, load=load, require=require)
+
+        elif isinstance(artefact, Artefact):
             return artefact.manager, artefact, artefact.path
 
         else:
             obj = None
 
-            if artefact in [None, '/']:
-                return self, Directory(self, '/'), '/'
+            if artefact is None:
+                cwd = self._cwd()
+                return self, Directory(self, cwd), cwd
 
             elif isinstance(artefact, str):
-                manager, path = utils.parseURL(
-                    artefact,
-                    default_manager=self if type(self) != Manager else None
-                )
+                manager, path = utils.parseURL(artefact, default_manager=self)
 
             else:
                 t = type(artefact)
@@ -205,14 +208,6 @@ class Manager(AbstractManager):
     def _set_content_type(self, path: str, content_type: str) -> str:
         """ Set the content type of the file """
         raise NotImplementedError('Manager does not have an method for changing the content-type for the path given')
-
-    def _cwd(self) -> str:
-        """ Return the default working directory for the manager - used to default the artefact path if no path provided
-
-        Returns:
-            str: The default path of the manager, the current working directory
-        """
-        return os.getcwd()
 
     def manager(self, artefact: typing.Union[Artefact, str]) -> 'Manager':
         """ Fetch the manager object for the artefact
@@ -1034,7 +1029,7 @@ class Manager(AbstractManager):
             # The destination doesn't exist - sync the entire source
 
             log.debug("Syncing: Destination doesn't exist therefore putting entire source")
-            self.put(
+            destinationManager.put(
                 sourceObj,
                 destination
             )
@@ -1042,13 +1037,13 @@ class Manager(AbstractManager):
         elif isinstance(destinationObj, File):
             if isinstance(sourceObj, Directory):
                 # The source is a directory - we simply replace the file
-                self.put(sourceObj, destinationObj, overwrite=overwrite)
+                destinationManager.put(sourceObj, destinationObj, overwrite=overwrite)
 
             elif (
                 (not check_modified_times or destinationObj.modifiedTime < sourceObj.modifiedTime) and
                 (digest_comparator is None or not digest_comparator(sourceObj, destinationObj))
                 ):
-                self.put(sourceObj, destinationObj)
+                destinationManager.put(sourceObj, destinationObj)
 
             else:
                 log.debug('%s already synced', destination)
@@ -1057,7 +1052,7 @@ class Manager(AbstractManager):
             # Desintation object is a dictionary
             if isinstance(sourceObj, File):
                 # We are trying to sync a file to a directory - this is a put
-                return self.put(sourceObj, destinationObj, overwrite=overwrite)
+                return destinationManager.put(sourceObj, destinationObj, overwrite=overwrite)
 
             # Syncing a source directory to a destination directory
             destinationMap = {artefact.basename: artefact for artefact in destinationObj.ls()}
@@ -1075,7 +1070,7 @@ class Manager(AbstractManager):
                     )
 
                 else:
-                    self.put(artefact, destinationManager.join(destinationObj.abspath, artefact.basename))
+                    destinationManager.put(artefact, destinationManager.join(destinationObj.path, artefact.basename))
 
             # Any remaining destionation objects were not targets of sync - delete if argument passed
             if delete:

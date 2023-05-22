@@ -566,7 +566,7 @@ class Amazon(RemoteManager):
         copied_artefact = self._cp(source, destination)
 
         # Delete the source objects now it has been entirely copied
-        self._rm(source)
+        source.manager._rm(source)
 
         return copied_artefact
 
