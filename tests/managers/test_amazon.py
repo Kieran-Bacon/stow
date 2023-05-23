@@ -388,6 +388,30 @@ class Test_Amazon(unittest.TestCase):
 
         self.assertEqual(b"These are some contents bytes", bytes_buffer.getvalue())
 
+    def test_ls_root(self):
+
+        self.s3.put_object(Bucket="bucket_name", Key="source/empty-directory/", Body=b"")
+        self.s3.put_object(Bucket="bucket_name", Key="source/file.txt", Body=b"")
+        self.s3.put_object(Bucket="bucket_name", Key="file.txt", Body=b"")
+
+        s3 = Amazon('bucket_name')
+
+        self.assertEqual(
+            {a.path for a in s3.ls()},
+            {'/source', '/file.txt'}
+        )
+
+        self.assertEqual(
+            {a.path for a in s3.ls(recursive=True)},
+            {'/source', '/file.txt','/source/empty-directory', '/source/file.txt'}
+        )
+
+        self.assertEqual(
+            {a.path for a in stow.ls('s3://bucket_name')},
+            {'/source', '/file.txt'}
+        )
+
+
     def test_ls_empty_directory(self):
         """ Test that the way the console will create empty directories correctly comes back as a directory only """
 
@@ -697,7 +721,33 @@ class Test_Amazon(unittest.TestCase):
         self.assertEqual(art_checksum, man_checksum)
         self.assertEqual(crc32c_checksum, man_checksum)
 
+    def test_mv_between_buckets(self):
 
+        self.s3.create_bucket(
+            Bucket="bucket_name_2",
+            CreateBucketConfiguration={"LocationConstraint":"eu-west-2"}
+        )
 
+        self.s3.put_object(
+            Bucket="bucket_name",
+            Key="file-1.txt",
+            Body=b"Content",
+        )
 
+        self.s3.put_object(
+            Bucket="bucket_name",
+            Key="file-2.txt",
+            Body=b"Content",
+        )
 
+        stow.mv('s3://bucket_name/file-1.txt', 's3://bucket_name_2/file-1.txt')
+
+        self.assertFalse(stow.exists('s3://bucket_name/file-1.txt'))
+        self.assertTrue(stow.exists('s3://bucket_name_2/file-1.txt'))
+
+        manager = Amazon('bucket_name')
+        manager2 = Amazon('bucket_name_2')
+
+        manager.mv('/file-2.txt', 's3://bucket_name_2/file-2.txt')
+        self.assertFalse(manager.exists('/file-1.txt'))
+        self.assertTrue(manager2.exists('s3://bucket_name_2/file-1.txt'))

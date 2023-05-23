@@ -115,10 +115,13 @@ class Artefact:
     def name(self, name: str):
         self.basename = name
 
-    @abc.abstractmethod
-    @contextlib.contextmanager
     def localise(self):
-        pass
+        """ Localise this artefact
+
+        Returns:
+            Localiser: The context manager object
+        """
+        return self.manager.localise(self)
 
     def save(self, path: str, force: bool = False):
         """ Save the artefact to a local location
@@ -286,21 +289,9 @@ class File(Artefact):
             self._isLink = self._manager._isLink(self)
         return self._isLink
 
-    @contextlib.contextmanager
-    def localise(self) -> str:
-        """ Localise this File artefact
-
-        Returns:
-            str: the absolute local path to the manager path
-        """
-        with self.manager.localise(self) as abspath:
-            yield abspath
-
-    @contextlib.contextmanager
-    def open(self, mode: str = 'r', **kwargs) -> io.IOBase:
+    def open(self, mode: str = 'r', **kwargs) -> typing.IO[typing.AnyStr]:
         """ Context manager to allow the pulling down and opening of a file """
-        with self._manager.open(self, mode, **kwargs) as handle:
-            yield handle
+        return self._manager.open(self, mode, **kwargs)
 
 class Directory(Artefact):
     """ A directory represents an local filesystems directory or folder. Directories hold references to other
@@ -420,21 +411,7 @@ class Directory(Artefact):
         # Return the path
         return self.manager.relpath(path, self.path, separator=separator)
 
-    @contextlib.contextmanager
-    def localise(self, path: str = None) -> str:
-        """ Localise an artefact this directory or a child artefact with the provided path.
-
-        Args:
-            path: Path of localisation
-
-        Returns:
-            str: the absolute local path to the manager path
-        """
-        with self.manager.localise(self if path is None else self.manager.join(self._path, path, separator='/')) as abspath:
-            yield abspath
-
-    @contextlib.contextmanager
-    def open(self, path: str, mode: str = "r", **kwargs) -> io.IOBase:
+    def open(self, path: str, mode: str = "r", **kwargs) -> typing.IO[typing.AnyStr]:
         """ Open a file and create a stream to that file. Expose interface of `open`
 
         Args:
@@ -445,12 +422,11 @@ class Directory(Artefact):
         Yields:
             io.IOBase: An IO object depending on the mode for interacting with the file
         """
-        with self.manager.open(
+        return self.manager.open(
             self.manager.join(self._path, path, separator='/', joinAbsolutes=True),
             mode,
             **kwargs
-            ) as handle:
-            yield handle
+        )
 
     def rm(self, path: str = None, recursive: bool = False):
         """ Remove an artefact at the given location
