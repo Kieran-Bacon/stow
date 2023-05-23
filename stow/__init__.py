@@ -15,6 +15,7 @@ from .utils import (
 )
 
 env = os.environ
+getcwd = os.getcwd
 
 # Create the stateless manager
 Manager = Manager()
