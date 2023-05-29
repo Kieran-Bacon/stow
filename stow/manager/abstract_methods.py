@@ -16,6 +16,15 @@ class AbstractManager():
     #     pass
 
     @abstractmethod
+    def _cwd(self) -> str:
+        """ Return the default working directory for the manager - used to default the artefact path if no path provided
+
+        Returns:
+            str: The default path of the manager, the current working directory
+        """
+        pass
+
+    @abstractmethod
     def _abspath(self, managerPath: str) -> str:
         """ Return the absolute path for a manager path, including the managers protocol, hostname, and parameters.
 
@@ -159,7 +168,7 @@ class AbstractManager():
         pass
 
     @abstractmethod
-    def _mv(self, source: Artefact, destination: str):
+    def _mv(self, source: Artefact, destination: str) -> Artefact:
         """ Move an artefact from its location to another location managed by the same manager class. This method should
         attempt exploit manager implementation to have transfer done remotely, and avoid having data downloaded to be
         pushed.

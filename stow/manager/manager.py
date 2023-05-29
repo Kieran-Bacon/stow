@@ -21,6 +21,27 @@ from .. import exceptions
 import logging
 log = logging.getLogger(__name__)
 
+class Localiser(contextlib.AbstractContextManager):
+
+    def __init__(self):
+        pass
+
+    def start(self) -> str:
+        """ Returns path to the localised artefact """
+        pass
+
+    def close(self):
+        pass
+
+    def __enter__(self) -> str:
+        return self.start()
+
+    def __exit__(self, exeception_type, exeception_value, exeception_traceback):
+        self.close()
+
+        if exeception_type:
+            return False
+
 class ManagerReloader:
     """ Class to manage the reloading of a reduced Manager """
     def __new__(cls, config):
@@ -102,7 +123,8 @@ class Manager(AbstractManager):
             obj = None
 
             if artefact is None:
-                manager, path = utils.connect("FS"), self._cwd()
+                manager = utils.connect("FS")
+                path = manager._cwd()
 
             elif isinstance(artefact, str):
                 manager, path = utils.parseURL(artefact)
@@ -143,20 +165,22 @@ class Manager(AbstractManager):
             str: The relative path of the object/the passed value
         """
 
-        if isinstance(artefact, Artefact):
+
+        if self.__class__ == Manager:
+            return self._splitExternalArtefactForm(artefact, load=load, require=require)
+
+        elif isinstance(artefact, Artefact):
             return artefact.manager, artefact, artefact.path
 
         else:
             obj = None
 
-            if artefact in [None, '/']:
-                return self, Directory(self, '/'), '/'
+            if artefact is None:
+                cwd = self._cwd()
+                return self, Directory(self, cwd), cwd
 
             elif isinstance(artefact, str):
-                manager, path = utils.parseURL(
-                    artefact,
-                    default_manager=self if type(self) != Manager else None
-                )
+                manager, path = utils.parseURL(artefact, default_manager=self)
 
             else:
                 t = type(artefact)
@@ -184,14 +208,6 @@ class Manager(AbstractManager):
     def _set_content_type(self, path: str, content_type: str) -> str:
         """ Set the content type of the file """
         raise NotImplementedError('Manager does not have an method for changing the content-type for the path given')
-
-    def _cwd(self) -> str:
-        """ Return the default working directory for the manager - used to default the artefact path if no path provided
-
-        Returns:
-            str: The default path of the manager, the current working directory
-        """
-        return os.getcwd()
 
     def manager(self, artefact: typing.Union[Artefact, str]) -> 'Manager':
         """ Fetch the manager object for the artefact
@@ -1012,8 +1028,8 @@ class Manager(AbstractManager):
         if destinationObj is None:
             # The destination doesn't exist - sync the entire source
 
-            log.debug("Syncing: No destination therefore putting entire source")
-            self.put(
+            log.debug("Syncing: Destination doesn't exist therefore putting entire source")
+            destinationManager.put(
                 sourceObj,
                 destination
             )
@@ -1021,13 +1037,13 @@ class Manager(AbstractManager):
         elif isinstance(destinationObj, File):
             if isinstance(sourceObj, Directory):
                 # The source is a directory - we simply replace the file
-                self.put(sourceObj, destinationObj, overwrite=overwrite)
+                destinationManager.put(sourceObj, destinationObj, overwrite=overwrite)
 
             elif (
                 (not check_modified_times or destinationObj.modifiedTime < sourceObj.modifiedTime) and
                 (digest_comparator is None or not digest_comparator(sourceObj, destinationObj))
                 ):
-                self.put(sourceObj, destinationObj)
+                destinationManager.put(sourceObj, destinationObj)
 
             else:
                 log.debug('%s already synced', destination)
@@ -1036,7 +1052,7 @@ class Manager(AbstractManager):
             # Desintation object is a dictionary
             if isinstance(sourceObj, File):
                 # We are trying to sync a file to a directory - this is a put
-                return self.put(sourceObj, destinationObj, overwrite=overwrite)
+                return destinationManager.put(sourceObj, destinationObj, overwrite=overwrite)
 
             # Syncing a source directory to a destination directory
             destinationMap = {artefact.basename: artefact for artefact in destinationObj.ls()}
@@ -1054,7 +1070,7 @@ class Manager(AbstractManager):
                     )
 
                 else:
-                    self.put(artefact, destinationManager.join(destinationObj.abspath, artefact.basename))
+                    destinationManager.put(artefact, destinationManager.join(destinationObj.path, artefact.basename))
 
             # Any remaining destionation objects were not targets of sync - delete if argument passed
             if delete:
@@ -1180,8 +1196,7 @@ class Manager(AbstractManager):
 
     _READONLYMODES = ["r", "rb"]
 
-    @contextlib.contextmanager
-    def open(self, artefact: typing.Union[File, str], mode: str = "r", **kwargs) -> io.IOBase:
+    def open(self, artefact: typing.Union[File, str], mode: str = "r", **kwargs) -> typing.IO[typing.AnyStr]:
         """ Open a file and create a stream to that file. Expose interface of `open`
 
         Args:
@@ -1193,18 +1208,26 @@ class Manager(AbstractManager):
             io.IOBase: An IO object depending on the mode for interacting with the file
         """
 
+        # Parse the artefact
         manager, obj, path = self._splitManagerArtefactForm(artefact, load=mode in self._READONLYMODES)
 
-        with manager.localise(path) as abspath:
-            with open(abspath, mode, **kwargs) as handle:
-                yield handle
+        # Setup a localiser for the artefact
+        localiser = manager.localise(obj or path)
+        abspath = localiser.start()
 
-    @contextlib.contextmanager
-    def localise(self, artefact: typing.Union[Artefact, str]) -> str:
+        # Create a handle to the file - update the close to close the localiser
+        handle = open(abspath, mode, **kwargs)
+        _close = handle.close
+        def closer():
+            _close()
+            localiser.close()
+        handle.close = closer
+
+        return handle
+
+    def localise(self, artefact: typing.Union[Artefact, str]) -> Localiser:
 
         # Get the manager instance to handle the localise method
         manager, obj, path = self._splitManagerArtefactForm(artefact, load=False)
 
-        # Call localise on the manager with the path
-        with manager.localise(path) as handle:
-            yield handle
+        return manager.localise(obj or path)

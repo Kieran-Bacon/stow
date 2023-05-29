@@ -184,11 +184,6 @@ class FS(LocalManager):
                     for updator in fileUpdators:
                         updator(destinationAbspath)
 
-            method = shutil.copytree if os.path.isdir(sourceAbspath) else shutil.copy
-
-            # Perform the putting
-            method(sourceAbspath, destinationAbspath)
-
         return PartialArtefact(self, destination)
 
     def _putBytes(
@@ -239,7 +234,7 @@ class FS(LocalManager):
         # Iterate over the folder and identify every object - add the created
         for art in os.listdir(abspath):
             artefact = self._identifyPath(
-                self.join(directory, art, separator='/')
+                self.join(directory, art)
             )
 
             if artefact is not None:
@@ -289,7 +284,7 @@ class SubdirectoryFS(FS):
         self._rootLength = len(self._root)
 
     def _cwd(self):
-        return self._root
+        return self.SEPARATOR
 
     def _abspath(self, managerPath: str) -> str:
         return os.path.abspath(self.join(self._root, managerPath, joinAbsolutes=True))

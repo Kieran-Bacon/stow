@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.2.2] - 2023-05-22
+
+### Added
+
+- add `cwd` to stow interface.
+
+### Changed
+
+- `localise` and `open` are now available without the contextmanager.
+- Change the separator behaviour to work better with remote managers.
+- Update sync behaviour.
+
+### Fixed
+
+- Fixed issue with `Amazon` manager where artefacts moved from one bucket to another were not deleted in the source bucket, but deleted in the second bucket.
+
 ## [1.2.1] - 2023-04-03
 
 ### Fixed
