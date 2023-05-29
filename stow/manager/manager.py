@@ -1161,7 +1161,11 @@ class Manager(AbstractManager):
             pass
 
         with tempfile.TemporaryDirectory() as directory:
-            return self.put(Directory(utils.connect("FS"), directory), path, overwrite=overwrite)
+            return self.put(
+                self._splitExternalArtefactForm(directory)[1],
+                path,
+                overwrite=overwrite
+            )
 
     def _mklink(self, *args, **kwargs):
         raise NotImplementedError(f'Manager {self} does not support symbolic links')
