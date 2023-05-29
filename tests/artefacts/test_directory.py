@@ -13,7 +13,9 @@ class Test_Directories(unittest.TestCase):
 
     def setUp(self):
 
-        self.directory = tempfile.mkdtemp()
+        self.directory = os.path.splitdrive(tempfile.mkdtemp())
+        self.directory = self.directory[0].lower() + self.directory[1]
+
         os.mkdir(os.path.join(self.directory, 'dir1'))
 
         self.subdirectory = os.path.join(self.directory, "dir1")

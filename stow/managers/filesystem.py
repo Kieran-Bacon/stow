@@ -1,4 +1,5 @@
 import os
+import stat
 import datetime
 import shutil
 import urllib
@@ -20,39 +21,34 @@ class FS(LocalManager):
         path (str): The local relative path to where the manager is to be initialised
     """
 
-    def __new__(cls, path: str = os.path.sep):
+    def __new__(cls, path: str = None, drive: str = None):
+        # Note - Though the arguments must match the instances called from super, they do not have to have the same
+        # defaults. This allows use to handle the default behaviour differently for the managers
 
-        manager = super().__new__(cls)
-
-        if path == os.path.sep:
+        if path is None:
             return super().__new__(RootFS)
 
         else:
             return super().__new__(SubdirectoryFS)
 
-        os.symlink()
-
     if os.name == 'nt':
-        def __init__(self, path: str = os.path.sep):
+
+        def __init__(self, path: str = os.path.sep, drive: str = 'c'):
             super().__init__()
-            self._drive, self._path = os.path.splitdrive(path)
-            self._drive = self._drive or 'C:'
-            self._root = self._drive + self._path
 
-        # def _mklink(self, source: str, destination: str):
+            self._drive = drive
+            expected_drive, self._path = os.path.splitdrive(path)
 
-        #     source, destination = self._abspath(source), self._abspath(destination)
+            if expected_drive and drive.lower() != expected_drive[:-1].lower():
+                raise ValueError(f'Drive letter passed does not match drive letter of path: {drive} != ({expected_drive}):{self._path}')
 
-        #     kdll = ctypes.windll.LoadLibrary("kernel32.dll")
-        #     kdll.CreateSymbolicLinkA(source, destination, 0)
-        #     return PartialArtefact(self, destination)
-
-        #     # win32file.CreateSymbolicLink(source.abspath, destination, 1)
+            self._root = self._drive + ':' + self._path
 
     else:
-        def __init__(self, path: str = os.path.sep):
+        def __init__(self, path: str = os.path.sep, drive: str = ''):
             super().__init__()
-            self._drive, self._root = os.path.splitdrive(path)
+            self._drive = drive
+            _, self._root = os.path.splitdrive(path)
             self._path = self._root
 
     def _mklink(self, source: str, destination: str):
@@ -80,29 +76,29 @@ class FS(LocalManager):
 
             abspath = self._abspath(managerPath)
 
-            stats = os.stat(abspath)
+            artefactStat = os.stat(abspath)
 
             # Export artefact created time information
-            createdTime = datetime.datetime.fromtimestamp(stats.st_ctime, tz=datetime.timezone.utc)
-            modifiedTime = datetime.datetime.fromtimestamp(stats.st_mtime, tz=datetime.timezone.utc)
-            accessedTime = datetime.datetime.fromtimestamp(stats.st_atime, tz=datetime.timezone.utc)
+            createdTime = datetime.datetime.fromtimestamp(artefactStat.st_ctime, tz=datetime.timezone.utc)
+            modifiedTime = datetime.datetime.fromtimestamp(artefactStat.st_mtime, tz=datetime.timezone.utc)
+            accessedTime = datetime.datetime.fromtimestamp(artefactStat.st_atime, tz=datetime.timezone.utc)
 
-            if os.path.isfile(abspath):
-                return File(
-                    self,
-                    self._relative(abspath),
-                    stats.st_size,
-                    modifiedTime,
-                    createdTime=createdTime,
-                    accessedTime=accessedTime,
-                )
-
-            elif os.path.isdir(abspath):
+            if stat.S_ISDIR(artefactStat.st_mode):
                 return Directory(
                     self,
                     self._relative(abspath),
                     createdTime=createdTime,
                     modifiedTime=modifiedTime,
+                    accessedTime=accessedTime,
+                )
+
+            else:
+                return File(
+                    self,
+                    self._relative(abspath),
+                    artefactStat.st_size,
+                    modifiedTime,
+                    createdTime=createdTime,
                     accessedTime=accessedTime,
                 )
 
@@ -141,7 +137,7 @@ class FS(LocalManager):
 
     def _put(
         self,
-        source: str,
+        source: Artefact,
         destination: str,
         *,
         metadata = None,
@@ -169,7 +165,7 @@ class FS(LocalManager):
         # Select the put method
         with source.localise() as sourceAbspath:
 
-            if os.path.isdir(sourceAbspath):
+            if isinstance(source, Directory):
                 shutil.copytree(sourceAbspath, destinationAbspath)
 
                 if fileUpdators:
@@ -243,36 +239,45 @@ class FS(LocalManager):
     def _rm(self, artefact: Artefact):
 
         # Convert the artefact
-        artefact = self._abspath(artefact.path)
+        path = self._abspath(artefact.path)
 
         # Select method for deleting
-        method = shutil.rmtree if os.path.isdir(artefact) else os.remove
+        method = shutil.rmtree if isinstance(artefact, Directory) else os.remove
 
         # Remove the artefact
-        method(artefact)
+        method(path)
 
-    @classmethod
-    def _signatureFromURL(cls, url: urllib.parse.ParseResult):
-        # TODO figure this out
-        # print("what", url.path)
-        # print("the", (os.path.expanduser(url.path)))
-        # print("fuck", os.path.abspath(os.path.expanduser(url.path)))
-        # from nt import _getfullpathname
-        # print("mate", _getfullpathname(url.path))
+    if os.name == 'nt':
+        @classmethod
+        def _signatureFromURL(cls, url: urllib.parse.ParseResult):
+            return {'drive': url.scheme or 'c'}, os.path.splitdrive(os.path.abspath(os.path.expanduser(url.path)))[1]
 
-        return {}, os.path.abspath(os.path.expanduser(url.path))
+        def toConfig(self):
+            if self._drive != 'c':
+                return {'manager': 'FS', 'path': self._root, 'drive': self._drive}
+            else:
+                return {'manager': 'FS', 'path': self._root}
+    else:
+        @classmethod
+        def _signatureFromURL(cls, url: urllib.parse.ParseResult):
+            return {}, os.path.abspath(os.path.expanduser(url.path))
 
+        def toConfig(self):
+            return {'manager': 'FS', 'path': self._root}
     @property
     def root(self):
         return self._root
 
-    def toConfig(self):
-        return {'manager': 'FS', 'path': self._root}
 
 class RootFS(FS):
 
-    def _abspath(self, managerPath: str) -> str:
-        return os.path.abspath(managerPath)
+    if os.name == 'nt':
+        def _abspath(self, managerPath: str) -> str:
+            return self._drive + ':' + os.path.splitdrive(os.path.abspath(managerPath))[1]
+
+    else:
+        def _abspath(self, managerPath: str) -> str:
+            return os.path.abspath(managerPath)
 
     def _relative(self, abspath: str) -> str:
         return abspath
