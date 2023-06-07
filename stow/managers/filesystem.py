@@ -253,10 +253,7 @@ class FS(LocalManager):
             return {'drive': url.scheme or 'c'}, os.path.splitdrive(os.path.abspath(os.path.expanduser(url.path)))[1]
 
         def toConfig(self):
-            if self._drive != 'c':
-                return {'manager': 'FS', 'path': self._root, 'drive': self._drive}
-            else:
-                return {'manager': 'FS', 'path': self._root}
+            return {'manager': 'FS', 'path': self._root, 'drive': self._drive}
     else:
         @classmethod
         def _signatureFromURL(cls, url: urllib.parse.ParseResult):
