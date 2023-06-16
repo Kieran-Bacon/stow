@@ -2,7 +2,7 @@ import os
 import re
 import io
 import typing
-from typing import (Union, Optional)
+from typing import (Union, Optional, Tuple, Mapping)
 import urllib
 import shutil
 import tempfile
@@ -14,7 +14,7 @@ import hashlib
 from .abstract_methods import AbstractManager
 
 from ..artefacts import Artefact, PartialArtefact, File, Directory, HashingAlgorithm
-from ..callbacks import AbstractCallback
+from ..callbacks import AbstractCallback, DefaultCallback
 from .. import _utils as utils
 from .. import exceptions
 
@@ -495,8 +495,8 @@ class Manager(AbstractManager):
             artefact (Artefact): The artefact to update
             _datetime (float, datetime): The time to set against the artefact
         """
-        manager, artefact, _ = self._splitManagerArtefactForm(artefact, require=True)
-        return manager._setmtime(artefact, _datetime)
+        mtime, _ = self.set_artefact_time(artefact, modified_datetime=_datetime)
+        return datetime.datetime.fromtimestamp(mtime, tz=datetime.timezone.utc)
 
     def getatime(self, artefact: typing.Union[Artefact, str]) -> typing.Union[float, None]:
         """ Get the accessed time for the artefact as a UTC timestamp
@@ -528,8 +528,19 @@ class Manager(AbstractManager):
             artefact (Artefact): The artefact to update
             _datetime (float, datetime): The time to set against the artefact
         """
+        _, atime = self.set_artefact_time(artefact, accessed_datetime=_datetime)
+        return datetime.datetime.fromtimestamp(atime, tz=datetime.timezone.utc)
+
+    def set_artefact_time(
+        self,
+        artefact: typing.Union[Artefact, str],
+        modified_datetime: Optional[typing.Union[float, datetime.datetime]] = None,
+        accessed_datetime: Optional[typing.Union[float, datetime.datetime]] = None
+        ) -> tuple[float, float]:
+        """ Update the artefacts access time """
         manager, artefact, _ = self._splitManagerArtefactForm(artefact, require=True)
-        return manager._setatime(artefact, _datetime)
+        return manager._set_artefact_time(artefact, modified_datetime, accessed_datetime)
+
 
     def exists(self, artefact: typing.Union[Artefact, str]) -> bool:
         """ Return true if the given artefact is a member of the manager, or the path is correct for the manager and it
@@ -758,16 +769,6 @@ class Manager(AbstractManager):
         """
         return os.path.splitext(artefact)
 
-    @staticmethod
-    def md5(path):
-        """ TODO """
-        hash_md5 = hashlib.md5()
-        with open(path, "rb") as f:
-            for chunk in iter(lambda: f.read(4096), b""):
-                hash_md5.update(chunk)
-
-        return hash_md5.hexdigest()
-
     def digest(
         self,
         artefact: typing.Union[File, str],
@@ -787,7 +788,9 @@ class Manager(AbstractManager):
         destination: typing.Union[str, None] = None,
         *,
         overwrite: bool = False,
-        callback: typing.Type[AbstractCallback] = None
+        callback: typing.Type[AbstractCallback] = DefaultCallback(),
+        modified_time: Optional[Union[datetime.datetime, float]] = None,
+        accessed_time: Optional[Union[datetime.datetime, float]] = None,
         ) -> typing.Union[Artefact, bytes]:
         """ Get an artefact from a local or remote source and download the artefact either to a local artefact or as bytes
 
@@ -803,30 +806,28 @@ class Manager(AbstractManager):
         # Split into object and path - Ensure that the artefact to get is from this manager
         _, obj, _ = self._splitManagerArtefactForm(source)
 
-        if callback is not None and issubclass(callback, AbstractCallback):
-            callback = callback('get')
 
         # Ensure the destination - Remove or raise issue for a local artefact at the location where the get is called
         if destination is not None:
+            callback.setDescription(f"Get {obj.path} -> {destination}")
+
             if os.path.exists(destination):
-                if os.path.isdir(destination):
-                    if overwrite:
-                        shutil.rmtree(destination)
-
-                    else:
-                        raise exceptions.OperationNotPermitted(
-                            "Cannot replace local directory ({}) unless overwrite argument is set to True".format(destination)
-                        )
-
-                else:
-                    os.remove(destination)
+                localManager: Manager = utils.connect(manager="FS")
+                localManager.rm(destination, recursive=overwrite, callback=callback)
 
             else:
                 # Ensure the directory that this object exists with
                 os.makedirs(self.dirname(destination), exist_ok=True)
 
+
             # Get the object using the underlying manager implementation
-            obj.manager._get(obj, destination, callback=callback)
+            obj.manager._get(
+                obj,
+                destination,
+                callback=callback,
+                modified_time=utils.timeToFloatOrNone(modified_time),
+                accessed_time=utils.timeToFloatOrNone(accessed_time)
+            )
 
             # Load the downloaded artefact from the local location and return
             return PartialArtefact(utils.connect(manager="FS"), destination)
@@ -844,7 +845,7 @@ class Manager(AbstractManager):
         overwrite: bool = False,
         *,
         metadata: typing.Dict[str, str] = None,
-        callback: typing.Type[AbstractCallback] = None,
+        callback: typing.Type[AbstractCallback] = DefaultCallback,
         modified_time: Optional[datetime.datetime] = None,
         accessed_time: Optional[datetime.datetime] = None
         ) -> Union[File, Directory]:
@@ -874,15 +875,11 @@ class Manager(AbstractManager):
         if destinationObj is not None:
             # Delete the destination object that is able to be overwritten
             if overwrite or isinstance(destinationObj, File):
-                destinationManager._rm(destinationObj)
+                destinationManager._rm(destinationObj, callback=callback)
             else:
                 raise exceptions.OperationNotPermitted(
                     "Cannot put {} as destination is a directory, and overwrite has not been set to True"
                 )
-
-        if callback is not None and issubclass(callback, AbstractCallback):
-            # Need to instantiate the callback
-            callback = callback('put')
 
         if isinstance(source, bytes):
             return destinationManager._putBytes(
@@ -908,7 +905,9 @@ class Manager(AbstractManager):
         self,
         source: typing.Union[Artefact, str],
         destination: typing.Union[Artefact, str],
-        overwrite: bool = False
+        overwrite: bool = False,
+        *,
+        callback: AbstractCallback = DefaultCallback()
         ) -> Artefact:
         """ Copy the artefacts at the source location to the provided destination location. Overwriting items at the
         destination.
@@ -930,19 +929,21 @@ class Manager(AbstractManager):
         if destinationObj is not None and isinstance(destinationObj, Directory):
             if not overwrite:
                 raise exceptions.OperationNotPermitted("Cannot replace directory without passing overwrite True")
-            destinationManager._rm(destinationObj)
+            destinationManager._rm(destinationObj, callback=callback)
 
         # Check if the source and destination are from the same manager class
         if type(sourceObj._manager) == type(destinationManager) and not sourceObj._manager.ISOLATED:
-            return destinationManager._cp(sourceObj, destinationPath)
+            return destinationManager._cp(sourceObj, destinationPath, callback=callback)
 
-        return self.put(sourceObj, destination)
+        return self.put(sourceObj, destination, callback=callback)
 
     def mv(
         self,
         source: typing.Union[Artefact, str],
         destination: typing.Union[Artefact, str],
-        overwrite: bool = False
+        overwrite: bool = False,
+        *,
+        callback: AbstractCallback = DefaultCallback()
         ) -> Artefact:
         """ Copy the artefacts at the source location to the provided destination location. Overwriting items at the
         destination.
@@ -964,18 +965,24 @@ class Manager(AbstractManager):
         if destinationObj is not None:
             if isinstance(destinationObj, Directory) and not overwrite:
                 raise exceptions.OperationNotPermitted("Cannot replace directory without passing overwrite True")
-            destinationManager._rm(destinationObj)
+            destinationManager._rm(destinationObj, callback=callback)
 
         # Check if the source and destination are from the same manager class
         if type(sourceObj._manager) == type(destinationManager) and not sourceObj._manager.ISOLATED:
-            return destinationManager._mv(sourceObj, destinationPath)
+            return destinationManager._mv(sourceObj, destinationPath, callback=callback)
 
         # Moving between manager types - put the object and then delete the old one
-        object = self.put(sourceObj, destination, overwrite=overwrite)
-        sourceObj._manager._rm(sourceObj)
+        object = self.put(sourceObj, destination, overwrite=overwrite, callback=callback)
+        sourceObj._manager._rm(sourceObj, callback=callback)
         return object
 
-    def rm(self, artefact: typing.Union[Artefact, str], recursive: bool = False) -> None:
+    def rm(
+        self,
+        artefact: typing.Union[Artefact, str],
+        recursive: bool = False,
+        *,
+        callback: AbstractCallback = DefaultCallback()
+        ) -> None:
         """ Remove an artefact from the manager using the artefact object or its relative path. If its a directory,
         remove it if it is empty, or all of its contents if recursive has been set to true.
 
@@ -991,7 +998,7 @@ class Manager(AbstractManager):
             )
 
         # Remove the artefact from the manager
-        manager._rm(obj)  # Remove the underlying data objects
+        manager._rm(obj, callback=callback)  # Remove the underlying data objects
 
 
     def sync(
@@ -1183,20 +1190,36 @@ class Manager(AbstractManager):
         manager, artefact, path = self._splitManagerArtefactForm(source)
         return manager._mklink(path, destination)
 
-    def touch(self, relpath: str) -> Artefact:
+    def touch(
+        self,
+        relpath: str,
+        # times: Optional[Tuple[float, float]] = None,
+        modified_time: Optional[float] = None,
+        accessed_time: Optional[float] = None,
+        *,
+        metadata: Optional[Mapping] = None
+        ) -> Artefact:
         """ Perform the linux touch command to create a empty file at the path provided, or for existing files, update
         their modified timestamps as if there where just created.
 
         Args:
             relpath (str): Path to new file location
         """
-
         manager, artefact, path = self._splitManagerArtefactForm(relpath, require=False)
 
         if artefact is not None:
-            return self.cp(artefact, artefact)
+            manager._set_artefact_time(artefact, modified_time=modified_time,accessed_time=accessed_time)
 
-        return self.put(b'', relpath)
+        else:
+            return manager._putBytes(
+                b'',
+                path,
+                metadata=metadata,
+                callback=DefaultCallback(),
+                modified_time=modified_time,
+                accessed_time=accessed_time,
+            )
+
 
     _READONLYMODES = ["r", "rb"]
 

@@ -4,9 +4,15 @@ import functools
 import pkg_resources
 import collections
 import urllib
+import datetime
+
+from typing import Union, Optional
 
 MANAGERS = {}
 INITIALISED_MANAGERS = {}  # TODO replace with weaklink dict
+
+def timeToFloatOrNone(time: Optional[Union[datetime.datetime, float]] = None) -> Union[float, None]:
+    return time.timestamp() if isinstance(time, datetime.datetime) else time
 
 def find(manager: str):
     """ Fetch the `Manager` class hosted on the 'stow_managers' entrypoint with

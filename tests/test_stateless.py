@@ -312,19 +312,6 @@ class Test_Stateless(unittest.TestCase):
         self.assertEqual(stow.splitext("hello.txt"), ("hello", ".txt"))
         self.assertEqual(stow.splitext("hello.txt"), os.path.splitext("hello.txt"))
 
-
-    def test_md5(self):
-
-        with tempfile.TemporaryDirectory() as directory:
-
-            filepath = os.path.join(directory, "file.txt")
-
-            with open(filepath, "w") as handle:
-                handle.write("Some content please")
-
-            self.assertEqual(stow.md5(filepath), "bc31cd1b77d35ece4bc1495e10231a28")
-            self.assertEqual(stow.md5(stow.artefact(filepath)), "bc31cd1b77d35ece4bc1495e10231a28")
-
     def test_isfile(self):
 
         with tempfile.TemporaryDirectory() as directory:

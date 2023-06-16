@@ -1,4 +1,4 @@
-__version__ = "1.2.1"
+__version__ = "1.2.2"
 
 import os
 
@@ -43,7 +43,6 @@ samestat = Manager.samestat
 split = Manager.split
 splitdrive = Manager.splitdrive
 splitext = Manager.splitext
-md5 = Manager.md5
 isfile = Manager.isfile
 isdir = Manager.isdir
 islink = Manager.islink
@@ -53,6 +52,7 @@ getmtime = Manager.getmtime
 setmtime = Manager.setmtime
 getatime = Manager.getatime
 setatime = Manager.setatime
+set_artefact_time = Manager.set_artefact_time
 exists = Manager.exists
 lexists = Manager.lexists
 touch = Manager.touch

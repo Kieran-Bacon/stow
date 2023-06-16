@@ -4,9 +4,11 @@ import io
 import datetime
 import contextlib
 import typing
+from typing import Union, Optional
 import enum
 
 from . import _utils as utils
+from .callbacks import AbstractCallback, DefaultCallback
 from . import exceptions
 
 class HashingAlgorithm(enum.Enum):
@@ -123,17 +125,36 @@ class Artefact:
         """
         return self.manager.localise(self)
 
-    def save(self, path: str, force: bool = False):
+    def save(
+        self,
+        path: str,
+        force: bool = False,
+        *,
+        callback: AbstractCallback = DefaultCallback(),
+        modified_time: Union[datetime.datetime, float] = None,
+        accessed_time: Union[datetime.datetime, float] = None
+        ) -> "Artefact":
         """ Save the artefact to a local location
 
         Args:
-            path: A local path where the Artefact is to be saved
-            force: Ignore artefacts at the destination location
+            path (str): A local path where the Artefact is to be saved
+            force (bool): Ignore artefacts at the destination location
+            *,
+            callback (AbstractCallback): A callback to be used to inform on saving progress
+            modified_time (Union[datetime.datetime, float]): The new modified time of the saved artefact
+            accessed_time (Union[datetime.datetime, float]): The new accessed time of the saved artefact
 
         Raises:
+            ArtefactNotFound: If this artefact has been removed before it was saved.
             OperationNotPermitted: If the location given is a Directory and the get is not enforced
         """
-        self._manager.get(self, path)
+        return self._manager.get(
+            self,
+            path,
+            callback=callback,
+            modified_time=modified_time,
+            accessed_time=accessed_time,
+        )
 
     def delete(self, force: bool = False):
         """ Delete this artefact from the disk
@@ -263,12 +284,23 @@ class File(Artefact):
     def accessedTime(self):
         """ UTC localised datetime of time file last modified by a write/append method """
         if self._accessedTime is None:
-            return self._modifiedTime
+            return self.modifiedTime
         return self._accessedTime
 
     @accessedTime.setter
     def accessedTime(self, _datetime: typing.Union[float, datetime.datetime]):
         self._accessedTime = self._manager.setatime(self, _datetime)
+
+    def set_artefact_time(
+        self,
+        modified_datetime: Optional[typing.Union[float, datetime.datetime]] = None,
+        accessed_datetime: Optional[typing.Union[float, datetime.datetime]] = None
+        ) -> tuple[float, float]:
+        """ TODO """
+        times = modified_time, accessed_time = self._manager.set_artefact_time(self, modified_datetime, accessed_datetime)
+        self._modifiedTime = datetime.datetime.fromtimestamp(modified_time, tz=datetime.timezone.utc)
+        self._accessedTime = datetime.datetime.fromtimestamp(accessed_time, tz=datetime.timezone.utc)
+        return times
 
     def digest(self, algorithm: HashingAlgorithm = HashingAlgorithm.MD5):
         """ Get the file digest to verify validaty - if a manager does not have it's own method of creatin file digests
