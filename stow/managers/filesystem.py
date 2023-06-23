@@ -19,7 +19,7 @@ else:
 
 from ..artefacts import Artefact, File, Directory, PartialArtefact, HashingAlgorithm
 from ..manager.base_managers import LocalManager
-from ..callbacks import AbstractCallback
+from ..callbacks import AbstractCallback, DefaultCallback
 
 if hasattr(os, 'listxattr'):
     def _copyExtendedAttribues(src, dst, *, follow_symlinks=True):
@@ -385,7 +385,7 @@ class FS(LocalManager):
         source: Artefact,
         destination: str,
         *,
-        callback = None,
+        callback = DefaultCallback(),
         modified_time: Optional[float] = None,
         accessed_time: Optional[float] = None,
         ):
@@ -431,7 +431,7 @@ class FS(LocalManager):
         destination: str,
         *,
         metadata = None,
-        callback = None,
+        callback = DefaultCallback(),
         modified_time: Optional[datetime.datetime] = None,
         accessed_time: Optional[datetime.datetime] = None,
         **kwargs

@@ -845,7 +845,7 @@ class Manager(AbstractManager):
         overwrite: bool = False,
         *,
         metadata: typing.Dict[str, str] = None,
-        callback: typing.Type[AbstractCallback] = DefaultCallback,
+        callback: typing.Type[AbstractCallback] = DefaultCallback(),
         modified_time: Optional[datetime.datetime] = None,
         accessed_time: Optional[datetime.datetime] = None
         ) -> Union[File, Directory]:
