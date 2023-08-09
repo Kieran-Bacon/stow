@@ -7,10 +7,11 @@ from typing import Tuple, Optional
 
 from .manager import Manager
 from .artefacts import HashingAlgorithm, File, Directory
+from .callbacks import DefaultCallback, ProgressCallback
 
-# logging.basicConfig(level=logging.DEBUG)
 log = logging.getLogger(__name__)
 
+# Build the initial stow cli options from loaded managers
 managerNames = []
 managerOptions = []
 for entry_point in pkg_resources.iter_entry_points('stow_managers'):
@@ -54,6 +55,8 @@ def cli(ctx: click.Context, debug: bool, manager: str, **kwargs):
 
     if debug:
         logging.basicConfig(level=logging.DEBUG)
+        for logger in ['stow.callbacks']:
+            logging.getLogger(logger).propagate = False
         log.info('Debugging enabled')
 
     if manager == 'fs':
@@ -85,6 +88,9 @@ def cli(ctx: click.Context, debug: bool, manager: str, **kwargs):
 
         from stow.managers.amazon import Amazon
         managerObj = Amazon(bucket=kwargs['bucket'], aws_session=session)
+
+    # Attach callback to manager object for reference below
+    managerObj.callback = ProgressCallback() # if debug else DefaultCallback()
 
     ctx.obj = managerObj
 
@@ -165,7 +171,7 @@ def cp(manager: Manager, source: str, destination: str, merge: str, merge_strat:
             for artefact in manager.iterls(source, recursive=True):
                 if isinstance(artefact, File):
                     copy_path = manager.join(destination, manager.relpath(artefact, source))
-                    manager.cp(artefact, copy_path)
+                    manager.cp(artefact, copy_path, callback=manager.callback)
 
         else:
             for artefact in manager.iterls(source, recursive=True):
@@ -178,10 +184,10 @@ def cp(manager: Manager, source: str, destination: str, merge: str, merge_strat:
                             manager.name(copy_path) + "-COPY." + manager.extension(copy_path)
                         )
 
-                    manager.cp(artefact, copy_path)
+                    manager.cp(artefact, copy_path, callback=manager.callback)
 
     else:
-        manager.cp(source=source, destination=destination, overwrite=overwrite)
+        manager.cp(source=source, destination=destination, overwrite=overwrite, callback=manager.callback)
 
 @cli.command()
 @click.argument('source')

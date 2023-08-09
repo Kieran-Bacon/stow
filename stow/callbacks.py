@@ -60,11 +60,19 @@ class ProgressCallback(AbstractCallback):
         self._removingArtefactsProgress = None
         self._bytesTransferedProgress = {}
 
+        self._positionOffset = 0
+
+    def _getNextPositionOffset(self):
+        val = self._positionOffset
+        self._positionOffset += 1
+        return val
+
     def setDescription(self, description: str):
         if not self._desc:
             self._desc = description
 
     def addTaskCount(self, count: int, isAdding: bool = True):
+        log.debug('Adding task counts: %s', (isAdding or -1)*count)
 
         # if self._addingArtefactsProgress is None:
         #     self._addingArtefactsProgress = tqdm.tqdm(
@@ -78,25 +86,30 @@ class ProgressCallback(AbstractCallback):
         if isAdding:
             if self._addingArtefactsProgress is None:
                 self._addingArtefactsProgress = tqdm.tqdm(
-                    desc=self._desc,
-                    total=1,
-                    unit='artefacts'
+                    desc=f"{self._desc}::Creating artefacts" if self._desc else "Creating artefacts",
+                    total=count,
+                    unit='artefacts',
+                    position=self._getNextPositionOffset()
                 )
 
-            self._addingArtefactsProgress.total += count
+            else:
+                self._addingArtefactsProgress.total += count
 
         else:
 
             if self._removingArtefactsProgress is None:
                 self._removingArtefactsProgress = tqdm.tqdm(
-                    desc="Deleting artefacts",
-                    total=1,
+                    desc=f"{self._desc}::Removing artefacts" if self._desc else "Removing artefacts",
+                    total=count,
                     unit='artefacts',
+                    position=self._getNextPositionOffset()
                 )
 
-            self._removingArtefactsProgress.total += count
+            else:
+                self._removingArtefactsProgress.total += count
 
     def added(self, path):
+        log.debug('Adding path=%s', path)
 
         if path in self._bytesTransferedProgress:
             pbar = self._bytesTransferedProgress.pop(path)
@@ -108,19 +121,21 @@ class ProgressCallback(AbstractCallback):
             log.info(path + ' added')
 
     def get_bytes_transfer(self, path, total):
+        log.debug('Initialising transfer for path=%s', path)
 
         self._bytesTransferedProgress[path] = pbar = tqdm.tqdm(
             desc=f'{path} transfered',
             total=total,
             unit='bytes',
-            leave=True
+            leave=False,
+            position=self._getNextPositionOffset()
             # disable=True
         )
 
         return pbar.update
 
     def removed(self, path):
-        # self.added(path)
+        log.debug('Removing path=%s', path)
 
         if self._removingArtefactsProgress:
             self._removingArtefactsProgress.update()

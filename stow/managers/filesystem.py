@@ -176,6 +176,8 @@ class FS(LocalManager):
 
                     transfer(destination_handle.write(buffer))
 
+        callback.added(source)
+
     if posix is not None and hasattr(posix, '_fcopyfile'):
         # The implementation is MAC os - there is
 
@@ -191,6 +193,8 @@ class FS(LocalManager):
                         destination_handle.fileno(),
                         posix._COPYFILE_DATA
                     )
+
+            callback.added(source)
 
     elif hasattr(os, "sendfile"):
         # Linux with sendfile protocol
@@ -242,6 +246,8 @@ class FS(LocalManager):
                             offset += sent
                             transfer(sent)
 
+            callback.added(source)
+
     elif os.name == 'nt':
 
         def _copyfile(self, source: str, destination: str, sourceStat: os.stat_result, callback):
@@ -276,7 +282,9 @@ class FS(LocalManager):
 
                             else:
                                 # Entire buffer replaced with read - write entire buffer
-                                destination_handle.write(mv)
+                                transfer(destination_handle.write(mv))
+
+            callback.added(source)
 
     else:
 
@@ -329,46 +337,45 @@ class FS(LocalManager):
         accessed_time: float = None
         ):
 
-        # Scan the directory
-        with os.scandir(source) as scandir_it:
-            entries = list(scandir_it)
-
-        # Record the number of being copied/added
-        callback.addTaskCount(len(entries), isAdding=True)
-
         # Ensure the desintation
         os.makedirs(destination, exist_ok=True)
 
-        # Copy all the entries to the new location
-        for entry in entries:
+        # Add that you are copying self
+        callback.addTaskCount(1, isAdding=True)
 
-            subdestination = os.path.join(destination, entry.name)
-            entryStat = entry.stat()
+        # Scan the directory - Copy all the entries to the new location
+        with os.scandir(source) as scandir_it:
+            for entry in scandir_it:
 
-            if entry.is_dir():
-                self._copytree(
-                    entry.path,
-                    subdestination,
-                    entryStat,
-                    callback,
-                    modified_time,
-                    accessed_time
-                )
-            else:
-                sourceStat = entry.stat()
-                self._copyfile(
-                    entry.path,
-                    subdestination,
-                    entryStat,
-                    callback,
-                )
-                self._copystats(
-                    entry.path,
-                    subdestination,
-                    entryStat,
-                    modified_time,
-                    accessed_time
-                )
+                subdestination = os.path.join(destination, entry.name)
+                entryStat = entry.stat()
+
+                if entry.is_dir():
+                    self._copytree(
+                        entry.path,
+                        subdestination,
+                        entryStat,
+                        callback,
+                        modified_time,
+                        accessed_time
+                    )
+                else:
+                    callback.addTaskCount(1, isAdding=True)
+
+                    sourceStat = entry.stat()
+                    self._copyfile(
+                        entry.path,
+                        subdestination,
+                        entryStat,
+                        callback,
+                    )
+                    self._copystats(
+                        entry.path,
+                        subdestination,
+                        entryStat,
+                        modified_time,
+                        accessed_time
+                    )
 
         # Copy the directory stats to the new location
         self._copystats(
@@ -378,6 +385,7 @@ class FS(LocalManager):
             modified_time,
             accessed_time
         )
+        callback.added(source)
 
 
     def _get(
@@ -511,22 +519,28 @@ class FS(LocalManager):
 
     def _rmtree(self, path: str, callback = None):
 
-        # Scan the directory
-        with os.scandir(path) as scandir_it:
-            entries = list(scandir_it)
+        # TODO check if it is faster to separate them out into two lists and then iterate over them
+        # or is it faster to iterate one straight away (given the call to callback would have to be run more)
 
-        # Record the number of items to delete
-        callback.addTaskCount(len(entries), isAdding=False)
+        # Scan the directory
+        directory_entries, file_entries = [], []
+        with os.scandir(path) as scandir_it:
+            for entry in scandir_it:
+                if entry.is_dir(follow_symlinks=False):
+                    directory_entries.append(entry)
+                else:
+                    file_entries.append(entry)
+
+        # Record the number of items to delete - All files in this directory plus self (child directires will add themselves)
+        callback.addTaskCount(len(file_entries) + 1, isAdding=False)
 
         # For each artefact in path - delete or recursively delete
-        for entry in entries:
+        for directory_entry in directory_entries:
+            self._rmtree(directory_entry.path, callback=callback)
 
-            if entry.is_dir(follow_symlinks=False):
-               self._rmtree(entry.path, callback=callback)
-
-            else:
-                os.remove(entry.path)
-                callback.removed(entry.path)
+        for file_entry in file_entries:
+                os.remove(file_entry.path)
+                callback.removed(file_entry.path)
 
         os.rmdir(path)
         callback.removed(path)
