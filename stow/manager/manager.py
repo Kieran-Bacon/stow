@@ -1215,6 +1215,7 @@ class Manager(AbstractManager):
 
         if artefact is not None:
             manager._set_artefact_time(artefact, modified_time=modified_time,accessed_time=accessed_time)
+            return artefact
 
         else:
             return manager._putBytes(

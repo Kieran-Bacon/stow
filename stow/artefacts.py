@@ -549,6 +549,9 @@ class PartialArtefact:
         self._manager = manager
         self._path = path
 
+    def __fspath__(self):
+        return self._manager._abspath(self._path)
+
     def __getattribute__(self, attr: str):
 
         # For debugger only (only way this function can be called twice)
