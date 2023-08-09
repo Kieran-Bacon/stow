@@ -16,14 +16,17 @@ class Test_Filesystem(unittest.TestCase, ManagerTests):
 
     def setUp(self):
         # Make the managers local space to store files
-        self.directory = tempfile.mkdtemp()
+        self.directory = os.path.splitdrive(tempfile.mkdtemp())
+        self.directory = self.directory[0].lower() + self.directory[1]
 
         # Define the manager
         self.manager = FS(path=self.directory)
 
     def setUpWithFiles(self):
         # Make the managers local space to store files
-        self.directory = tempfile.mkdtemp()
+        self.directory = os.path.splitdrive(tempfile.mkdtemp())
+        self.directory = self.directory[0].lower() + self.directory[1]
+
 
         with open(os.path.join(self.directory, "initial_file1.txt"), "w") as handle:
             handle.write("Content")
@@ -67,4 +70,13 @@ class Test_Filesystem(unittest.TestCase, ManagerTests):
 
     def test_config(self):
 
-        self.assertEqual(self.manager.toConfig(), {"manager": "FS", "path": self.directory})
+        config = self.manager.toConfig()
+
+        if os.name == 'nt':
+            self.assertEqual(config, {"manager": "FS", "path": self.directory, 'drive': 'c'})
+        else:
+            self.assertEqual(config, {"manager": "FS", "path": self.directory})
+
+    # def test_otherDriveLetters(self):
+
+    #     stow.rm("G:\\My Drive\\Pictures\\Cards\\18th Birthday from Linford and Bethan.pdf")

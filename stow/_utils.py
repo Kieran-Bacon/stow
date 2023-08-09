@@ -4,9 +4,15 @@ import functools
 import pkg_resources
 import collections
 import urllib
+import datetime
+
+from typing import Union, Optional
 
 MANAGERS = {}
 INITIALISED_MANAGERS = {}  # TODO replace with weaklink dict
+
+def timeToFloatOrNone(time: Optional[Union[datetime.datetime, float]] = None) -> Union[float, None]:
+    return time.timestamp() if isinstance(time, datetime.datetime) else time
 
 def find(manager: str):
     """ Fetch the `Manager` class hosted on the 'stow_managers' entrypoint with
@@ -47,6 +53,14 @@ def find(manager: str):
 
     return mClass
 
+def _managerIdentifierCalculator(manager, arguments: dict) -> int:
+    identifier = hash((
+        manager, "-".join([f"{k}-{v}" for k,v in sorted(arguments.items(), key=lambda x: x[0])])
+    ))
+
+    return identifier
+
+
 def connect(manager: str, **kwargs):
     """ Find and connect to a `Manager` using its name (entrypoint name) and return an instance of that `Manager`
     initialised with the kwargs provided. A path can be provided as the location on the manager for a sub manager to be
@@ -68,20 +82,22 @@ def connect(manager: str, **kwargs):
         session by using this function rather than initalising a `Manager` directly
     """
 
-    identifier = hash((
-        manager, "-".join([f"{k}-{v}" for k,v in sorted(kwargs.items(), key=lambda x: x[0])])
-    ))
-
+    identifier = _managerIdentifierCalculator(manager, kwargs)
     if identifier in INITIALISED_MANAGERS:
         return INITIALISED_MANAGERS[identifier]
 
     # Find the class for the manager and initialise it with the arguments
-    manager = find(manager)(**kwargs)
+    managerObj = find(manager)(**kwargs)
+
+    # Get the config for the manager given the defaults
+    config = managerObj.toConfig()
+    del config['manager']
 
     # Record against the identifier the mananger object for
-    INITIALISED_MANAGERS[identifier] = manager
+    INITIALISED_MANAGERS[identifier] = managerObj
+    INITIALISED_MANAGERS[_managerIdentifierCalculator(manager, config)] = managerObj
 
-    return manager
+    return managerObj
 
 # Parsed URL tuple definition
 ParsedURL = collections.namedtuple("ParsedURL", ["manager", "relpath"])

@@ -157,7 +157,7 @@ class Test_Amazon(unittest.TestCase):
         with pytest.raises(stow.exceptions.ArtefactNoLongerExists):
             manager._metadata('/file-2.txt')
 
-    @set_initial_no_auth_action_count(5)
+    @set_initial_no_auth_action_count(3)
     def test_metadata_forbidden(self):
         manager = Amazon('bucket_name')
         manager.touch('/file.txt')
@@ -316,24 +316,6 @@ class Test_Amazon(unittest.TestCase):
             Fileobj=bytes_buffer
         )
         self.assertEqual(b"Content", bytes_buffer.getvalue())
-
-    def test_upload_file_callback(self):
-
-        with tempfile.TemporaryDirectory() as directory:
-
-            local_path = os.path.abspath(os.path.splitdrive(os.path.join(directory, 'file.txt'))[1])
-
-            with open(local_path, "w", encoding="utf-8") as handle:
-                handle.write('Content')
-
-            manager = Amazon("bucket_name")
-            artefact = manager.put(local_path, '/file.txt', callback=stow.testing.mock.TestCallback)
-
-        data = stow.testing.mock.TestCallback.artefacts[local_path]
-
-        self.assertEqual(data['artefact'].path, local_path)
-        self.assertFalse(data['is_downloading'])
-        self.assertEqual(data['bytes_transferred'], 7)
 
     def test_upload_directory(self):
 
@@ -607,7 +589,7 @@ class Test_Amazon(unittest.TestCase):
             'aws_secret_key': 'foobar_secret',
             'aws_session_token': None,
             'region_name': 'eu-west-2',
-            'profile_name': 'default',
+            'profile_name': os.environ.get('AWS_PROFILE', 'default'),
             }, manager.toConfig())
 
     def test_digest_md5(self):

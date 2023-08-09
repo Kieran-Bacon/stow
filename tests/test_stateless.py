@@ -94,17 +94,27 @@ class Test_Stateless(unittest.TestCase):
                 delta=datetime.timedelta(milliseconds=5)
             )
 
+    def driveLessAssertEqual(self, strVal1, strVal2):
+        self.assertEqual(os.path.splitdrive(strVal1)[1], os.path.splitdrive(strVal2)[1])
+
+
     def test_abspath(self):
 
-        self.assertEqual(os.path.abspath("."), stow.abspath("."))
-        self.assertEqual(os.path.abspath("filename"), stow.abspath("filename"))
-        self.assertEqual(os.path.abspath(".."), stow.abspath(".."))
+        odrive, opath = os.path.splitdrive(os.path.abspath('.'))
+        sdrive, spath = os.path.splitdrive(stow.abspath('.'))
 
-        self.assertEqual(stow.abspath("/hello/there"), os.path.abspath("/hello/there"))
-        self.assertEqual(stow.abspath("hello/there"), os.path.abspath("hello/there"))
+        self.assertEqual(odrive.lower(), sdrive.lower())
+        self.assertEqual(opath, spath)
+
+        self.driveLessAssertEqual(os.path.abspath("."), stow.abspath("."))
+        self.driveLessAssertEqual(os.path.abspath("filename"), stow.abspath("filename"))
+        self.driveLessAssertEqual(os.path.abspath(".."), stow.abspath(".."))
+
+        self.driveLessAssertEqual(stow.abspath("/hello/there"), os.path.abspath("/hello/there"))
+        self.driveLessAssertEqual(stow.abspath("hello/there"), os.path.abspath("hello/there"))
 
         testfile = stow.artefact(__file__)
-        self.assertEqual(stow.abspath(testfile), os.path.abspath(__file__))
+        self.driveLessAssertEqual(stow.abspath(testfile), os.path.abspath(__file__))
 
     def test_commonpath(self):
 
@@ -301,19 +311,6 @@ class Test_Stateless(unittest.TestCase):
 
         self.assertEqual(stow.splitext("hello.txt"), ("hello", ".txt"))
         self.assertEqual(stow.splitext("hello.txt"), os.path.splitext("hello.txt"))
-
-
-    def test_md5(self):
-
-        with tempfile.TemporaryDirectory() as directory:
-
-            filepath = os.path.join(directory, "file.txt")
-
-            with open(filepath, "w") as handle:
-                handle.write("Some content please")
-
-            self.assertEqual(stow.md5(filepath), "bc31cd1b77d35ece4bc1495e10231a28")
-            self.assertEqual(stow.md5(stow.artefact(filepath)), "bc31cd1b77d35ece4bc1495e10231a28")
 
     def test_isfile(self):
 

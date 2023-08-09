@@ -2,13 +2,14 @@ import os
 import tempfile
 import shutil
 
-import stow 
+import stow
 
 class BasicSetup:
 
     def setUp(self):
 
-        self.directory = tempfile.mkdtemp()
+        self.directory = os.path.splitdrive(tempfile.mkdtemp())
+        self.directory = self.directory[0].lower() + self.directory[1]
 
         # Create a file
         self.filepath = os.path.join(self.directory, 'file1')

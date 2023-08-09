@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.3.0] -
+
+### Added
+
+- Add `set_artefact_time` method to the stateless and manager interface
+
+### Changed
+
+- Extended the save interface on artefacts, to include a callback and file times
+- Changed callback interface plus implement filesystem methods to use the callback interface
+- Extend `get` interface to include times and callback
+- Extend `touch` interface to include times and metadatas
+
+### Removed
+
+- Removed the public `md5` method - it is available through `stow.digest` which defaults to md5 hashing algorithm.
+
 ## [1.2.2] - 2023-05-22
 
 ### Added

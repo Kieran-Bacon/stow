@@ -233,5 +233,5 @@ class Test_Files(BasicSetup, unittest.TestCase):
 
         file.modifiedTime = new_modified_time
 
-        self.assertEqual(datetime.datetime.fromtimestamp(new_modified_time), file.modifiedTime)
+        self.assertEqual(datetime.datetime.fromtimestamp(new_modified_time, tz=datetime.timezone.utc), file.modifiedTime)
 
