@@ -1,9 +1,11 @@
 site_name: Stow
-theme: readthedocs
+# theme: readthedocs
+theme:
+    name: material
 markdown_extensions:
     - tables
     - attr_list
-extra_css: [static/css/main.css]
+# extra_css: [static/css/main.css]
 nav:
     - Home: index.md
     - Managers: managers.md
@@ -20,4 +22,5 @@ nav:
         - stow.exceptions: reference/stow.exceptions.md
 plugins:
     - search # necessary for search to work
-    - mkapi
+    # - mkapi
+    - mkdocstrings

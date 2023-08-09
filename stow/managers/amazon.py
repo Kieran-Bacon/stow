@@ -638,5 +638,16 @@ class Amazon(RemoteManager):
     def root(self):
         return self._bucketName
 
+    @staticmethod
+    def cli_arguments() -> typing.List[typing.Tuple]:
+        return [
+            (('-b', '--bucket'), {'help': '[REQUIRED] The bucket name'}),
+            (('-k', '--access-key'), {'help': 'AWS access key id'}),
+            (('-s', '--secret-key'), {'help': 'AWS secret access key'}),
+            (('-t', '--token'), {'help': 'AWS session token'}),
+            (('-r', '--region-name'), {'help': 'Region name'}),
+            (('-p', '--profile'), {'help': 'Select aws profile credentials'}),
+        ]
+
     def toConfig(self):
         return self._config

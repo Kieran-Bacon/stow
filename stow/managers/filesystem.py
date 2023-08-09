@@ -1,4 +1,5 @@
 import os
+import typing
 import datetime
 import shutil
 import urllib
@@ -265,6 +266,13 @@ class FS(LocalManager):
     @property
     def root(self):
         return self._root
+
+    @staticmethod
+    def cli_arguments() -> typing.List[typing.Tuple]:
+        return [
+            (('-r', '--root'), {'help': 'The root/cwd location of the manager'})
+        ]
+
 
     def toConfig(self):
         return {'manager': 'FS', 'path': self._root}

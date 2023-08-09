@@ -79,6 +79,7 @@ class Manager(AbstractManager):
             ArtefactNotFound: In the event that the path does not exist
         """
 
+        log.debug('fetching stat data for %s', path)
         artefact = self._identifyPath(path)
         if artefact is None:
             raise exceptions.ArtefactNotFound(f"No artefact exists at: {path}")
@@ -922,6 +923,8 @@ class Manager(AbstractManager):
             Artefact: The destination artefact object
         """
 
+        log.debug('copying %s into %s', source, destination)
+
         # Load the source object that is to be copied
         _, sourceObj, sourcePath = self._splitManagerArtefactForm(source)
         destinationManager, destinationObj, destinationPath = self._splitManagerArtefactForm(destination, require=False)
@@ -933,9 +936,12 @@ class Manager(AbstractManager):
             destinationManager._rm(destinationObj)
 
         # Check if the source and destination are from the same manager class
+        # TODO it may not be possible to copy from one manager of the same type to another manager of the same type
+        # but be possible to copy within a manager - need more dials for this.
         if type(sourceObj._manager) == type(destinationManager) and not sourceObj._manager.ISOLATED:
             return destinationManager._cp(sourceObj, destinationPath)
 
+        log.warning('Cannot perform copy on manager - defaulting to put for %s->%s', source, destination)
         return self.put(sourceObj, destination)
 
     def mv(
