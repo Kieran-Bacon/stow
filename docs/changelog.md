@@ -13,6 +13,11 @@
 - Extend `get` interface to include times and callback
 - Extend `touch` interface to include times and metadatas
 
+### Fixed
+
+- Fixed issue with touch when touching an artefact that exists, method doesn't return the expected type
+- Fixed issue with `PartialArtefact` where it was not a `os.PathLike` object.
+
 ### Removed
 
 - Removed the public `md5` method - it is available through `stow.digest` which defaults to md5 hashing algorithm.
