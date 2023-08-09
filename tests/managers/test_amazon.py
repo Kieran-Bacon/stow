@@ -581,6 +581,8 @@ class Test_Amazon(unittest.TestCase):
 
     def test_toConfig(self):
 
+        sess = boto3.Session()
+
         manager = Amazon('bucket_name')
         self.assertDictEqual({
             "manager": 'AWS',
@@ -588,7 +590,7 @@ class Test_Amazon(unittest.TestCase):
             'aws_access_key': 'foobar_key',
             'aws_secret_key': 'foobar_secret',
             'aws_session_token': None,
-            'region_name': 'eu-west-2',
+            'region_name': sess.region_name,
             'profile_name': os.environ.get('AWS_PROFILE', 'default'),
             }, manager.toConfig())
 
