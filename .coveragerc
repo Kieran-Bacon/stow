@@ -5,7 +5,8 @@ branch = True
 # Regexes for lines to exclude from consideration
 exclude_lines =
     pragma: no cover
-    pass
+    AbstractContextManager
+    # pass
     def __repr__
     raise NotImplementedError
     if os.name == 'nt':

@@ -497,7 +497,7 @@ class Manager(AbstractManager):
             _datetime (float, datetime): The time to set against the artefact
         """
         mtime, _ = self.set_artefact_time(artefact, modified_datetime=_datetime)
-        return datetime.datetime.fromtimestamp(mtime, tz=datetime.timezone.utc)
+        return mtime
 
     def getatime(self, artefact: typing.Union[Artefact, str]) -> typing.Union[float, None]:
         """ Get the accessed time for the artefact as a UTC timestamp
@@ -530,7 +530,7 @@ class Manager(AbstractManager):
             _datetime (float, datetime): The time to set against the artefact
         """
         _, atime = self.set_artefact_time(artefact, accessed_datetime=_datetime)
-        return datetime.datetime.fromtimestamp(atime, tz=datetime.timezone.utc)
+        return atime
 
     def set_artefact_time(
         self,
@@ -781,7 +781,7 @@ class Manager(AbstractManager):
             return manager._digest(obj, algorithm)
 
         else:
-            raise ValueError(f'Cannot get file digest for directory {obj}')
+            raise TypeError(f'Cannot get file digest for directory {obj}')
 
     def get(
         self,
@@ -1006,7 +1006,6 @@ class Manager(AbstractManager):
         # Remove the artefact from the manager
         manager._rm(obj, callback=callback)  # Remove the underlying data objects
 
-
     def sync(
         self,
         source: typing.Union[File, Directory, str],
@@ -1041,7 +1040,7 @@ class Manager(AbstractManager):
         if destinationObj is None:
             # The destination doesn't exist - sync the entire source
 
-            log.debug("Syncing: Destination doesn't exist therefore putting entire source")
+            log.warning("Syncing: Destination=%s doesn't exist therefore putting entire source=%s", destination, source)
             destinationManager.put(
                 sourceObj,
                 destination
@@ -1145,13 +1144,13 @@ class Manager(AbstractManager):
         """
         return set(self.iterls(art, recursive, ignore_missing=ignore_missing))
 
-    def mkdir(self, path: str, ignoreExists: bool = True, overwrite: bool = False) -> Directory:
+    def mkdir(self, path: str, ignore_exists: bool = True, overwrite: bool = False) -> Directory:
         """ Make a directory at the location of the path provided. By default - do nothing in the event that the
         location is already a directory object.
 
         Args:
             path (str): Relpath to the location where a directory is to be created
-            ignoreExists (bool) = True: Whether to do nothing if a directory already exists
+            ignore_exists (bool) = True: Whether to do nothing if a directory already exists
             overwrite (bool) = False: Whether to overwrite the directory with an empty directory
 
         Returns:
@@ -1167,7 +1166,7 @@ class Manager(AbstractManager):
             if isinstance(artefact, File):
                 raise exceptions.OperationNotPermitted("Cannot make a directory as location {} is a file object".format(path))
 
-            if ignoreExists and not overwrite:
+            if ignore_exists and not overwrite:
                 return artefact
 
         except exceptions.ArtefactNotFound:
@@ -1181,20 +1180,21 @@ class Manager(AbstractManager):
             )
 
     def _mklink(self, *args, **kwargs):
-        raise NotImplementedError(f'Manager {self} does not support symbolic links')
+        raise NotImplementedError(f'Manager {self} does not support links')
 
-    def mklink(self, source: Artefact, destination: str) -> Artefact:
+    def mklink(self, source: Artefact, destination: str, soft: bool = True) -> Artefact:
         """ Create a symbolic link
 
         Args:
-            source (Artefact): The concrete artefact to belinked to
-            destination (str): The path to where the link should be created
+            artefact (Artefact): The concrete artefact the link points to
+            link (str): The path of the link - the link location
+            soft (bool): Indicate whether the link should be soft (hard being the alternative)
 
         Returns:
             Artefact: The link artefact object
         """
-        manager, artefact, path = self._splitManagerArtefactForm(source)
-        return manager._mklink(path, destination)
+        manager, artefact, path = self._splitManagerArtefactForm(source, require=False)
+        return manager._mklink(path, destination, soft)
 
     def touch(
         self,
@@ -1214,10 +1214,12 @@ class Manager(AbstractManager):
         manager, artefact, path = self._splitManagerArtefactForm(relpath, require=False)
 
         if artefact is not None:
+            log.debug("artefact=%s already exists - updating artefact times mt=%s at=%s", path, modified_time, accessed_time, extra={'method': 'touch'})
             manager._set_artefact_time(artefact, modified_time=modified_time,accessed_time=accessed_time)
             return artefact
 
         else:
+            log.debug("creating artefact=%s with times mt=%s at=%s", path, modified_time, accessed_time, extra={'method': 'touch'})
             return manager._putBytes(
                 b'',
                 path,

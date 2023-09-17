@@ -10,6 +10,7 @@ import hashlib
 import zlib
 
 import unittest
+from click.testing import CliRunner
 import pytest
 from moto import mock_s3
 from moto.core import set_initial_no_auth_action_count
@@ -17,9 +18,10 @@ from moto.core import set_initial_no_auth_action_count
 import boto3
 from botocore.exceptions import ClientError
 
-import stow.testing
+
 import stow.exceptions
-from stow.managers.amazon import Amazon
+from stow.cli import cli
+from stow.managers.amazon import Amazon, etagComparator
 
 @mock_s3
 class Test_Amazon(unittest.TestCase):
@@ -735,3 +737,75 @@ class Test_Amazon(unittest.TestCase):
         manager.mv('/file-2.txt', 's3://bucket_name_2/file-2.txt')
         self.assertFalse(manager.exists('/file-1.txt'))
         self.assertTrue(manager2.exists('s3://bucket_name_2/file-1.txt'))
+
+    def test_cli(self):
+
+        self.s3.create_bucket(
+            Bucket="bucket_name_2",
+            CreateBucketConfiguration={"LocationConstraint":"eu-west-2"}
+        )
+
+        self.s3.put_object(
+            Bucket="bucket_name",
+            Key="file-1.txt",
+            Body=b"Content",
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ['exists', 's3://bucket_name/file-1.txt'])
+        assert result.exit_code == 0
+
+        result = runner.invoke(cli, ['-m', 's3', 'exists', 'file-1.txt'])
+        assert result.exit_code == 1
+
+        result = runner.invoke(cli, ['-m', 's3', '-b', 'bucket_name', 'exists', 'file-1.txt'])
+        assert result.exit_code == 0
+
+    def test_etagComparator(self):
+
+        large_file_contents = b'content' + b'as'*8 * 1024 * 1024
+
+        self.s3.put_object(
+            Bucket="bucket_name",
+            Key="file-1.txt",
+            Body=b"content",
+        )
+
+        self.s3.put_object(
+            Bucket="bucket_name",
+            Key="large-file.txt",
+            Body=large_file_contents,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            with open(stow.join(directory, 'file-1.txt'), 'wb') as handle:
+                handle.write(b'content')
+
+            with open(stow.join(directory, 'file-2.txt'), 'wb') as handle:
+                handle.write(b'content')
+
+            with open(stow.join(directory, 'file-3.txt'), 'w') as handle:
+                handle.write('content different')
+
+            with open(stow.join(directory, 'file-5.txt'), 'w') as handle:
+                pass
+
+            self.assertTrue(
+                etagComparator(*[
+                    stow.artefact(x)
+                    for x in [stow.join(directory, 'file-1.txt'), stow.join(directory, 'file-2.txt'), 's3://bucket_name/file-1.txt']
+                ])
+            )
+
+            self.assertFalse(
+                etagComparator(*[stow.artefact(x) for x in [stow.join(directory, 'file-1.txt'), stow.join(directory, 'file-3.txt'), stow.join(directory, 'file-5.txt')]])
+            )
+
+            with open(stow.join(directory, 'file-4.txt'), 'wb') as handle:
+                handle.write(large_file_contents)
+
+            self.assertTrue(
+                # etagComparator(*[stow.artefact(x) for x in [stow.join(directory, 'file-4.txt'), 's3://bucket_name/large-file.txt']])
+                etagComparator(*[stow.artefact(x) for x in [stow.join(directory, 'file-4.txt'), stow.join(directory, 'file-4.txt')]])
+            )

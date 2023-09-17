@@ -65,7 +65,7 @@ class ManagerTests:
         )
 
         with pytest.raises(stow.exceptions.OperationNotPermitted):
-            self.manager.mkdir("/directory", ignoreExists=False)
+            self.manager.mkdir("/directory", ignore_exists=False)
 
     def test_mkdir_overwrite(self):
 

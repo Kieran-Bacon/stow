@@ -49,5 +49,47 @@ class Test_ProgressCallback(unittest.TestCase):
             s3 = Amazon('bucket_name')
             s3.put(directory, '/directory', callback=stow.callbacks.ProgressCallback())
 
+    def test_combined_callback(self):
+
+        s3 = Amazon('bucket_name')
+
+        combinedCallback = stow.callbacks.composeCallback([stow.callbacks.ProgressCallback()])
+
+        with tempfile.TemporaryDirectory() as directory:
+            for i in range(10):
+                with open(stow.join(directory, f'{i}.txt'), 'w') as handle:
+                    handle.write('A file with some bytes')
+
+            s3.put(directory, '/directory', callback=combinedCallback)
+
+            s3.rm('/directory', recursive=True, callback=combinedCallback)
+
+    def test_description_cant_change(self):
+
+        pc = stow.callbacks.ProgressCallback()
+        pc.setDescription('A')
+        pc.setDescription('B')
+
+        self.assertEqual(pc._desc, 'A')
+
+    def test_multilevel_progress(self):
+
+        pbar = stow.callbacks.ProgressCallback()
+
+        pbar.removed('file')
+
+        pbar.addTaskCount(10)
+        pbar.addTaskCount(10)
+
+        pbar.addTaskCount(10, False)
+        pbar.addTaskCount(10, False)
+
+
+
+
+
+
+
+
 
 

@@ -1,9 +1,10 @@
 import click
 from click_option_group import optgroup
 
+import datetime
 import logging
 import pkg_resources
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List
 
 from .manager import Manager
 from .artefacts import HashingAlgorithm, File, Directory
@@ -12,34 +13,39 @@ from .callbacks import DefaultCallback, ProgressCallback
 log = logging.getLogger(__name__)
 
 # Build the initial stow cli options from loaded managers
-managerNames = []
+managerConfigs = {}
 managerOptions = []
 for entry_point in pkg_resources.iter_entry_points('stow_managers'):
 
     try:
         entryManager = entry_point.load()
-        if not hasattr(entryManager, 'cli_arguments'):
+        if not hasattr(entryManager, 'CommandLineConfig'):
             continue
+        config = entryManager.CommandLineConfig(entryManager)
 
     except:
         # The Manager is not installed or cannot be loaded
         log.warning('Manager %s could not be loaded', entry_point.name)
-        pass
+        continue
 
-    managerNames.append(entry_point.name)
+    managerConfigs[entry_point.name] = config
     managerOptions.append(
         optgroup.group(
             f'{entryManager.__name__} configuration',
             help=f'Options for the {entryManager.__name__} manager'
         )
     )
-    for args, kwargs in entryManager.cli_arguments():
+    for args, kwargs in config.arguments():
         managerOptions.append(optgroup.option(*args, **kwargs))
-
 
 cli_decorators = [
     click.group(),
-    click.option('-m', '--manager', type=click.Choice(managerNames, case_sensitive=False), default='fs', help='Select the manager you are connecting to - by default it will be the local filesystem or inferred from the protocol'),
+    click.option(
+        '-m', '--manager',
+        type=click.Choice(['auto', *managerConfigs.keys()], case_sensitive=False),
+        default='auto',
+        help='Select the manager you are connecting to - by default the manager will be guessed from the protocol'
+    ),
     *managerOptions,
     click.option('--debug/--no-debug', default=False),
     click.pass_context
@@ -51,6 +57,11 @@ def cli(ctx: click.Context, debug: bool, manager: str, **kwargs):
 
     Python based utility for the management of local and remote artefacts (files/directories) through a standard, expansive interface.
 
+    \b
+    Examples:
+        >>> stow get s3://my-bucket/my-cool-file.txt local-file.txt
+        <stow.File: c:\\Users\\kieran\\Projects\\personal\\stow\\example.txt modified(2023-09-14 09:14:36+00:00) size(3645479 bytes)>
+
     """
 
     if debug:
@@ -59,35 +70,13 @@ def cli(ctx: click.Context, debug: bool, manager: str, **kwargs):
             logging.getLogger(logger).propagate = False
         log.info('Debugging enabled')
 
-    if manager == 'fs':
+    if manager == 'auto':
         managerObj = Manager()
 
-    elif manager == 's3':
+    else:
+        config = managerConfigs[manager]
+        managerObj = config.initialise(kwargs)
 
-        import boto3
-        session = boto3.Session(
-            aws_access_key_id=kwargs['access_key'],
-            aws_secret_access_key=kwargs['secret_key'],
-            aws_session_token=kwargs['token'],
-            region_name=kwargs['region_name'],
-            profile_name=kwargs['profile']
-        )
-
-        if not kwargs.get('bucket'):
-            s3 = session.client('s3')
-            response = s3.list_buckets()
-
-            # Output the bucket names
-            print('Bucket (-b, --bucket) is required - Existing buckets:')
-            print()
-            print('Name'.ljust(80)+' Creation Date')
-            for bucket in response['Buckets']:
-                print(f"{bucket['Name'].ljust(80)} {bucket['CreationDate'].isoformat()}")
-
-            exit()
-
-        from stow.managers.amazon import Amazon
-        managerObj = Amazon(bucket=kwargs['bucket'], aws_session=session)
 
     # Attach callback to manager object for reference below
     managerObj.callback = ProgressCallback() # if debug else DefaultCallback()
@@ -98,63 +87,13 @@ for decorator in cli_decorators[::-1]:
     cli = decorator(cli)
 
 @cli.command()
-@click.argument('artefact')
+@click.argument('artefacts', nargs=-1)
 @click.pass_obj
-def cat(manager: Manager, artefact: str):
-    with manager.open(artefact) as handle:
-        print(handle.read())
-
-@cli.command()
-@click.argument('artefact')
-@click.pass_obj
-def exists(manager: Manager, artefact: str):
-    print(manager.exists(artefact))
-
-@cli.command()
-@click.argument('path')
-@click.pass_obj
-def touch(manager: Manager, path: str):
-    print(manager.touch(path))
-
-@cli.command()
-@click.argument('path')
-@click.option('-i', '--ignore-exists', default=True, is_flag=True)
-@click.option('-o', '--overwrite', default=False, is_flag=True)
-@click.pass_obj
-def mkdir(manager: Manager, path: str, ignore_exists: bool, overwrite: bool):
-    print(manager.mkdir(path, ignoreExists=ignore_exists, overwrite=overwrite))
-
-@cli.command()
-@click.argument('artefact')
-@click.argument('link')
-@click.option('--soft/--hard', 'soft', default=True)
-@click.pass_obj
-def mklink(manager: Manager, link: str, target: str, soft: bool):
-    manager.mklink(link, target)
-
-@cli.command()
-@click.argument('artefact', default=None, required=False)
-@click.option('--recursive', default=False, is_flag=True)
-@click.pass_obj
-def ls(manager: Manager, artefact: str, recursive: bool):
-    for artefact in manager.iterls(artefact, recursive=recursive, ignore_missing=True):
-        print(artefact)
-
-@cli.command()
-@click.argument('source')
-@click.argument('destination')
-@click.argument('--overwrite/--no-overwrite', default=False)
-@click.pass_obj
-def get(manager: Manager, source: str, destination: str, overwrite: bool):
-    print(manager.get(source=source, destination=destination, overwrite=overwrite))
-
-@cli.command()
-@click.argument('source')
-@click.argument('destination')
-@click.argument('--overwrite/--no-overwrite', default=False)
-@click.pass_obj
-def put(manager: Manager, source: str, destination: str, overwrite: bool):
-    print(manager.put(source=source, destination=destination, overwrite=overwrite))
+def cat(manager: Manager, artefacts: List[str]):
+    """ Concatinate file contents with stuff """
+    for artefact in artefacts:
+        with manager.open(artefact) as handle:
+            print(handle.read())
 
 @cli.command()
 @click.argument('source')
@@ -167,17 +106,24 @@ def cp(manager: Manager, source: str, destination: str, merge: str, merge_strat:
     """ Copy a source artefact into the destination """
 
     if merge:
+
+        sourceArtefact = manager.artefact(source)
+        if isinstance(sourceArtefact, File):
+            print('Cannot perform merge action on a File artefact type:', sourceArtefact)
+            exit(1)
+
         if merge_strat == "replace":
             for artefact in manager.iterls(source, recursive=True):
+                copy_path = manager.join(destination, manager.relpath(artefact, source))
                 if isinstance(artefact, File):
-                    copy_path = manager.join(destination, manager.relpath(artefact, source))
                     manager.cp(artefact, copy_path, callback=manager.callback)
+                else:
+                    manager.mkdir(copy_path)
 
         else:
             for artefact in manager.iterls(source, recursive=True):
+                copy_path = manager.join(destination, manager.relpath(artefact, source))
                 if isinstance(artefact, File):
-
-                    copy_path = manager.join(destination, manager.relpath(artefact, source))
                     while manager.exists(copy_path):
                         copy_path = manager.join(
                             manager.dirname(copy_path),
@@ -186,35 +132,141 @@ def cp(manager: Manager, source: str, destination: str, merge: str, merge_strat:
 
                     manager.cp(artefact, copy_path, callback=manager.callback)
 
+                else:
+                    manager.mkdir(copy_path)
+
     else:
         manager.cp(source=source, destination=destination, overwrite=overwrite, callback=manager.callback)
 
 @cli.command()
+@click.argument('artefacts', nargs=-1)
+@click.pass_obj
+def exists(manager: Manager, artefacts: List[str]):
+    """ Check if artefact exists """
+    for artefact in artefacts:
+        print(artefact.ljust(40), manager.exists(artefact))
+
+@cli.command()
+@click.argument('path')
+@click.argument('modified-time', required=False, type=float)
+@click.argument('accessed-time', required=False, type=float)
+@click.pass_obj
+def touch(manager: Manager, path: str, modified_time: Optional[float], accessed_time: Optional[float]):
+    """ Perform the linux command touch, create a file/update file timestamps."""
+    manager.touch(path, modified_time, accessed_time)
+
+@cli.command()
+@click.argument('path')
+@click.option('--overwrite/--no-overwrite', default=False, help="Should this operation replace a directory if it exists at the location specified - DEFAULT no overwrite")
+@click.pass_obj
+def mkdir(manager: Manager, path: str, overwrite: bool):
+    """ Create a directory at the path specified """
+    print(manager.mkdir(path, overwrite=overwrite))
+
+@cli.command()
+@click.argument('artefact')
+@click.argument('link')
+@click.option('--soft/--hard', 'soft', default=True, help="DEFAULT soft")
+@click.pass_obj
+def mklink(manager: Manager, artefact: str, link: str, soft: bool):
+    """ Create a symbolic link between to an artefact
+
+    \b
+    Arguments:
+        ARTEFACT: should be the target path, the thing being linked too
+        LINK: is the location of the link
+
+    \b
+    Links can be of two types:
+    - Soft: A symbolic path indicating the abstract location of another file.
+    - Hard: A reference to a specific location of physical data on disk.
+
+    A soft link can be thought of as an alias, the path to this link effectively gets replaced in resolution by the path
+    of the artefact targeted by this link. As such is it possible to have a link that points to an non-existent artefact.
+
+    A hard link is an ordinary artefact object, and just like any other artefact it points to a location on disk of where its data exists.
+    The difference being that this phisical location is shared with the target of the link. As such, if the data changes
+    both are updated, however, the data is not deleted if one of the artefacts is removed. Like a reference counter on the
+    data on disk, the physical location will remain allocated until all hard links to it have been deleted.
+
+
+    """
+    manager.mklink(artefact, link, soft)
+
+@cli.command()
 @click.argument('source')
 @click.argument('destination')
-@click.argument('--overwrite/--no-overwrite', default=False)
+@click.option('--overwrite/--no-overwrite', default=False)
+@click.pass_obj
+def get(manager: Manager, source: str, destination: str, overwrite: bool):
+    """ Get (fetch|pull) an artefact and write to local destination """
+    print(manager.get(source=source, destination=destination, overwrite=overwrite))
+
+@cli.command()
+@click.argument('artefact', default=None, required=False)
+@click.option('--recursive', default=False, is_flag=True)
+@click.pass_obj
+def ls(manager: Manager, artefact: str, recursive: bool):
+    """ List artefacts in a directory """
+    for artefact in manager.iterls(artefact, recursive=recursive, ignore_missing=True):
+        print(artefact)
+
+@cli.command()
+@click.argument('source')
+@click.argument('destination')
+@click.option('--overwrite/--no-overwrite', default=False, help="Whether the destination should be overwritten")
 @click.pass_obj
 def mv(manager: Manager, source: str, destination: str, overwrite: bool):
+    """Move an artefact to the destination location"""
     print(manager.mv(source=source, destination=destination, overwrite=overwrite))
 
 @cli.command()
-@click.option('--algo', type=click.Choice(HashingAlgorithm.__members__, case_sensitive=False), default='MD5')
+@click.argument('source')
+@click.argument('destination')
+@click.option('--overwrite/--no-overwrite', default=False, help='Whether the destination should be overwritten')
+@click.pass_obj
+def put(manager: Manager, source: str, destination: str, overwrite: bool):
+    """Put (push) a local artefact to the destination"""
+    print(manager.put(source=source, destination=destination, overwrite=overwrite))
+
+@cli.command()
 @click.argument('artefact')
+@click.option('--algo', type=click.Choice(HashingAlgorithm.__members__, case_sensitive=False), default='MD5', help='Checksum algorithm - default MD5')
 @click.pass_obj
 def digest(manager: Manager, artefact: str, algo: str):
+    """ Get artefact checksum using digest algorithm"""
     print(manager.digest(artefact, getattr(HashingAlgorithm, algo)))
 
 @cli.command()
 @click.argument('source')
 @click.argument('destination')
+@click.option('--delete/--no-delete', default=False, help="Delete artefacts in destination that are not present in source")
+@click.option('--check-modified/--ignore-modified', default=True, help="Whether to check modified time of files - if false a comparason function must be provided")
+@click.option('--comparator', default=None, help="Path to python function capable of comparing artefacts in source and destination")
+#  help="Delete artefacts in destination that are not present in source"
 @click.pass_obj
-def sync(manager: Manager, source: str, destination: str):
-    manager.sync(source, destination)
+def sync(manager: Manager, source: str, destination: str, delete: bool, check_modified: bool, comparator: Optional[str]):
+    """ Syncronise source directory with destination directory
+
+    An example s3 comparator would be: stow.managers.amazon.etagComparator
+    """
+    if check_modified is False and comparator is None:
+        print('No comparison criteria provided, must either select comparator function or use modified time')
+        exit(1)
+
+    if comparator is not None:
+        import importlib
+        p, m = comparator.rsplit('.', 1)
+        module = importlib.import_module(p)
+        comparator = getattr(module, m)
+
+    manager.sync(source, destination, delete=delete, check_modified_times=check_modified, digest_comparator=comparator)
 
 @cli.command()
 @click.argument('artefacts', nargs=-1)
 @click.option('-r', '--recursive', default=False, is_flag=True)
 @click.pass_obj
 def rm(manager: Manager, artefacts: Tuple[str], recursive: bool):
+    """ Remove artefact """
     for artefact in artefacts:
         manager.rm(artefact, recursive=recursive)

@@ -48,6 +48,10 @@ class Test_Filesystem(unittest.TestCase, ManagerTests):
         # Delete the directory and all it's contents
         shutil.rmtree(self.directory)
 
+    def test_splitArtefactTypeError(self):
+        with self.assertRaises(TypeError):
+            self.manager.mklink(10, 'path')
+
     def test_relativePath(self):
 
         filename = "test-filename.txt"

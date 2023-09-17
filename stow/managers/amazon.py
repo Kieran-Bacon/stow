@@ -18,7 +18,7 @@ import functools
 
 from tqdm import tqdm
 import boto3
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, UnauthorizedSSOTokenError
 
 from ..artefacts import Artefact, PartialArtefact, File, Directory, HashingAlgorithm
 from ..manager import RemoteManager
@@ -78,7 +78,7 @@ def etagComparator(*files: File) -> bool:
             with f.open('rb') as handle:
                 digests.append(calculateBytesS3ETag(handle))
 
-    return digests[0] == digests[1]
+    return all(digests[0] == d for d in digests[1:])
 
 class Amazon(RemoteManager):
     """ Connect to an amazon s3 bucket using an IAM user credentials or environment variables
@@ -684,7 +684,9 @@ class Amazon(RemoteManager):
             "bucket": url.netloc,
             "aws_access_key_id": queryData.get("aws_access_key_id", [None])[0],
             "aws_secret_access_key": queryData.get("aws_secret_access_key", [None])[0],
+            "aws_session_token": queryData.get("aws_session_token", [None])[0],
             "region_name": queryData.get("region_name", [None])[0],
+            "profile_name": queryData.get("profile", [None])[0],
             "storage_class": queryData.get("storage_class", ['STANDARD'])[0],
         }
 
@@ -694,16 +696,46 @@ class Amazon(RemoteManager):
     def root(self):
         return self._bucketName
 
-    @staticmethod
-    def cli_arguments() -> typing.List[typing.Tuple]:
-        return [
-            (('-b', '--bucket'), {'help': '[REQUIRED] The bucket name'}),
-            (('-k', '--access-key'), {'help': 'AWS access key id'}),
-            (('-s', '--secret-key'), {'help': 'AWS secret access key'}),
-            (('-t', '--token'), {'help': 'AWS session token'}),
-            (('-r', '--region-name'), {'help': 'Region name'}),
-            (('-p', '--profile'), {'help': 'Select aws profile credentials'}),
-        ]
-
     def toConfig(self):
         return self._config
+
+    class CommandLineConfig:
+
+        def __init__(self, manager):
+            self._manager = manager
+
+        @staticmethod
+        def arguments() -> typing.List[typing.Tuple]:
+            return [
+                (('-b', '--bucket'), {'help': '[REQUIRED] The bucket name'}),
+                (('-k', '--access-key'), {'help': 'AWS access key id'}),
+                (('-s', '--secret-key'), {'help': 'AWS secret access key'}),
+                (('-t', '--token'), {'help': 'AWS session token'}),
+                (('-r', '--region-name'), {'help': 'Region name'}),
+                (('-p', '--profile'), {'help': 'Select aws profile credentials'}),
+            ]
+
+        def initialise(self, kwargs):
+
+            session = boto3.Session(
+                aws_access_key_id=kwargs['access_key'],
+                aws_secret_access_key=kwargs['secret_key'],
+                aws_session_token=kwargs['token'],
+                region_name=kwargs['region_name'],
+                profile_name=kwargs['profile']
+            )
+
+            if not kwargs.get('bucket'):
+                s3 = session.client('s3')
+                response = s3.list_buckets()
+
+                # Output the bucket names
+                print('Bucket (-b, --bucket) is required - Existing buckets:')
+                print()
+                print('Name'.ljust(80)+' Creation Date')
+                for bucket in response['Buckets']:
+                    print(f"{bucket['Name'].ljust(80)} {bucket['CreationDate'].isoformat()}")
+
+                exit(1)
+
+            return self._manager(bucket=kwargs['bucket'], aws_session=session)

@@ -5,7 +5,18 @@ import boto3
 from moto import mock_s3
 
 import stow
+from stow.manager.manager import Manager
 from stow.managers.amazon import Amazon
+
+class Test_BaseManager(unittest.TestCase):
+
+    def test_wrongTypeRaiseError(self):
+
+        manager = Manager()
+
+        with self.assertRaises(TypeError):
+            manager.mklink(10, 'path')
+
 
 class Test_LocalManager(unittest.TestCase):
     pass
@@ -61,6 +72,18 @@ class Test_RemoteManager(unittest.TestCase):
             Body=b"here are some file bytes",
         )
 
+        self.s3.put_object(
+            Bucket="bucket_name",
+            Key="directory/dir/1.txt",
+            Body=b"here are some file bytes",
+        )
+
+        self.s3.put_object(
+            Bucket="bucket_name",
+            Key="directory/dir/2.txt",
+            Body=b"here are some file bytes",
+        )
+
         s3 = Amazon('bucket_name')
 
         localiser = s3.localise('/directory')
@@ -68,6 +91,16 @@ class Test_RemoteManager(unittest.TestCase):
 
         with open(stow.join(abspath, 'file.txt')) as handle:
             self.assertEqual(handle.read(), "here are some file bytes")
+
+        # Delete the file
+        stow.rm(stow.join(abspath, 'dir', '1.txt'))
+
+        # Edit a file
+        with open(stow.join(abspath, 'dir', '1.txt'), 'w') as handle:
+            handle.write('fun')
+
+        # Add a file
+        stow.touch(stow.join(abspath, 'dir', '3.txt'))
 
         localiser.close()
 

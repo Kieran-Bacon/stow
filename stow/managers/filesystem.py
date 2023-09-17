@@ -1,4 +1,5 @@
 import os
+import time
 import typing
 import sys
 import errno
@@ -91,8 +92,12 @@ class FS(LocalManager):
 
         COPY_BUFFER_SIZE = 64 * 1024
 
-    def _mklink(self, source: str, destination: str):
-        os.symlink(self._abspath(source), self._abspath(destination))
+    def _mklink(self, source: str, destination: str, soft: bool):
+        if soft:
+            os.symlink(self._abspath(source), self._abspath(destination))
+        else:
+            os.link(self._abspath(source), self._abspath(destination))
+
         return PartialArtefact(self, destination)
 
     def __repr__(self):
@@ -487,7 +492,8 @@ class FS(LocalManager):
 
         # Update the new artefact time if provided
         if any((modified_time, accessed_time)):
-            artefact.set_artefact_time(modified_time, accessed_time)
+            now = time.time()
+            os.utime(destinationAbspath, times=(accessed_time or now, modified_time or now))
 
         return artefact
 
@@ -575,11 +581,20 @@ class FS(LocalManager):
     def root(self):
         return self._root
 
-    @staticmethod
-    def cli_arguments() -> typing.List[typing.Tuple]:
-        return [
-            (('-r', '--root'), {'help': 'The root/cwd location of the manager'})
-        ]
+
+    class CommandLineConfig:
+        def __init__(self, manager):
+            self._manager = manager
+
+        @staticmethod
+        def arguments() -> typing.List[typing.Tuple]:
+            return [
+                (('-r', '--root'), {'help': 'The root/cwd location of the manager'})
+            ]
+
+        def initialise(self, kwargs):
+            # return self._manager(kwargs.get('root',))
+            return self._manager()
 
 
 class RootFS(FS):

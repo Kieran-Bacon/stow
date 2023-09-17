@@ -549,6 +549,11 @@ class PartialArtefact:
         self._manager = manager
         self._path = path
 
+    def __str__(self):
+        # Trigger the update of this partial object and return the value of it's string before it overwrites this!
+        return self.__getattribute__('__str__')()
+
+
     def __fspath__(self):
         return self._manager._abspath(self._path)
 

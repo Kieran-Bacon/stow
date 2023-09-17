@@ -6,7 +6,7 @@ import tqdm
 import logging
 log = logging.getLogger(__name__)
 
-class AbstractCallback(abc.ABC):
+class AbstractCallback(abc.ABC): # pragma: no cover
     """ The base interface for callbacks to be passed to stow interface. Called by the manager when
     transfer is occuring.
 
@@ -34,10 +34,10 @@ class AbstractCallback(abc.ABC):
     def removed(*args):
         pass
 
-def do_nothing(*args, **kwargs):
+def do_nothing(*args, **kwargs): # pragma: no cover
     pass
 
-class DefaultCallback(AbstractCallback):
+class DefaultCallback(AbstractCallback): # pragma: no cover
 
     def addTaskCount(*args, **kwargs):
         pass
@@ -117,6 +117,8 @@ class ProgressCallback(AbstractCallback):
 
         if self._addingArtefactsProgress:
             self._addingArtefactsProgress.update()
+            if self._addingArtefactsProgress.n >= self._addingArtefactsProgress.total:
+                self._addingArtefactsProgress = None
         else:
             log.info(path + ' added')
 
@@ -139,6 +141,8 @@ class ProgressCallback(AbstractCallback):
 
         if self._removingArtefactsProgress:
             self._removingArtefactsProgress.update()
+            if self._removingArtefactsProgress.n >= self._removingArtefactsProgress.total:
+                self._removingArtefactsProgress = None
         else:
             log.info(path + ' removed')
 
@@ -174,4 +178,4 @@ def composeCallback(callbacks: typing.Iterable[AbstractCallback]):
             for callback in self._callbacks:
                 callback.removed(*args, **kwargs)
 
-    return ComposedCallback
+    return ComposedCallback()

@@ -166,10 +166,14 @@ class LocalManager(Manager, abc.ABC):
         artefact: Artefact,
         modified_time: typing.Optional[typing.Union[float, datetime.datetime]] = None,
         accessed_time: typing.Optional[typing.Union[float, datetime.datetime]] = None
-        ) -> tuple[float, float]:
+        ) -> [datetime.datetime, datetime.datetime]:
 
         if modified_time is None and accessed_time is None:
-            return os.utime(artefact.abspath, None)
+            os.utime(artefact.abspath, None)
+
+            stat = os.stat(artefact.abspath)
+            artefact._modifiedTime = datetime.datetime.fromtimestamp(stat.st_mtime, tz=datetime.timezone.utc)
+            artefact._accessedTime = datetime.datetime.fromtimestamp(stat.st_atime, tz=datetime.timezone.utc)
 
         else:
             standardised = []
@@ -185,8 +189,11 @@ class LocalManager(Manager, abc.ABC):
                     standardised.append(_datetime.timestamp())
 
             os.utime(artefact.abspath, tuple(standardised))
+            artefact._modifiedTime = datetime.datetime.fromtimestamp(standardised[1], tz=datetime.timezone.utc)
+            artefact._accessedTime = datetime.datetime.fromtimestamp(standardised[0], tz=datetime.timezone.utc)
 
-            return tuple(standardised[::-1])
+        return artefact._modifiedTime, artefact._accessedTime
+
 
     def localise(self, artefact: typing.Union[Artefact, str]) -> Localiser:
         _, _, path = self._splitManagerArtefactForm(artefact, load=False)
