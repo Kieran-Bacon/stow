@@ -5,6 +5,9 @@
 ### Added
 
 - Add `set_artefact_time` method to the stateless and manager interface
+- Add stow `cli` program
+- Added `CommandLineConfig` class to `fs` and `s3` managers to allow for use with the CLI
+- Add support for soft/hard symlinks
 
 ### Changed
 
@@ -12,6 +15,11 @@
 - Changed callback interface plus implement filesystem methods to use the callback interface
 - Extend `get` interface to include times and callback
 - Extend `touch` interface to include times and metadatas
+- Update the `__str__` function of `PartialArtefact` to correctly generate the str representation of its target
+- Make composeCallback method return an object of Callback not the class.
+- Added additional tests and annotate lines to avoid in coverage
+- Added profile_name and session token url query params to the signature parser for `Amazon` manager
+- Have the `fs._putBytes` method update the time of the file in the same operation to reduce the number method invocations.
 
 ### Fixed
 
