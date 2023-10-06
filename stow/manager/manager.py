@@ -1119,11 +1119,7 @@ class Manager(AbstractManager):
             raise
 
         # Yield the contents of the directory
-        for subArtefact in artobj.manager._ls(artPath):
-            yield subArtefact
-
-            if recursive and isinstance(subArtefact, Directory):
-                yield from self.iterls(subArtefact, recursive=recursive)
+        yield from self._manager._ls(artPath, recursive=recursive)
 
     def ls(
         self,

@@ -513,7 +513,7 @@ class FS(LocalManager):
 
         return PartialArtefact(self, self._relative(destinationAbspath))
 
-    def _ls(self, directory: str):
+    def _ls(self, directory: str, recursive: bool = False):
 
         # Get a path to the folder
         abspath = self._abspath(directory)
@@ -521,7 +521,10 @@ class FS(LocalManager):
         # Iterate over the folder and identify every object - add the created
         with os.scandir(abspath) as scandir_it:
             for entry in scandir_it:
-                yield self._identifyPath(entry)
+                art = self._identifyPath(entry)
+                yield art
+                if recursive and isinstance(art, Directory):
+                    yield from self._(art.path, recursive=recursive)
 
     def _rmtree(self, path: str, callback = None):
 
