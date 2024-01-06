@@ -4,7 +4,8 @@ import os
 import re
 import io
 import typing
-from typing import Union, Optional, Tuple
+from typing import Union, Optional, Tuple, Type, overload
+from typing_extensions import Self
 import urllib.parse
 import hashlib
 import enum
@@ -17,11 +18,13 @@ import base64
 import functools
 
 from tqdm import tqdm
+import botocore.config
 import boto3
 from botocore.exceptions import ClientError, UnauthorizedSSOTokenError
 
 from ..artefacts import Artefact, PartialArtefact, File, Directory, HashingAlgorithm
 from ..manager import RemoteManager
+from ..storage_classes import StorageClass, StorageClassInterface
 from ..callbacks import AbstractCallback
 from .. import exceptions
 
@@ -99,9 +102,9 @@ class Amazon(RemoteManager):
     _LINE_SEP = "/"
     _S3_OBJECT_KEY = re.compile(r"^[a-zA-Z0-9!_.*'()\- ]+(/[a-zA-Z0-9!_.*'()\- ]+)*$")
     _S3_DISALLOWED_CHARACTERS = "{}^%`]'`\"<>[~#|"
-    _S3_MAX_KEYS = os.environ.get('STOW_AMAZON_MAX_KEYS', 100)
 
-    class StorageClass(enum.Enum):
+
+    class AmazonStorageClass(StorageClassInterface):
         STANDARD = 'STANDARD'
         REDUCED_REDUNDANCY = 'REDUCED_REDUNDANCY'
         STANDARD_IA = 'STANDARD_IA'
@@ -111,18 +114,66 @@ class Amazon(RemoteManager):
         DEEP_ARCHIVE = 'DEEP_ARCHIVE'
         OUTPOSTS = 'OUTPOSTS'
 
+        @classmethod
+        def toGeneric(cls, value) -> StorageClass:
+            value = cls(value)
+            if value is cls.STANDARD:
+                return StorageClass.STANDARD
+            elif value is cls.REDUCED_REDUNDANCY:
+                return StorageClass.REDUCED_REDUNDANCY
+            elif value in (cls.STANDARD_IA, cls.ONEZONE_IA):
+                return StorageClass.INFREQUENT_ACCESS
+            elif value is cls.INTELLIGENT_TIERING:
+                return StorageClass.INTELLIGENT_TIERING
+            elif value in (cls.GLACIER, cls.DEEP_ARCHIVE):
+                return StorageClass.ARCHIVE
+            elif value is cls.OUTPOSTS:
+                return StorageClass.HIGH_PERFORMANCE
+            else:
+                raise NotImplementedError(f'{value} has no generic mapping - Select storage class explicitly')
+
+        @classmethod
+        def fromGeneric(cls, generic: StorageClass) -> "Amazon.AmazonStorageClass":
+
+            if generic is StorageClass.STANDARD:
+                return cls.STANDARD
+            elif generic is StorageClass.REDUCED_REDUNDANCY:
+                return cls.REDUCED_REDUNDANCY
+            elif generic is StorageClass.INFREQUENT_ACCESS:
+                log.warning('Interpreting %s as %s - could have meant %s', generic, cls.STANDARD_IA, cls.ONEZONE_IA)
+                return cls.STANDARD_IA
+            else:
+                raise NotImplementedError(f'{generic} cannot be mapped to specific storage class in S3 - Select storage class explicitly')
+
+    @overload
+    def __init__(self, bucket: str):
+        pass
+    @overload
+    def __init__(self, bucket: str, *, aws_session: boto3.Session):
+        pass
+    @overload
     def __init__(
         self,
         bucket: str,
         *,
-        aws_session: boto3.Session = None,
-        aws_access_key_id: str = None,
-        aws_secret_access_key: str = None,
-        aws_session_token: str = None,
-        region_name: str = None,
-        profile_name: str = None,
-        storage_class: str = None,
-        max_keys: int = None
+        aws_access_key_id: str,
+        aws_secret_access_key: str,
+        aws_session_token: str,
+        ):
+        pass
+    @overload
+    def __init__(self, bucket: str, *, profile_name: str):
+        pass
+    def __init__(
+        self,
+        bucket: str,
+        *,
+        aws_session: Optional[boto3.Session] = None,
+        aws_access_key_id: Optional[str] = None,
+        aws_secret_access_key: Optional[str] = None,
+        aws_session_token: Optional[str] = None,
+        region_name: Optional[str] = None,
+        profile_name: Optional[str] = None,
     ):
 
         self._bucketName = bucket
@@ -138,6 +189,10 @@ class Amazon(RemoteManager):
             )
 
         credentials = aws_session.get_credentials()
+        if credentials is None:
+            raise exceptions.OperationNotPermitted(
+                f'No credentials found to connect to s3 bucket [{bucket}] - either provide credentials or setup environment variables according to https://boto3.amazonaws.com/v1/documentation/api/latest/guide/credentials.html'
+            )
 
         self._config = {
             'manager': 'AWS',
@@ -149,20 +204,35 @@ class Amazon(RemoteManager):
             'profile_name': aws_session.profile_name,
         }
 
+        # NOTE
+        # The max pool connections default is 10 - so machines with a large number of threads may exceed this count and
+        # experience a very slow connection plus urllib3 pool warnings.
+        # Thread pools created by stow will be created with the system cpu count
         self._aws_session = aws_session
-        self._s3 = self._aws_session.client('s3')
-
-        if storage_class:
-            self._storageClass = self.StorageClass(storage_class)
-            self._config['storage_class'] = storage_class
-
-        else:
-            self._storageClass = self.StorageClass.STANDARD
-
-        if max_keys is not None:
-            self._S3_MAX_KEYS = max_keys
+        self._s3 = self._aws_session.client(
+            's3',
+            config=botocore.config.Config(
+                max_pool_connections=os.cpu_count(),
+            )
+        )
 
         super().__init__()
+
+    _storageClass = AmazonStorageClass.STANDARD
+    @property
+    def storage_class(self) -> AmazonStorageClass:
+        return self._storageClass
+    @storage_class.setter
+    def storage_class(self, value: Union[StorageClass, str]):
+        self._storageClass = self.AmazonStorageClass(value)
+
+    _s3_max_keys = int(os.environ.get('STOW_AMAZON_MAX_KEYS', 100))
+    @property
+    def s3_max_keys(self) -> int:
+        return self._s3_max_keys
+    @s3_max_keys.setter
+    def s3_max_keys(self, value: int):
+        self._s3_max_keys = value
 
     def __repr__(self):
         return f'<Manager(S3): {self._bucketName}>'
@@ -225,19 +295,20 @@ class Amazon(RemoteManager):
             )
 
         except ClientError as e:
-            if e.response['ResponseMetadata']['HTTPStatusCode'] == 404:
-                # No file existed with the given key - check if directory
+            if "responseMetdata" in e.response:
+                if e.response['ResponseMetadata']['HTTPStatusCode'] == 404:
+                    # No file existed with the given key - check if directory
 
-                resp = self._s3.list_objects(
-                    Bucket=self._bucketName,
-                    Prefix=key and key+'/',
-                    Delimiter='/',
-                    MaxKeys=1
-                )
-                if "Contents" in resp or "CommonPrefixes" in resp:
-                    return Directory(self, '/' + key)
+                    resp = self._s3.list_objects(
+                        Bucket=self._bucketName,
+                        Prefix=key and key+'/',
+                        Delimiter='/',
+                        MaxKeys=1
+                    )
+                    if "Contents" in resp or "CommonPrefixes" in resp:
+                        return Directory(self, '/' + key)
 
-                return None
+                    return None
 
             raise
 
@@ -256,10 +327,11 @@ class Amazon(RemoteManager):
             return self._getMetadataFromHead(response)
 
         except ClientError as e:
-            if e.response['ResponseMetadata']['HTTPStatusCode'] == 404:
-                raise exceptions.ArtefactNoLongerExists(
-                    f'Failed to fetch metadata information for {key}'
-                )
+            if "responseMetdata" in e.response:
+                if e.response['ResponseMetadata']['HTTPStatusCode'] == 404:
+                    raise exceptions.ArtefactNoLongerExists(
+                        f'Failed to fetch metadata information for {key}'
+                    )
 
             raise
 
@@ -279,16 +351,19 @@ class Amazon(RemoteManager):
 
             log.debug(f'Checksums collected for {file.path}: {checksums}')
 
-            if algorithm is HashingAlgorithm.CRC32:
-                value = checksums['ChecksumCRC32']
-            elif algorithm is HashingAlgorithm.CRC32C:
-                value = checksums['ChecksumCRC32C']
-            elif algorithm is HashingAlgorithm.SHA1:
-                value = checksums['ChecksumSHA1']
-            elif algorithm is HashingAlgorithm.SHA256:
-                value = checksums['ChecksumSHA256']
-            else:
-                raise NotImplementedError(f'Amazon does not provide {algorithm} hashing')
+            try:
+                if algorithm is HashingAlgorithm.CRC32:
+                    value = checksums['ChecksumCRC32']
+                elif algorithm is HashingAlgorithm.CRC32C:
+                    value = checksums['ChecksumCRC32C']
+                elif algorithm is HashingAlgorithm.SHA1:
+                    value = checksums['ChecksumSHA1']
+                elif algorithm is HashingAlgorithm.SHA256:
+                    value = checksums['ChecksumSHA256']
+                else:
+                    raise NotImplementedError(f'Amazon does not provide {algorithm} hashing')
+            except KeyError:
+                raise KeyError(f'S3 file {algorithm} was not calculated - checksums available: {checksums}. Localise to fetch checksum or review s3 creation an ensure hashing is enabled')
 
             return base64.b64decode(value).hex()
 
@@ -315,7 +390,8 @@ class Amazon(RemoteManager):
         source: Artefact,
         destination: str,
         *,
-        callback = None,
+        worker_pool: Optional[futures.Executor],
+        callback,
         modified_time: float = None,
         accessed_time: float = None
         ):
@@ -325,6 +401,8 @@ class Amazon(RemoteManager):
 
         # If the source object is a directory
         if isinstance(source, Directory):
+
+            with (worker_pool or self._workerPool()) as executor:
 
             with futures.ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
 
@@ -435,7 +513,7 @@ class Amazon(RemoteManager):
         if isinstance(source, Directory):
 
             # Create a thread pool to upload multiple files in parallel
-            with futures.ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+            with self._workerPool() as executor:
                 future_collection = []
 
                 directories = [source]

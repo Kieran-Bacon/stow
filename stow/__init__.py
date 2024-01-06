@@ -4,6 +4,7 @@ import os
 
 from .artefacts import Artefact, File, Directory, HashingAlgorithm
 from .manager import Manager
+from .storage_classes import StorageClass
 from . import callbacks
 from . import exceptions
 

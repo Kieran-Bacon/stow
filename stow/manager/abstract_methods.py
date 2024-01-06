@@ -1,10 +1,11 @@
 from abc import abstractmethod
 import urllib.parse
-import typing
+from typing import Union, Optional, Dict, Generator
 import contextlib
 
+from ..types import ArtefactOrStr
 from ..artefacts import Artefact, File, Directory, HashingAlgorithm
-from ..callbacks import AbstractCallback
+from ..callbacks import AbstractCallback, DefaultCallback
 
 class AbstractManager():
     """ The abstract manager interface - outlines and details the methods that should be implemented
@@ -58,7 +59,7 @@ class AbstractManager():
         pass
 
     @abstractmethod
-    def _identifyPath(self, managerPath: str) -> typing.Union[Artefact, None]:
+    def _identifyPath(self, managerPath: str) -> Optional[Artefact]:
         """ For the path given, create an `Artefact` for the object at the location on the manager but do not add it
         into the manager. If no object exists - return None
 
@@ -71,17 +72,17 @@ class AbstractManager():
         pass
 
     @abstractmethod
-    def _isLink(self, file: str):
+    def _isLink(self, file: str) -> bool:
         """ Check if the file object given is a link/shortcut to another file """
         pass
 
     @abstractmethod
-    def _isMount(self, directory: str):
+    def _isMount(self, directory: str) -> bool:
         """ Check if the file object given is a mount point """
         pass
 
     @abstractmethod
-    def _get(self, source: Artefact, destination: str, *, callback: typing.Type[AbstractCallback] = None):
+    def _get(self, source: Artefact, destination: str, *, callback: AbstractCallback = DefaultCallback()):
         """ Fetch the artefact and downloads its data to the local destination path provided
 
         The existence of the file to collect has already been checked so this function can be written to assume its
@@ -118,8 +119,8 @@ class AbstractManager():
         source: Artefact,
         destination: str,
         *,
-        metadata: typing.Dict = None,
-        callback: typing.Type[AbstractCallback] = None
+        metadata: Optional[Dict] = None,
+        callback: AbstractCallback = DefaultCallback()
         ):
         """ Put the local filesystem object onto the underlying manager implementation using the absolute paths given.
 
@@ -136,7 +137,7 @@ class AbstractManager():
         pass
 
     @abstractmethod
-    def _putBytes(self, fileBytes: bytes, destination: str, *, Callback: typing.Type[AbstractCallback] = None):
+    def _putBytes(self, fileBytes: bytes, destination: str, *, Callback: AbstractCallback = DefaultCallback()):
         """ Put the bytes of a file object onto the underlying manager implementation using the absolute path given.
 
         This function allows processes to avoid writing files to disc for speedier transfers.
@@ -187,7 +188,7 @@ class AbstractManager():
         pass
 
     @abstractmethod
-    def _ls(self, directory: str) -> typing.Generator[Artefact, None, Artefact]:
+    def _ls(self, directory: str) -> Generator[Artefact, None, Artefact]:
         """ List all artefacts that are present at the directory objects location and add them into the manager.
 
         Args:
@@ -235,9 +236,8 @@ class AbstractManager():
         """ Returns the root information for the manager (name or path) """
         pass
 
-    @contextlib.contextmanager
     @abstractmethod
-    def localise(self, artefact: typing.Union[Artefact, str]) -> str:
+    def localise(self, artefact: ArtefactOrStr) -> str:
         """ Localise an artefact, ensure that there is an absolute path that reaches this artefact. For local artefacts
         this will be the direct abspath. Remote managers will get the artefact, and pass back the path to this local
         version.

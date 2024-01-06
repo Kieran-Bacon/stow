@@ -7,6 +7,7 @@ import contextlib
 import datetime
 import hashlib
 
+from .. import _utils as utils
 from ..artefacts import Artefact
 from .manager import Manager, Localiser
 # from .. import _utils as utils
@@ -35,14 +36,14 @@ class LocalLocaliser(Localiser):
 
 class RemoteLocaliser(Localiser):
 
+    _local_path: str
+    _checksum: typing.Union[typing.Dict[str, typing.Dict[str, str]], str, None]
+
     def __init__(self, manager: Manager, artefact: typing.Optional[Artefact], path: str):
 
         self._manager = manager
         self._artefact = artefact
         self._path = path
-
-        self._local_path = None
-        self._checksum = None
 
     @staticmethod
     def _compare(dict1, dict2, key):
@@ -50,7 +51,7 @@ class RemoteLocaliser(Localiser):
         keys1, keys2 = set(dict1[key].keys()), set(dict2[key].keys())
         return keys1.difference(keys2), keys1.intersection(keys2), keys2.difference(keys1)
 
-    def _parseHierarchy(self, path, _toplevel=None):
+    def _parseHierarchy(self, path) -> typing.Dict[str, typing.Dict[str, str]]:
 
         # Store separately the directories and files of the path
         directories = {}
@@ -63,7 +64,7 @@ class RemoteLocaliser(Localiser):
             abspath = os.path.join(path, item)
 
             if os.path.isdir(abspath):
-                directories[abspath] = self._parseHierarchy(abspath, _toplevel=path)
+                directories[abspath] = self._parseHierarchy(abspath)
 
             else:
                 files[abspath] = md5(abspath)
@@ -149,6 +150,11 @@ class RemoteLocaliser(Localiser):
                 # New item - put the artefact into the manager
                 self._manager.put(self._local_path, self._path)
 
+        elif self._artefact is not None:
+            # The original item was deleted
+            self._manager.rm(self._artefact, recursive=True)
+
+
 class LocalManager(Manager, abc.ABC):
     """ Abstract Base Class for managers that will be working with local artefacts.
     """
@@ -166,34 +172,18 @@ class LocalManager(Manager, abc.ABC):
         artefact: Artefact,
         modified_time: typing.Optional[typing.Union[float, datetime.datetime]] = None,
         accessed_time: typing.Optional[typing.Union[float, datetime.datetime]] = None
-        ) -> [datetime.datetime, datetime.datetime]:
+        ) -> typing.Tuple[datetime.datetime, datetime.datetime]:
 
-        if modified_time is None and accessed_time is None:
-            os.utime(artefact.abspath, None)
+        modified_time, accessed_time = utils.utime(
+            artefact.abspath,
+            modified_time=modified_time,
+            accessed_time=accessed_time
+        )
 
-            stat = os.stat(artefact.abspath)
-            artefact._modifiedTime = datetime.datetime.fromtimestamp(stat.st_mtime, tz=datetime.timezone.utc)
-            artefact._accessedTime = datetime.datetime.fromtimestamp(stat.st_atime, tz=datetime.timezone.utc)
+        artefact._modifiedTime = modified_time
+        artefact._accessedTime = accessed_time
 
-        else:
-            standardised = []
-            for _datetime in (
-                (accessed_time or artefact.accessedTime.timestamp()),
-                (modified_time or artefact.modifiedTime.timestamp()),
-                ):
-
-                if isinstance(_datetime, float):
-                    standardised.append(_datetime)
-
-                else:
-                    standardised.append(_datetime.timestamp())
-
-            os.utime(artefact.abspath, tuple(standardised))
-            artefact._modifiedTime = datetime.datetime.fromtimestamp(standardised[1], tz=datetime.timezone.utc)
-            artefact._accessedTime = datetime.datetime.fromtimestamp(standardised[0], tz=datetime.timezone.utc)
-
-        return artefact._modifiedTime, artefact._accessedTime
-
+        return modified_time, accessed_time
 
     def localise(self, artefact: typing.Union[Artefact, str]) -> Localiser:
         _, _, path = self._splitManagerArtefactForm(artefact, load=False)

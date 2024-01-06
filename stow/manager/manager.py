@@ -2,18 +2,19 @@ import os
 import re
 import io
 import typing
-from typing import (Union, Optional, Tuple, Mapping)
+from typing import (Union, Optional, Mapping, Iterable, Tuple, overload)
 import urllib
-import shutil
+import urllib.parse
 import tempfile
 import mimetypes
-import contextlib
 import datetime
-import hashlib
+import concurrent.futures
+import dataclasses
 
 from .abstract_methods import AbstractManager
-
-from ..artefacts import Artefact, PartialArtefact, File, Directory, HashingAlgorithm
+from ..types import PathLike, ArtefactType, ArtefactOrPathLike, TimestampLike, TimestampAble
+from ..storage_classes import StorageClass
+from ..artefacts import Artefact, File, Directory, PartialArtefact
 from ..callbacks import AbstractCallback, DefaultCallback
 from .. import _utils as utils
 from .. import exceptions
@@ -21,26 +22,11 @@ from .. import exceptions
 import logging
 log = logging.getLogger(__name__)
 
-class Localiser(contextlib.AbstractContextManager):
-
-    def __init__(self):
-        pass
-
-    def start(self) -> str:
-        """ Returns path to the localised artefact """
-        pass
-
-    def close(self):
-        pass
-
-    def __enter__(self) -> str:
-        return self.start()
-
-    def __exit__(self, exeception_type, exeception_value, exeception_traceback):
-        self.close()
-
-        if exeception_type:
-            return False
+@dataclasses.dataclass
+class WorkerPoolConfig:
+    executor: concurrent.futures.Executor
+    join: bool = True
+    shutdown: bool = False
 
 class ManagerReloader:
     """ Class to manage the reloading of a reduced Manager """
@@ -62,7 +48,15 @@ class Manager(AbstractManager):
     _MULTI_SEP_REGEX = re.compile(r"(\\{2,})|(\/{2,})")
     _RELPATH_REGEX = re.compile(r"^([a-zA-Z0-9]+:)?([/\\\w\.!-_*'() ]*)$")
 
-    def __contains__(self, artefact: typing.Union[Artefact, str]) -> bool:
+    __WORKER_POOL: Optional[concurrent.futures.ThreadPoolExecutor] = None
+
+    @classmethod
+    def _workerPool(cls) -> concurrent.futures.ThreadPoolExecutor:
+        if cls.__WORKER_POOL is None:
+            cls.__WORKER_POOL = concurrent.futures.ThreadPoolExecutor()
+        return cls.__WORKER_POOL
+
+    def __contains__(self, artefact: ArtefactOrPathLike) -> bool:
         return self.exists(artefact)
 
     def __getitem__(self, path: str) -> Artefact:
@@ -88,7 +82,7 @@ class Manager(AbstractManager):
     def __reduce__(self):
         return (ManagerReloader, (self.toConfig(),))
 
-    def _ensurePath(self, artefact: typing.Union[Artefact, str, None]) -> str:
+    def _ensurePath(self, artefact: ArtefactOrPathLike) -> str:
         """ Collapse artefact into path - Convert an artefact into a path or return. This returns
         the manager relative path instead. To be used when the response is to be in turns of the
         manager. For simple checks, artefacts can be used directly (which uses the abspath)
@@ -96,92 +90,79 @@ class Manager(AbstractManager):
         Args:
             artefact: The artefact to be ensured is a path str
         """
-        return artefact.path if isinstance(artefact, Artefact) else artefact
+        return artefact.__fspath__() if isinstance(artefact, os.PathLike) else artefact
 
-    def _splitExternalArtefactForm(
+    @overload
+    def _splitArtefactForm(
         self,
-        artefact: typing.Union[Artefact, str, None],
-        load: bool = True,
-        require: bool = True
-        ) -> typing.Tuple['Manager', Artefact, str]:
-        """ Convert the incoming object which could be either an artefact or relative path into a
-        standardised form for both such that functions can be easily convert and use what they
-        require.
-
-        Args:
-            artObj (typing.Union[Artefact, str]): Either the artefact object or it's relative path to be standardised
-            require (str): Require that the object exists. when false return None for yet to be created objects but
-
-        Returns:
-            Artefact or None: the artefact object or None if it doesn't exists and require is False
-            str: The relative path of the object/the passed value
-        """
-
-        if isinstance(artefact, Artefact):
-            return artefact.manager, artefact, artefact.path
-
-        else:
-            obj = None
-
-            if artefact is None:
-                manager = utils.connect("FS")
-                path = manager._cwd()
-
-            elif isinstance(artefact, str):
-                manager, path = utils.parseURL(artefact)
-
-            else:
-                t = type(artefact)
-                raise TypeError(
-                    f"Artefact reference must be either `stow.Artefact` or string not type {t}"
-                )
-
-
-            if load:
-
-                try:
-                    obj = manager[path]
-
-                except exceptions.ArtefactNotFound:
-                    if require:
-                        raise
-
-            return manager, obj, path
-
-    def _splitManagerArtefactForm(
+        artefact: ArtefactType,
+        load: bool = ...,
+        require: bool = ...,
+        external: bool = ...,
+    ) -> typing.Tuple['Manager', Union[File, Directory], str]:
+        ...
+    @overload
+    def _splitArtefactForm(
         self,
-        artefact: typing.Union[Artefact, str, None],
+        artefact: Optional[PathLike],
+        load: bool = ...,
+        require: typing.Literal[True] = ...,
+        external: bool = ...,
+    ) -> typing.Tuple['Manager', Union[File, Directory], str]:
+        ...
+    @overload
+    def _splitArtefactForm(
+        self,
+        artefact: Optional[PathLike],
+        load: bool = ...,
+        require: typing.Literal[False] = ...,
+        external: bool = ...,
+    ) -> typing.Tuple['Manager', Union[File, Directory, None], str]:
+        ...
+    def _splitArtefactForm(
+        self,
+        artefact: Union[ArtefactOrPathLike, str, None],
         load: bool = True,
-        require: bool = True
-        ) -> typing.Tuple['Manager', typing.Union[File, Directory], str]:
+        require: bool = True,
+        external: bool = True,
+        ) -> typing.Tuple['Manager', Union[File, Directory, None], str]:
         """ Convert the incoming object which could be either an artefact or relative path into a standardised form for
         both such that functions can be easily convert and use what they require
 
         Args:
-            artObj (typing.Union[Artefact, str]): Either the artefact object or it's relative path to be standardised
-            require (str): Require that the object exists. when false return None for yet to be created objects but
+            artObj (ArtefactOrPathLike): Either the artefact object or it's relative path to be standardised
+            load (bool): Whether to load the object if it exists
+            require (bool): Require that the object exists. If False then None when object doesn't exist
 
         Returns:
             Artefact or None: the artefact object or None if it doesn't exists and require is False
             str: The relative path of the object/the passed value
         """
 
-
-        if self.__class__ == Manager:
-            return self._splitExternalArtefactForm(artefact, load=load, require=require)
-
-        elif isinstance(artefact, Artefact):
-            return artefact.manager, artefact, artefact.path
+        if isinstance(artefact, (File, Directory)):
+            manager: Manager = artefact._manager # type: ignore
+            return manager, artefact, artefact.path
 
         else:
+
+            if self.__class__ == Manager:
+                external = True
+
             obj = None
+            default_manager = None if external else self
 
             if artefact is None:
-                cwd = self._cwd()
-                return self, Directory(self, cwd), cwd
+                if external :
+                    manager = utils.connect("FS")
+                else:
+                    manager = self
+                path = manager._cwd()
+
+            elif isinstance(artefact, os.PathLike):
+                (manager, path) = utils.parseURL(artefact.__fspath__(), default_manager=default_manager)
 
             elif isinstance(artefact, str):
-                manager, path = utils.parseURL(artefact, default_manager=self)
+                (manager, path) = utils.parseURL(artefact, default_manager=default_manager)
 
             else:
                 t = type(artefact)
@@ -189,7 +170,7 @@ class Manager(AbstractManager):
                     f"Artefact reference must be either `stow.Artefact` or string not type {t}"
                 )
 
-            if load:
+            if load or require:
 
                 try:
                     obj = manager[path]
@@ -210,7 +191,7 @@ class Manager(AbstractManager):
         """ Set the content type of the file """
         raise NotImplementedError('Manager does not have an method for changing the content-type for the path given')
 
-    def manager(self, artefact: typing.Union[Artefact, str]) -> 'Manager':
+    def manager(self, artefact: ArtefactOrPathLike) -> 'Manager':
         """ Fetch the manager object for the artefact
 
         Params:
@@ -219,9 +200,9 @@ class Manager(AbstractManager):
         Returns:
             Manager: The Manager that produced the artefact
         """
-        return self._splitManagerArtefactForm(artefact)[0]
+        return self._splitArtefactForm(artefact, external=False)[0]
 
-    def artefact(self, path: str) -> Artefact:
+    def artefact(self, path: PathLike) -> Artefact:
         """ Fetch an artefact object for the given path
 
         Params:
@@ -233,9 +214,9 @@ class Manager(AbstractManager):
         Raises:
             ArtefactNotFound: In the event that no artefact exists at the location given
         """
-        return self._splitManagerArtefactForm(path)[1]
+        return self._splitArtefactForm(path, external=False)[1]
 
-    def abspath(self, artefact: typing.Union[Artefact, str]) -> str:
+    def abspath(self, artefact: ArtefactOrPathLike) -> str:
         """ Return a normalized absolute version of the path or artefact given.
 
         Args:
@@ -247,10 +228,10 @@ class Manager(AbstractManager):
         Raises:
             ValueError: Cannot make a remote artefact object's path absolute
         """
-        manager, _, path = self._splitManagerArtefactForm(artefact, load=False)
+        manager, _, path = self._splitArtefactForm(artefact, load=False, require=False, external=False)
         return manager._abspath(path)
 
-    def basename(self, artefact: typing.Union[Artefact, str]) -> str:
+    def basename(self, artefact: ArtefactOrPathLike) -> str:
         """ Return the base name of an artefact or path. This is the second element of the pair returned by passing path
         to the function `split()`.
 
@@ -262,7 +243,7 @@ class Manager(AbstractManager):
         """
         return os.path.basename(self._ensurePath(artefact))
 
-    def name(self, artefact: typing.Union[Artefact, str]) -> str:
+    def name(self, artefact: ArtefactOrPathLike) -> str:
         """ Return the name of an artefact or path (basename without extension).
 
         Args:
@@ -277,7 +258,7 @@ class Manager(AbstractManager):
             return basename[:index]
         return basename
 
-    def extension(self, artefact: typing.Union[Artefact, str]) -> str:
+    def extension(self, artefact: ArtefactOrPathLike) -> str:
         """ Return the extension of an artefact or path.
 
         Args:
@@ -293,7 +274,7 @@ class Manager(AbstractManager):
             return basename[index+1:]
         return ''
 
-    def commonpath(self, paths: typing.Iterable[typing.Union[Artefact, str]]) -> str:
+    def commonpath(self, paths: Iterable[ArtefactOrPathLike]) -> str:
         """ Return the longest common sub-path of each pathname in the sequence paths
 
         Examples:
@@ -310,7 +291,7 @@ class Manager(AbstractManager):
         """
         return os.path.commonpath([self._ensurePath(path) for path in paths])
 
-    def commonprefix(self, paths: typing.Iterable[typing.Union[Artefact, str]]) -> str:
+    def commonprefix(self, paths: Iterable[ArtefactOrPathLike]) -> str:
         """ Return the longest common string literal for a collection of path/artefacts
 
         Examples:
@@ -324,7 +305,7 @@ class Manager(AbstractManager):
         """
         return os.path.commonprefix([self._ensurePath(path) for path in paths])
 
-    def dirname(self, artefact: typing.Union[Artefact, str]) -> str:
+    def dirname(self, artefact: ArtefactOrPathLike) -> str:
         """ Return the directory name of path or artefact. Preserve the protocol of the path if a protocol is given
 
         Args:
@@ -402,7 +383,7 @@ class Manager(AbstractManager):
         """
         return os.path.isabs(path)
 
-    def isfile(self, artefact: typing.Union[Artefact, str]) -> bool:
+    def isfile(self, artefact: ArtefactOrPathLike) -> bool:
         """ Check if the artefact provided is a file
 
         Args:
@@ -411,9 +392,9 @@ class Manager(AbstractManager):
         Returns:
             Bool: True or False in answer to the question
         """
-        return isinstance(self._splitManagerArtefactForm(artefact, require=False)[1], File)
+        return isinstance(self._splitArtefactForm(artefact, require=False, external=False)[1], File)
 
-    def isdir(self, artefact: typing.Union[Artefact, str]) -> bool:
+    def isdir(self, artefact: ArtefactOrPathLike) -> bool:
         """ Check if the artefact provided is a directory
 
         Args:
@@ -422,9 +403,9 @@ class Manager(AbstractManager):
         Returns:
             Bool: True or False in answer to the question
         """
-        return isinstance(self._splitManagerArtefactForm(artefact, require=False)[1], Directory)
+        return isinstance(self._splitArtefactForm(artefact, require=False, external=False)[1], Directory)
 
-    def islink(self, artefact: typing.Union[Artefact, str]) -> bool:
+    def islink(self, artefact: ArtefactOrPathLike) -> bool:
         """ Check if the artefact provided is a link
 
         Will check for local managers but will default to False for remote managers
@@ -435,10 +416,10 @@ class Manager(AbstractManager):
         Returns:
             Bool: True or False in answer to the question
         """
-        manager, _, path = self._splitManagerArtefactForm(artefact, load = False)
+        manager, _, path = self._splitArtefactForm(artefact, load=False, require=False, external=False)
         return manager._isLink(path)
 
-    def ismount(self, artefact: typing.Union[Artefact, str]) -> bool:
+    def ismount(self, artefact: ArtefactOrPathLike) -> bool:
         """ Check if the artefact provided is a link
 
         Will check for local managers but will default to False for remote managers
@@ -449,10 +430,10 @@ class Manager(AbstractManager):
         Returns:
             Bool: True or False in answer to the question
         """
-        manager, _, path = self._splitManagerArtefactForm(artefact, load = False)
+        manager, _, path = self._splitArtefactForm(artefact, load=False, require=False)
         return manager._isMount(path)
 
-    def getctime(self, artefact: typing.Union[Artefact, str]) -> typing.Union[float, None]:
+    def getctime(self, artefact: ArtefactOrPathLike) -> float:
         """ Get the created time for the artefact as a UTC timestamp
 
         Args:
@@ -463,10 +444,14 @@ class Manager(AbstractManager):
 
         Raises:
             ArtefactNotFound: If there is no artefact at the location
+            ArtefactMetadataUndefined: The storage medium does not record artefact create time.
         """
-        return self._splitManagerArtefactForm(artefact)[1].createdTime.timestamp()
+        try:
+            return self._splitArtefactForm(artefact, require=True, external=False)[1].createdTime.timestamp()
+        except:
+            raise exceptions.ArtefactMetadataUndefined(f"Artefact {artefact} does not have a created time recorded")
 
-    def getmtime(self, artefact: typing.Union[Artefact, str]) -> typing.Union[float, None]:
+    def getmtime(self, artefact: ArtefactOrPathLike) -> float:
         """ Get the modified time for the artefact as a UTC timestamp
 
         Args:
@@ -479,7 +464,10 @@ class Manager(AbstractManager):
         Raises:
             ArtefactNotFound: If there is no artefact at the location
         """
-        return self._splitManagerArtefactForm(artefact)[1].modifiedTime.timestamp()
+        try:
+            return self._splitArtefactForm(artefact, require=True, external=False)[1].modifiedTime.timestamp()
+        except:
+                raise exceptions.ArtefactMetadataUndefined(f"Artefact {artefact} does not have a modified time recorded")
 
     def _setmtime(self, *args, **kwargs):
         raise NotImplementedError(
@@ -487,8 +475,8 @@ class Manager(AbstractManager):
         )
     def setmtime(
         self,
-        artefact: typing.Union[Artefact, str],
-        _datetime: typing.Union[float, datetime.datetime]
+        artefact: ArtefactOrPathLike,
+        _datetime: Union[float, datetime.datetime]
         ) -> datetime.datetime:
         """ Update the artefacts modified time
 
@@ -499,7 +487,7 @@ class Manager(AbstractManager):
         mtime, _ = self.set_artefact_time(artefact, modified_datetime=_datetime)
         return mtime
 
-    def getatime(self, artefact: typing.Union[Artefact, str]) -> typing.Union[float, None]:
+    def getatime(self, artefact: ArtefactOrPathLike) -> float:
         """ Get the accessed time for the artefact as a UTC timestamp
 
         Args:
@@ -512,7 +500,10 @@ class Manager(AbstractManager):
         Raises:
             ArtefactNotFound: If there is no artefact at the location
         """
-        return self._splitManagerArtefactForm(artefact)[1].accessedTime.timestamp()
+        try:
+            return self._splitArtefactForm(artefact, require=True, external=False)[1].accessedTime.timestamp()
+        except:
+            raise exceptions.ArtefactMetadataUndefined(f"Artefact {artefact} does not have a accessed time recorded")
 
     def _setatime(self, *args, **kwargs):
         raise NotImplementedError(
@@ -520,8 +511,8 @@ class Manager(AbstractManager):
         )
     def setatime(
         self,
-        artefact: typing.Union[Artefact, str],
-        _datetime: typing.Union[float, datetime.datetime]
+        artefact: ArtefactOrPathLike,
+        _datetime: Union[float, datetime.datetime]
         ) -> datetime.datetime:
         """ Update the artefacts access time
 
@@ -532,18 +523,25 @@ class Manager(AbstractManager):
         _, atime = self.set_artefact_time(artefact, accessed_datetime=_datetime)
         return atime
 
+    def _set_artefact_time(
+            self,
+            artefact: ArtefactOrPathLike,
+            modified_datetime: Optional[TimestampLike] = None,
+            accessed_datetime: Optional[TimestampLike] = None
+        ) -> Tuple[datetime.datetime, datetime.datetime]:
+        raise NotImplementedError(f'Manager {self} does not implement setting artefact modified or accessed times')
+
     def set_artefact_time(
         self,
-        artefact: typing.Union[Artefact, str],
-        modified_datetime: Optional[typing.Union[float, datetime.datetime]] = None,
-        accessed_datetime: Optional[typing.Union[float, datetime.datetime]] = None
-        ) -> tuple[float, float]:
+        artefact: ArtefactOrPathLike,
+        modified_datetime: Optional[TimestampLike] = None,
+        accessed_datetime: Optional[TimestampLike] = None
+        ) -> Tuple[datetime.datetime, datetime.datetime]:
         """ Update the artefacts access time """
-        manager, artefact, _ = self._splitManagerArtefactForm(artefact, require=True)
+        manager, artefact, _ = self._splitArtefactForm(artefact, require=True, external=False)
         return manager._set_artefact_time(artefact, modified_datetime, accessed_datetime)
 
-
-    def exists(self, artefact: typing.Union[Artefact, str]) -> bool:
+    def exists(self, artefact: ArtefactOrPathLike) -> bool:
         """ Return true if the given artefact is a member of the manager, or the path is correct for the manager and it
         leads to a File or Directory.
 
@@ -555,10 +553,10 @@ class Manager(AbstractManager):
         Returns:
             bool: True if artefact exists else False
         """
-        manager, _, path = self._splitManagerArtefactForm(artefact, load=False)
+        manager, _, path = self._splitArtefactForm(artefact, load=False, external=False)
         return manager._exists(path)
 
-    def lexists(self, artefact: typing.Union[Artefact, str]) -> str:
+    def lexists(self, artefact: ArtefactOrPathLike) -> str:
         """ Return true if the given artefact is a member of the manager, or the path is correct for the manager and it
         leads to a File or Directory.
 
@@ -573,7 +571,7 @@ class Manager(AbstractManager):
         return os.path.lexists(artefact)
 
     # @classmethod
-    def join(self, *paths: typing.Iterable[str], separator=None, joinAbsolutes: bool = False) -> str:
+    def join(self, *paths: str, separator=None, joinAbsolutes: bool = False) -> str:
         """ Join one or more path components intelligently. The return value is the concatenation of path and any
         members of *paths with exactly one directory separator following each non-empty part except the last,
         meaning that the result will only end in a separator if the last part is empty. If a component is an absolute
@@ -703,7 +701,7 @@ class Manager(AbstractManager):
         relpath = os.path.relpath(path, start)
         return relpath if separator == os.sep else relpath.replace(os.sep, separator)
 
-    def samefile(self, artefact1: typing.Union[Artefact, str], artefact2: typing.Union[Artefact, str]) -> bool:
+    def samefile(self, artefact1: ArtefactOrPathLike, artefact2: ArtefactOrPathLike) -> bool:
         """ Check if provided artefacts are represent the same data on disk
 
         Args:
@@ -721,7 +719,7 @@ class Manager(AbstractManager):
         """
         return os.path.sameopenfile(handle1, handle2)
 
-    def samestat(self, artefact1: typing.Union[Artefact, str], artefact2: typing.Union[Artefact, str]) -> bool:
+    def samestat(self, artefact1: ArtefactOrPathLike, artefact2: ArtefactOrPathLike) -> bool:
         """ Check if provided artefacts are represent the same data on disk
 
         Args:
@@ -733,7 +731,7 @@ class Manager(AbstractManager):
         """
         return os.path.samestat(artefact1, artefact2)
 
-    def split(self, artefact: typing.Union[Artefact, str]) -> typing.Tuple[str, str]:
+    def split(self, artefact: ArtefactOrPathLike) -> typing.Tuple[str, str]:
         """ Split the pathname path into a pair, (head, tail) where tail is the last pathname component and head is
         everything leading up to that.
 
@@ -758,7 +756,7 @@ class Manager(AbstractManager):
 
         return os.path.splitdrive(path)
 
-    def splitext(self, artefact: typing.Union[Artefact, str]) -> typing.Tuple[str, str]:
+    def splitext(self, artefact: ArtefactOrPathLike) -> typing.Tuple[str, str]:
         """ Split the pathname path into a pair (root, ext) such that root + ext == path, and ext is empty or begins
         with a period and contains at most one period.
 
@@ -772,7 +770,7 @@ class Manager(AbstractManager):
 
     def digest(
         self,
-        artefact: typing.Union[File, str],
+        artefact: Union[File, str],
         algorithm: HashingAlgorithm = HashingAlgorithm.MD5
         ):
 
@@ -783,16 +781,39 @@ class Manager(AbstractManager):
         else:
             raise TypeError(f'Cannot get file digest for directory {obj}')
 
+    @overload
     def get(
         self,
-        source: typing.Union[Artefact, str],
-        destination: typing.Union[str, None] = None,
+        source: ArtefactOrPathLike,
         *,
         overwrite: bool = False,
-        callback: typing.Type[AbstractCallback] = DefaultCallback(),
-        modified_time: Optional[Union[datetime.datetime, float]] = None,
-        accessed_time: Optional[Union[datetime.datetime, float]] = None,
-        ) -> typing.Union[Artefact, bytes]:
+        callback: AbstractCallback = DefaultCallback(),
+        modified_time: Optional[TimestampLike] = None,
+        accessed_time: Optional[TimestampLike] = None
+        ) -> bytes:
+        pass
+    @overload
+    def get(
+        self,
+        source: ArtefactOrPathLike,
+        destination: str,
+        *,
+        overwrite: bool = False,
+        callback: AbstractCallback = DefaultCallback(),
+        modified_time: Optional[TimestampLike] = None,
+        accessed_time: Optional[TimestampLike] = None
+        ) -> Artefact:
+        pass
+    def get(
+        self,
+        source: ArtefactOrPathLike,
+        destination: typing.Optional[str] = None,
+        *,
+        overwrite: bool = False,
+        callback: AbstractCallback = DefaultCallback(),
+        modified_time: Optional[TimestampLike] = None,
+        accessed_time: Optional[TimestampLike] = None
+        ) -> Union[Artefact, bytes]:
         """ Get an artefact from a local or remote source and download the artefact either to a local artefact or as bytes
 
         Args:
@@ -807,7 +828,6 @@ class Manager(AbstractManager):
         # Split into object and path - Ensure that the artefact to get is from this manager
         _, obj, _ = self._splitManagerArtefactForm(source)
 
-
         # Ensure the destination - Remove or raise issue for a local artefact at the location where the get is called
         if destination is not None:
             callback.setDescription(f"Get {obj.path} -> {destination}")
@@ -819,7 +839,6 @@ class Manager(AbstractManager):
             else:
                 # Ensure the directory that this object exists with
                 os.makedirs(self.dirname(destination), exist_ok=True)
-
 
             # Get the object using the underlying manager implementation
             obj.manager._get(
@@ -839,17 +858,60 @@ class Manager(AbstractManager):
 
             return obj.manager._getBytes(obj, callback=callback)
 
+    @overload
     def put(
         self,
-        source: typing.Union[Artefact, str, bytes],
-        destination: typing.Union[Artefact, str],
+        source: Union[File, bytes],
+        destination: ArtefactOrPathLike,
         overwrite: bool = False,
         *,
-        metadata: typing.Dict[str, str] = None,
-        callback: typing.Type[AbstractCallback] = DefaultCallback(),
+        metadata: Optional[typing.Dict[str, str]] = None,
+        callback: AbstractCallback = DefaultCallback(),
+        modified_time: Optional[TimestampLike] = None,
+        accessed_time: Optional[TimestampLike] = None,
+        storage_class: Optional[StorageClass] = None
+        ) -> File:
+        pass
+    @overload
+    def put(
+        self,
+        source: Directory,
+        destination: ArtefactOrPathLike,
+        overwrite: bool = False,
+        *,
+        metadata: Optional[typing.Dict[str, str]] = None,
+        callback: AbstractCallback = DefaultCallback(),
+        modified_time: Optional[TimestampLike] = None,
+        accessed_time: Optional[TimestampLike] = None,
+        storage_class: Optional[StorageClass] = None
+        ) -> Directory:
+        pass
+    @overload
+    def put(
+        self,
+        source: str,
+        destination: ArtefactOrPathLike,
+        overwrite: bool = False,
+        *,
+        metadata: Optional[typing.Dict[str, str]] = None,
+        callback: AbstractCallback = DefaultCallback(),
+        modified_time: Optional[TimestampLike] = None,
+        accessed_time: Optional[TimestampLike] = None,
+        storage_class: Optional[StorageClass] = None
+        ) -> Artefact:
+        pass
+    def put(
+        self,
+        source: Union[ArtefactOrPathLike, bytes],
+        destination: ArtefactOrPathLike,
+        overwrite: bool = False,
+        *,
+        metadata: Optional[typing.Dict[str, str]] = None,
+        callback: AbstractCallback = DefaultCallback(),
         modified_time: Optional[datetime.datetime] = None,
-        accessed_time: Optional[datetime.datetime] = None
-        ) -> Union[File, Directory]:
+        accessed_time: Optional[datetime.datetime] = None,
+        storage_class: Optional[StorageClass] = None
+        ) -> Artefact:
         """ Put a local artefact onto the remote at the location given.
 
         Args:
@@ -867,11 +929,13 @@ class Manager(AbstractManager):
         """
 
         # Validate source before deleting destination
-        if not isinstance(source, bytes):
-            _, sourceObj, _ = self._splitExternalArtefactForm(source)
+        if isinstance(source, ArtefactOrPathLike):
+            _, sourceObj, _ = self._splitArtefactForm(source)
 
         # Load in the information about the destination
-        destinationManager, destinationObj, destinationPath = self._splitManagerArtefactForm(destination, require=False)
+        destinationManager, destinationObj, destinationPath = self._splitArtefactForm(
+            destination, require=False, external=False
+        )
 
         if destinationObj is not None:
             # Delete the destination object that is able to be overwritten
@@ -890,6 +954,7 @@ class Manager(AbstractManager):
                 callback=callback,
                 modified_time=modified_time,
                 accessed_time=accessed_time,
+                storage_class=storage_class
             )
 
         else:
@@ -900,15 +965,21 @@ class Manager(AbstractManager):
                 callback=callback,
                 modified_time=modified_time,
                 accessed_time=accessed_time,
+                storage_class=storage_class
             )
 
     def cp(
         self,
-        source: typing.Union[Artefact, str],
-        destination: typing.Union[Artefact, str],
+        source: ArtefactOrPathLike,
+        destination: ArtefactOrPathLike,
         overwrite: bool = False,
         *,
-        callback: AbstractCallback = DefaultCallback()
+        callback: AbstractCallback = DefaultCallback(),
+        metadata: Optional[typing.Dict[str, str]] = None,
+        modified_time: Optional[datetime.datetime] = None,
+        accessed_time: Optional[datetime.datetime] = None,
+        storage_class: Optional[StorageClass] = None,
+        worker_config: Optional[WorkerPoolConfig] = None,
         ) -> Artefact:
         """ Copy the artefacts at the source location to the provided destination location. Overwriting items at the
         destination.
@@ -945,8 +1016,8 @@ class Manager(AbstractManager):
 
     def mv(
         self,
-        source: typing.Union[Artefact, str],
-        destination: typing.Union[Artefact, str],
+        source: ArtefactOrPathLike,
+        destination: ArtefactOrPathLike,
         overwrite: bool = False,
         *,
         callback: AbstractCallback = DefaultCallback()
@@ -984,7 +1055,7 @@ class Manager(AbstractManager):
 
     def rm(
         self,
-        artefact: typing.Union[Artefact, str],
+        artefact: ArtefactOrPathLike,
         recursive: bool = False,
         *,
         callback: AbstractCallback = DefaultCallback()
@@ -993,7 +1064,7 @@ class Manager(AbstractManager):
         remove it if it is empty, or all of its contents if recursive has been set to true.
 
         Args:
-            artefact (typing.Union[Artefact, str]): the object which is to be deleted
+            artefact (ArtefactOrPathLike): the object which is to be deleted
             recursive (bool) = False: whether to accept the deletion of a directory which has contents
         """
 
@@ -1008,13 +1079,19 @@ class Manager(AbstractManager):
 
     def sync(
         self,
-        source: typing.Union[File, Directory, str],
-        destination: typing.Union[Artefact, str],
+        source: Union[File, Directory, str],
+        destination: ArtefactOrPathLike,
         *,
+        storage_class: Optional[StorageClass] = None,
+        metadata: Optional[typing.Dict[str, str]] = None,
+        modified_time: Optional[datetime.datetime] = None,
+        accessed_time: Optional[datetime.datetime] = None,
         overwrite: bool = False,
         delete: bool = False,
         check_modified_times: bool = True,
-        digest_comparator: typing.Callable[[File, File], bool] = None
+        digest_comparator: Optional[typing.Callable[[File, File], bool]] = None,
+        worker_config: Optional[WorkerPoolConfig] = None,
+        callback: AbstractCallback = DefaultCallback()
         ) -> None:
         """ Put artefacts from the source location into the destination location if they have more recently been edited.
 
@@ -1032,30 +1109,61 @@ class Manager(AbstractManager):
         """
 
         # Fetch the source object
-        _, sourceObj, sourcePath = self._splitManagerArtefactForm(source)
+        _, sourceObj, _ = self._splitArtefactForm(source, require=True, external=False)
 
         # Fetch the destination object
-        destinationManager, destinationObj, destinationPath = self._splitExternalArtefactForm(destination, require=False)
+        destinationManager, destinationObj, destinationPath = self._splitArtefactForm(destination, require=False)
+
+        # Setup the worker_pool config
+        if worker_config is None:
+            worker_config = WorkerPoolConfig(
+                executor=self._workerPool(),
+                shutdown=True
+            )
+
+        sync_method = destinationManager.cp if type(sourceObj._manager) == type(destinationManager) and not sourceObj._manager.ISOLATED else destinationManager.put
+        sync_arguments = {
+            "overwrite": overwrite,
+            "metadata": metadata,
+            "modified_time": modified_time,
+            "accessed_time": accessed_time,
+            "storage_class": storage_class,
+            "callback": callback,
+            "worker_config": WorkerPoolConfig(executor=worker_config.executor, join=False)
+        }
 
         if destinationObj is None:
             # The destination doesn't exist - sync the entire source
 
             log.warning("Syncing: Destination=%s doesn't exist therefore putting entire source=%s", destination, source)
-            destinationManager.put(
+            worker_config.executor.submit(
+                sync_method,
                 sourceObj,
-                destination
+                destinationPath,
+                **sync_arguments
             )
 
         elif isinstance(destinationObj, File):
             if isinstance(sourceObj, Directory):
                 # The source is a directory - we simply replace the file
-                destinationManager.put(sourceObj, destinationObj, overwrite=overwrite)
+                worker_config.executor.submit(
+                    sync_method,
+                    sourceObj,
+                    destinationObj,
+                    **sync_arguments
+                )
 
             elif (
                 (not check_modified_times or destinationObj.modifiedTime < sourceObj.modifiedTime) and
                 (digest_comparator is None or not digest_comparator(sourceObj, destinationObj))
                 ):
-                destinationManager.put(sourceObj, destinationObj)
+
+                worker_config.executor.submit(
+                    sync_method,
+                    sourceObj,
+                    destinationObj,
+                    **sync_arguments
+                )
 
             else:
                 log.debug('%s already synced', destination)
@@ -1064,38 +1172,92 @@ class Manager(AbstractManager):
             # Desintation object is a dictionary
             if isinstance(sourceObj, File):
                 # We are trying to sync a file to a directory - this is a put
-                return destinationManager.put(sourceObj, destinationObj, overwrite=overwrite)
+                worker_config.executor.submit(
+                    sync_method,
+                    sourceObj,
+                    destinationObj,
+                    **sync_arguments
+                )
 
-            # Syncing a source directory to a destination directory
-            destinationMap = {artefact.basename: artefact for artefact in destinationObj.ls()}
+            else:
 
-            # Recursively fill in destination at this recursion level
-            for artefact in sourceObj.ls():
-                if artefact.basename in destinationMap:
-                    self.sync(
-                        artefact,
-                        destinationMap.pop(artefact.basename),
-                        overwrite=overwrite,
-                        delete=delete,
-                        check_modified_times=check_modified_times,
-                        digest_comparator=digest_comparator,
-                    )
+                # Syncing a source directory to a destination directory
+                destinationMap = {artefact.basename: artefact for artefact in destinationObj.ls()}
+                submittedWork: typing.List[concurrent.futures.Future] = []
 
-                else:
-                    destinationManager.put(artefact, destinationManager.join(destinationObj.path, artefact.basename))
+                # Recursively fill in destination at this recursion level
+                for artefact in sourceObj.ls():
+                    if artefact.basename in destinationMap:
+                        worker_config.executor.submit(
+                            sync_method,
+                            sourceObj,
+                            destinationObj,
+                            **sync_arguments
+                        )
+
+
+                        submittedWork.append(
+                            worker_pool.submit(
+                                self.sync,
+                                artefact,
+                                destinationMap.pop(artefact.basename),
+                                overwrite=overwrite,
+                                delete=delete,
+                                check_modified_times=check_modified_times,
+                                digest_comparator=digest_comparator,
+                            )
+                        )
+                        # self.sync(
+                        #     artefact,
+                        #     destinationMap.pop(artefact.basename),
+                        #     overwrite=overwrite,
+                        #     delete=delete,
+                        #     check_modified_times=check_modified_times,
+                        #     digest_comparator=digest_comparator,
+                        # )
+
+                    else:
+                        submittedWork.append(
+                            worker_pool.submit(
+                                destinationManager.put,
+                                artefact, destinationManager.join(destinationObj.path, artefact.basename)
+                            )
+                        )
+                        # destinationManager.put(artefact, destinationManager.join(destinationObj.path, artefact.basename))
 
             # Any remaining destionation objects were not targets of sync - delete if argument passed
             if delete:
                 for artefact in destinationMap.values():
-                    destinationManager.rm(artefact, recursive=overwrite)
+                    submittedWork.append(
+                        worker_pool.submit(
+                            destinationManager.rm,
+                            artefact,
+                            recursive=overwrite
+                        )
+                    )
+                    # destinationManager.rm(artefact, recursive=overwrite)
+
+            # if delete:
+            #     for artefact in destinationMap.values():
+            #         destinationManager.rm(artefact, recursive=overwrite)
+
+
+
+        if worker_config.shutdown:
+            worker_config.executor.shutdown()
+        elif worker_config.join:
+            concurrent.futures.wait(submittedWork)
+
+
+        return PartialArtefact(destinationManager, destinationPath)
 
     def iterls(
         self,
-        artefact: typing.Union[Directory, str, None] = None,
+        artefact: Union[Directory, str, None] = None,
         recursive: bool = False,
         *,
         ignore_missing: bool = False
-        ) -> typing.Generator[typing.Union[File, Directory], None, None]:
+        ) -> typing.Generator[Union[File, Directory], None, None]:
         """ List contents of the directory path/artefact given.
 
         Args:
@@ -1123,11 +1285,11 @@ class Manager(AbstractManager):
 
     def ls(
         self,
-        art: typing.Union[Directory, str, None] = None,
+        art: Union[Directory, str, None] = None,
         recursive: bool = False,
         *,
         ignore_missing: bool = False
-        ) -> typing.Set[typing.Union[File, Directory]]:
+        ) -> typing.Set[Union[File, Directory]]:
         """ List contents of the directory path/artefact given.
 
         Args:
@@ -1228,7 +1390,7 @@ class Manager(AbstractManager):
 
     _READONLYMODES = ["r", "rb"]
 
-    def open(self, artefact: typing.Union[File, str], mode: str = "r", **kwargs) -> typing.IO[typing.AnyStr]:
+    def open(self, artefact: Union[File, str], mode: str = "r", **kwargs) -> typing.IO[typing.AnyStr]:
         """ Open a file and create a stream to that file. Expose interface of `open`
 
         Args:
@@ -1257,7 +1419,7 @@ class Manager(AbstractManager):
 
         return handle
 
-    def localise(self, artefact: typing.Union[Artefact, str]) -> Localiser:
+    def localise(self, artefact: ArtefactOrPathLike) -> Localiser:
 
         # Get the manager instance to handle the localise method
         manager, obj, path = self._splitManagerArtefactForm(artefact, load=False)

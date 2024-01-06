@@ -1,25 +1,17 @@
 import os
 import abc
-import io
 import datetime
-import contextlib
 import typing
 from typing import Union, Optional
-import enum
 
-from . import _utils as utils
-from .callbacks import AbstractCallback, DefaultCallback
-from . import exceptions
-
-class HashingAlgorithm(enum.Enum):
-    MD5 = enum.auto()
-    CRC32 = enum.auto()
-    CRC32C = enum.auto()
-    SHA1 = enum.auto()
-    SHA256 = enum.auto()
+from .interfaces import ManagerInterface, Localiser
+from ..types import HashingAlgorithm
+from .. import _utils as utils
+from ..callbacks import AbstractCallback, DefaultCallback
+from .. import exceptions
 
 class ArtefactReloader:
-    def __new__(self, config, path):
+    def __new__(cls, config, path):
         return utils.connect(**config)[path]
 
 class Artefact:
@@ -33,12 +25,20 @@ class Artefact:
 
     def __init__(
         self,
-        manager,
-        path: str
+        manager: ManagerInterface,
+        path: str,
+        modifiedTime: datetime.datetime,
+        *,
+        createdTime: Optional[datetime.datetime] = None,
+        accessedTime: Optional[datetime.datetime] = None,
         ):
 
         self._manager = manager  # Link back to the owning manager
         self._path = path  # Relative path on manager
+
+        self._createdTime = createdTime
+        self._modifiedTime = modifiedTime
+        self._accessedTime = accessedTime
 
     def __reduce__(self):
         return (ArtefactReloader, (self._manager.toConfig(), self._path))
@@ -67,30 +67,35 @@ class Artefact:
         return self._manager
 
     @property
-    def directory(self):
+    def directory(self) -> 'Directory':
         """ Directory object this artefact exists within """
         return self._manager[self._manager.dirname(self._path)]
 
     @property
-    @abc.abstractmethod
-    def modifiedTime(self):
+    def createdTime(self) -> datetime.datetime:
         """ UTC localised datetime of time file last modified by a write/append method """
-        pass
+        return self._createdTime or self._modifiedTime
 
     @property
-    @abc.abstractmethod
-    def createdTime(self):
+    def modifiedTime(self) -> datetime.datetime:
         """ UTC localised datetime of time file last modified by a write/append method """
-        pass
+        return self._modifiedTime
+
+    @modifiedTime.setter
+    def modifiedTime(self, _datetime: typing.Union[float, datetime.datetime]):
+        self._modifiedTime = self._manager.setmtime(self, _datetime)
 
     @property
-    @abc.abstractmethod
-    def accessedTime(self):
+    def accessedTime(self) -> datetime.datetime:
         """ UTC localised datetime of time file last modified by a write/append method """
-        pass
+        return (self._accessedTime or self._modifiedTime)
+    @accessedTime.setter
+    def accessedTime(self, _datetime: typing.Union[float, datetime.datetime]):
+        self._accessedTime = self._manager.setatime(self, _datetime)
+
 
     @property
-    def path(self):
+    def path(self) -> str:
         """ Return the manager relative path to this Artefact """
         return self._path
     @path.setter
@@ -102,10 +107,11 @@ class Artefact:
     @property
     def basename(self):
         """ Basename of the artefact - holding directory path removed leaving filename and extension """
+        self._manager.basename(self.abspath)
         return self._manager.basename(self)
     @basename.setter
     def basename(self, basename: str):
-        path = self._manager.join(self._manager.dirname(self._path), self._manager.basename(basename))
+        path: str = self._manager.join(self._manager.dirname(self._path), self._manager.basename(basename))
         self.manager.mv(self, path)
         self._path = path
 
@@ -117,7 +123,7 @@ class Artefact:
     def name(self, name: str):
         self.basename = name
 
-    def localise(self):
+    def localise(self) -> Localiser:
         """ Localise this artefact
 
         Returns:
@@ -131,23 +137,10 @@ class Artefact:
         force: bool = False,
         *,
         callback: AbstractCallback = DefaultCallback(),
-        modified_time: Union[datetime.datetime, float] = None,
-        accessed_time: Union[datetime.datetime, float] = None
+        modified_time: Optional[Union[datetime.datetime, float]] = None,
+        accessed_time: Optional[Union[datetime.datetime, float]] = None
         ) -> "Artefact":
-        """ Save the artefact to a local location
 
-        Args:
-            path (str): A local path where the Artefact is to be saved
-            force (bool): Ignore artefacts at the destination location
-            *,
-            callback (AbstractCallback): A callback to be used to inform on saving progress
-            modified_time (Union[datetime.datetime, float]): The new modified time of the saved artefact
-            accessed_time (Union[datetime.datetime, float]): The new accessed time of the saved artefact
-
-        Raises:
-            ArtefactNotFound: If this artefact has been removed before it was saved.
-            OperationNotPermitted: If the location given is a Directory and the get is not enforced
-        """
         return self._manager.get(
             self,
             path,
@@ -183,22 +176,19 @@ class File(Artefact):
         path: str,
         size: float,
         modifiedTime: datetime.datetime,
-        *,
-        content_type: str = None,
-        metadata: typing.Dict[str, str] = None,
-        createdTime: datetime.datetime = None,
-        accessedTime: datetime.datetime = None,
-        digest: typing.Dict[HashingAlgorithm, str] = None,
-        isLink: bool = None
+        /,
+        content_type: Optional[str] = None,
+        metadata: Optional[typing.Dict[str, str]] = None,
+        createdTime: Optional[datetime.datetime] = None,
+        accessedTime: Optional[datetime.datetime] = None,
+        digest: Optional[typing.Dict[HashingAlgorithm, str]] = None,
+        isLink: Optional[bool] = None
         ):
-        super().__init__(manager, path)
+        super().__init__(manager, path, modifiedTime=modifiedTime, createdTime=createdTime, accessedTime=accessedTime)
 
         self._size = size  # The size in bytes of the object
         self._content_type = content_type
         self._metadata = metadata
-        self._createdTime = createdTime  # Time the artefact was physically created
-        self._modifiedTime = modifiedTime  # Time the artefact was last modified via the os
-        self._accessedTime = accessedTime  # Time the artefact was last accessed
         self._digest = digest or {}  # A signature for the file content
         self._isLink = isLink
 
@@ -264,33 +254,6 @@ class File(Artefact):
         with self.open("wb") as handle:
             handle.write(cont)
 
-    @property
-    def createdTime(self):
-        """ UTC localised datetime of time file last modified by a write/append method """
-        if self._createdTime is None:
-            return self._modifiedTime
-        return self._createdTime
-
-    @property
-    def modifiedTime(self):
-        """ UTC localised datetime of time file last modified by a write/append method """
-        return self._modifiedTime
-
-    @modifiedTime.setter
-    def modifiedTime(self, _datetime: typing.Union[float, datetime.datetime]):
-        self._modifiedTime = self._manager.setmtime(self, _datetime)
-
-    @property
-    def accessedTime(self):
-        """ UTC localised datetime of time file last modified by a write/append method """
-        if self._accessedTime is None:
-            return self.modifiedTime
-        return self._accessedTime
-
-    @accessedTime.setter
-    def accessedTime(self, _datetime: typing.Union[float, datetime.datetime]):
-        self._accessedTime = self._manager.setatime(self, _datetime)
-
     def set_artefact_time(
         self,
         modified_datetime: Optional[typing.Union[float, datetime.datetime]] = None,
@@ -321,7 +284,13 @@ class File(Artefact):
             self._isLink = self._manager._isLink(self)
         return self._isLink
 
-    def open(self, mode: str = 'r', **kwargs) -> typing.IO[typing.AnyStr]:
+    @typing.overload
+    def open(self, mode: typing.Literal['r', 'w'], **kwargs) -> typing.TextIO:
+        pass
+    @typing.overload
+    def open(self, mode: typing.Literal['rb', 'wb'], **kwargs) -> typing.BinaryIO:
+        pass
+    def open(self, mode: str = 'r', **kwargs) -> typing.IO[typing.Any]:
         """ Context manager to allow the pulling down and opening of a file """
         return self._manager.open(self, mode, **kwargs)
 
@@ -341,21 +310,24 @@ class Directory(Artefact):
         self,
         manager,
         path: str,
+        modifiedTime: datetime.datetime,
         *,
-        createdTime: datetime.datetime = None,
-        modifiedTime: datetime.datetime = None,
-        accessedTime: datetime.datetime = None,
-        isMount: bool = None
+        createdTime: Optional[datetime.datetime] = None,
+        accessedTime: Optional[datetime.datetime] = None,
+        isMount: Optional[bool] = None
         ):
-        super().__init__(manager, path)
+        super().__init__(
+            manager,
+            path,
+            modifiedTime=modifiedTime,
+            createdTime=createdTime,
+            accessedTime=accessedTime
+        )
 
-        self._createdTime = createdTime
-        self._modifiedTime = modifiedTime
-        self._accessedTime = accessedTime
         self._isMount = isMount
 
     def __len__(self): return len(self.ls())
-    def __iter__(self): return iter(self._contents)
+    def __iter__(self): return self._manager.iterls(self)
     def __repr__(self): return '<stow.Directory: {}>'.format(self._path)
     def __contains__(self, artefact: typing.Union[Artefact, str]) -> bool:
 
@@ -372,21 +344,6 @@ class Directory(Artefact):
 
         else:
             raise TypeError(f"Directory ({self}) contains does not support type {type(artefact)} ({artefact})")
-
-    @property
-    def createdTime(self):
-        """ UTC localised datetime of time file last modified by a write/append method """
-        return self._createdTime
-
-    @property
-    def modifiedTime(self):
-        """ UTC localised datetime of time file last modified by a write/append method """
-        return self._modifiedTime
-
-    @property
-    def accessedTime(self):
-        """ UTC localised datetime of time file last modified by a write/append method """
-        return self._accessedTime
 
     def isMount(self):
         if self._isMount is None:
@@ -460,7 +417,7 @@ class Directory(Artefact):
             **kwargs
         )
 
-    def rm(self, path: str = None, recursive: bool = False):
+    def rm(self, path: Optional[str] = None, recursive: bool = False):
         """ Remove an artefact at the given location
 
         Args:
@@ -470,11 +427,11 @@ class Directory(Artefact):
         Raises:
             OperationNotPermitted: In the even the target is a directory and recursive has not been toggled
         """
-        return self.manager.rm(self.manager.join(self.path, path, separator='/', joinAbsolutes=True), recursive)
+        return self.manager.rm(self if path is None else self.manager.join(self.path, path, separator='/', joinAbsolutes=True), recursive)
 
     def iterls(
         self,
-        path: str = None,
+        path: Optional[str] = None,
         recursive: bool = False,
         *,
         ignore_missing: bool = False
@@ -507,7 +464,7 @@ class Directory(Artefact):
 
     def ls(
         self,
-        path: str = None,
+        path: Optional[str] = None,
         recursive: bool = False,
         *,
         ignore_missing: bool = False
@@ -543,7 +500,7 @@ class Directory(Artefact):
         for artefact in self.ls():
             self._manager.rm(artefact, recursive=True)
 
-class PartialArtefact:
+class PartialArtefact(Artefact):
 
     def __init__(self, manager, path: str):
         self._manager = manager
@@ -552,7 +509,6 @@ class PartialArtefact:
     def __str__(self):
         # Trigger the update of this partial object and return the value of it's string before it overwrites this!
         return self.__getattribute__('__str__')()
-
 
     def __fspath__(self):
         return self._manager._abspath(self._path)
@@ -587,5 +543,3 @@ class PartialArtefact:
 
             getattr(self, '_path')
         object.__setattr__(self, __name, __value)
-
-ArtefactType = typing.Union[File, Directory]

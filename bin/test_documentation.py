@@ -1,7 +1,18 @@
 import stow
-from stow.managers import Amazon
+from stow.managers.amazon import Amazon
+from stow.artefacts import File
 
-stow.exists()
+file: File = None
+
+a = 'hello' in Amazon('hello')
+a = file in Amazon('hello')
+
+a = Amazon('hello').put(b'str', 'destination')
 
 
-Amazon().exists()
+print(a)
+
+Amazon('hello').exists(File(None, 'path', 3600, None))
+
+
+

@@ -18,6 +18,7 @@ if os.name == 'nt':
 else:
     import posix
 
+from .. import _utils as utils
 from ..artefacts import Artefact, File, Directory, PartialArtefact, HashingAlgorithm
 from ..manager.base_managers import LocalManager
 from ..callbacks import AbstractCallback, DefaultCallback
@@ -300,7 +301,7 @@ class FS(LocalManager):
         self,
         source: str,
         destination: str,
-        sourceStat: str,
+        sourceStat: os.stat_result,
         modified_time: float = None,
         accessed_time: float = None
         ):
@@ -442,11 +443,7 @@ class FS(LocalManager):
         self,
         source: Artefact,
         destination: str,
-        *,
-        metadata = None,
-        callback = DefaultCallback(),
-        modified_time: Optional[datetime.datetime] = None,
-        accessed_time: Optional[datetime.datetime] = None,
+        /,
         **kwargs
         ):
         """ For remote sources - we want to 'get' the artefact and place it directly at the destination location. This
@@ -460,7 +457,9 @@ class FS(LocalManager):
         destinationAbspath = self._abspath(destination)
 
         # Save the source to the destination
-        source.save(destinationAbspath, callback=callback, modified_time=modified_time, accessed_time=accessed_time)
+        # NOTE save calls the get method of the source manager - which is the most efficient method of dowloading
+        # the artefact to the local fs which is is trying todo.
+        source.save(destinationAbspath, **kwargs)
 
         # Create a partial artefact for the newly downloaded file
         return PartialArtefact(self, destination)
@@ -471,7 +470,6 @@ class FS(LocalManager):
         destination: str,
         *,
         callback,
-        metadata = None,
         modified_time: Optional[datetime.datetime] = None,
         accessed_time: Optional[datetime.datetime] = None,
         **kwargs
@@ -492,8 +490,7 @@ class FS(LocalManager):
 
         # Update the new artefact time if provided
         if any((modified_time, accessed_time)):
-            now = time.time()
-            os.utime(destinationAbspath, times=(accessed_time or now, modified_time or now))
+            utils.utime(destinationAbspath, modified_time=modified_time, accessed_time=accessed_time)
 
         return artefact
 
