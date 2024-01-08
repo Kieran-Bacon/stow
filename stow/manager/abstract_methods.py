@@ -3,9 +3,11 @@ import urllib.parse
 from typing import Union, Optional, Dict, Generator
 import contextlib
 
-from ..types import ArtefactOrStr
-from ..artefacts import Artefact, File, Directory, HashingAlgorithm
-from ..callbacks import AbstractCallback, DefaultCallback
+from ..worker_config import WorkerPoolConfig
+from ..types import TimestampLike, HashingAlgorithm
+from ..storage_classes import StorageClass
+from ..artefacts import Artefact, File, Directory, ArtefactType, ArtefactOrPathLike
+from ..callbacks import AbstractCallback
 
 class AbstractManager():
     """ The abstract manager interface - outlines and details the methods that should be implemented
@@ -82,7 +84,16 @@ class AbstractManager():
         pass
 
     @abstractmethod
-    def _get(self, source: Artefact, destination: str, *, callback: AbstractCallback = DefaultCallback()):
+    def _get(
+        self,
+        source: Artefact,
+        destination: str,
+        /,
+        callback: AbstractCallback,
+        worker_config: WorkerPoolConfig,
+        modified_time: Optional[float],
+        accessed_time: Optional[float],
+        ):
         """ Fetch the artefact and downloads its data to the local destination path provided
 
         The existence of the file to collect has already been checked so this function can be written to assume its
@@ -98,7 +109,7 @@ class AbstractManager():
         pass
 
     @abstractmethod
-    def _getBytes(self, source: Artefact) -> bytes:
+    def _getBytes(self, source: Artefact, /, callback: AbstractCallback) -> bytes:
         """ Fetch the file artefact contents directly. This is to avoid having to write the contents of files to discs
         for some of the other operations.
 
@@ -118,10 +129,14 @@ class AbstractManager():
         self,
         source: Artefact,
         destination: str,
-        *,
-        metadata: Optional[Dict] = None,
-        callback: AbstractCallback = DefaultCallback()
-        ):
+        /,
+        callback: AbstractCallback,
+        metadata: Optional[Dict[str, str]],
+        modified_time: Optional[TimestampLike],
+        accessed_time: Optional[TimestampLike],
+        storage_class: Optional[StorageClass],
+        worker_config: Optional[WorkerPoolConfig],
+        ) -> ArtefactType:
         """ Put the local filesystem object onto the underlying manager implementation using the absolute paths given.
 
         To avoid user error - an artefact cannot be placed onto a Directory unless an overwrite toggle has been passed
@@ -137,7 +152,17 @@ class AbstractManager():
         pass
 
     @abstractmethod
-    def _putBytes(self, fileBytes: bytes, destination: str, *, Callback: AbstractCallback = DefaultCallback()):
+    def _putBytes(
+        self,
+        fileBytes: bytes,
+        destination: str,
+        *,
+        callback: AbstractCallback,
+        metadata: Optional[Dict[str, str]],
+        modified_time: Optional[float],
+        accessed_time: Optional[float],
+        storage_class: Optional[StorageClass],
+        ) -> File:
         """ Put the bytes of a file object onto the underlying manager implementation using the absolute path given.
 
         This function allows processes to avoid writing files to disc for speedier transfers.
@@ -153,7 +178,18 @@ class AbstractManager():
         pass
 
     @abstractmethod
-    def _cp(self, source: Artefact, destination: str):
+    def _cp(
+        self,
+        source: Artefact,
+        destination: str,
+        /,
+        callback: AbstractCallback,
+        work_config: Optional[WorkerPoolConfig],
+        metadata: Optional[Dict[str, str]],
+        modified_time: Optional[float],
+        accessed_time: Optional[float],
+        storage_class: Optional[StorageClass],
+        ) -> ArtefactType:
         """ Method for copying an artefact local to the manager to another location on the manager. Implementation
         would avoid having to download data from a manager to re-upload that data.
 
@@ -169,7 +205,18 @@ class AbstractManager():
         pass
 
     @abstractmethod
-    def _mv(self, source: Artefact, destination: str) -> Artefact:
+    def _mv(
+        self,
+        source: Artefact,
+        destination: str,
+        /,
+        callback: AbstractCallback,
+        work_config: Optional[WorkerPoolConfig],
+        metadata: Optional[Dict[str, str]],
+        modified_time: Optional[float],
+        accessed_time: Optional[float],
+        storage_class: Optional[StorageClass],
+        ) -> Artefact:
         """ Move an artefact from its location to another location managed by the same manager class. This method should
         attempt exploit manager implementation to have transfer done remotely, and avoid having data downloaded to be
         pushed.
@@ -188,7 +235,7 @@ class AbstractManager():
         pass
 
     @abstractmethod
-    def _ls(self, directory: str) -> Generator[Artefact, None, Artefact]:
+    def _ls(self, directory: ArtefactOrPathLike, recursive: bool = False) -> Generator[ArtefactType, None, None]:
         """ List all artefacts that are present at the directory objects location and add them into the manager.
 
         Args:
@@ -197,7 +244,7 @@ class AbstractManager():
         pass
 
     @abstractmethod
-    def _rm(self, artefact: Artefact):
+    def _rm(self, artefact: ArtefactOrPathLike, /, callback: AbstractCallback):
         """ Delete the underlying artefact data on the manager.
 
         To avoid possible user error in deleting directories, the user must have already indicated that they want to
@@ -237,7 +284,7 @@ class AbstractManager():
         pass
 
     @abstractmethod
-    def localise(self, artefact: ArtefactOrStr) -> str:
+    def localise(self, artefact: ArtefactOrPathLike) -> str:
         """ Localise an artefact, ensure that there is an absolute path that reaches this artefact. For local artefacts
         this will be the direct abspath. Remote managers will get the artefact, and pass back the path to this local
         version.

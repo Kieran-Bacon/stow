@@ -2,13 +2,7 @@ import os
 import enum
 import typing
 
-from .artefacts.artefacts import Artefact, File, Directory
-
-PathLike = typing.Union[str, os.PathLike[str]]
-ArtefactType = typing.Union[File, Directory]
-ArtefactOrPathLike = typing.Union[ArtefactType, PathLike]
-
-isinstance('hello', os.PathLike)
+StrOrPathLike = typing.Union[str, os.PathLike[str]]
 
 @typing.runtime_checkable
 class TimestampAble(typing.Protocol):

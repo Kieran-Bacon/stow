@@ -22,7 +22,7 @@ def timestampToFloat(timestampLike: TimestampLike) -> float:
 def timestampToDatetime(timestamp: TimestampLike) -> datetime.datetime:
     return datetime.datetime.fromtimestamp(timestampToFloat(timestamp), tz=datetime.timezone.utc)
 
-def timeToFloatOrNone(time: Optional[TimestampLike]) -> Union[float, None]:
+def timestampToFloatOrNone(time: Optional[TimestampLike]) -> Union[float, None]:
     return time if time is None else (time.timestamp() if isinstance(time, TimestampAble) else float(time))
 
 @dataclasses.dataclass

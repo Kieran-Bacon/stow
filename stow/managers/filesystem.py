@@ -1,4 +1,5 @@
 import os
+import abc
 import time
 import typing
 import sys
@@ -19,7 +20,8 @@ else:
     import posix
 
 from .. import _utils as utils
-from ..artefacts import Artefact, File, Directory, PartialArtefact, HashingAlgorithm
+from ..artefacts import Artefact, File, Directory, PartialArtefact
+from ..types import HashingAlgorithm
 from ..manager.base_managers import LocalManager
 from ..callbacks import AbstractCallback, DefaultCallback
 
@@ -59,15 +61,15 @@ class FS(LocalManager):
         path (str): The local relative path to where the manager is to be initialised
     """
 
-    def __new__(cls, path: str = None, drive: str = None):
+    def __new__(cls, path: Optional[str] = None, drive: Optional[str] = None):
         # Note - Though the arguments must match the instances called from super, they do not have to have the same
         # defaults. This allows use to handle the default behaviour differently for the managers
 
         if path is None:
-            return super().__new__(RootFS)
+            return super().__new__(RootFS) # type: ignore
 
         else:
-            return super().__new__(SubdirectoryFS)
+            return super().__new__(SubdirectoryFS) # type: ignore
 
     if os.name == 'nt':
 
@@ -92,6 +94,10 @@ class FS(LocalManager):
             self._path = self._root
 
         COPY_BUFFER_SIZE = 64 * 1024
+
+    @abc.abstractmethod
+    def _relative(self, path: str) -> str:
+        pass
 
     def _mklink(self, source: str, destination: str, soft: bool):
         if soft:
@@ -302,8 +308,8 @@ class FS(LocalManager):
         source: str,
         destination: str,
         sourceStat: os.stat_result,
-        modified_time: float = None,
-        accessed_time: float = None
+        modified_time: Optional[float] = None,
+        accessed_time: Optional[float] = None
         ):
 
         # Set the times of the destination
@@ -339,8 +345,8 @@ class FS(LocalManager):
         destination: str,
         sourceStat: os.stat_result,
         callback: AbstractCallback,
-        modified_time: float = None,
-        accessed_time: float = None
+        modified_time: Optional[float] = None,
+        accessed_time: Optional[float] = None
         ):
 
         # Ensure the desintation

@@ -3,9 +3,11 @@ import abc
 import datetime
 import typing
 from typing import Union, Optional
+from typing_extensions import Self
 
 from .interfaces import ManagerInterface, Localiser
-from ..types import HashingAlgorithm
+from ..worker_config import WorkerPoolConfig
+from ..types import HashingAlgorithm, TimestampLike
 from .. import _utils as utils
 from ..callbacks import AbstractCallback, DefaultCallback
 from .. import exceptions
@@ -137,9 +139,10 @@ class Artefact:
         force: bool = False,
         *,
         callback: AbstractCallback = DefaultCallback(),
-        modified_time: Optional[Union[datetime.datetime, float]] = None,
-        accessed_time: Optional[Union[datetime.datetime, float]] = None
-        ) -> "Artefact":
+        modified_time: Optional[TimestampLike] = None,
+        accessed_time: Optional[TimestampLike] = None,
+        worker_config: Optional[WorkerPoolConfig] = None,
+        ) -> Self:
 
         return self._manager.get(
             self,
@@ -147,6 +150,7 @@ class Artefact:
             callback=callback,
             modified_time=modified_time,
             accessed_time=accessed_time,
+            worker_config=worker_config
         )
 
     def delete(self, force: bool = False):
@@ -256,16 +260,16 @@ class File(Artefact):
 
     def set_artefact_time(
         self,
-        modified_datetime: Optional[typing.Union[float, datetime.datetime]] = None,
-        accessed_datetime: Optional[typing.Union[float, datetime.datetime]] = None
+        modified_time: Optional[TimestampLike] = None,
+        accessed_time: Optional[TimestampLike] = None
         ) -> tuple[float, float]:
         """ TODO """
-        times = modified_time, accessed_time = self._manager.set_artefact_time(self, modified_datetime, accessed_datetime)
+        times = modified_time, accessed_time = self._manager.set_artefact_time(self, modified_time, accessed_time)
         self._modifiedTime = datetime.datetime.fromtimestamp(modified_time, tz=datetime.timezone.utc)
         self._accessedTime = datetime.datetime.fromtimestamp(accessed_time, tz=datetime.timezone.utc)
         return times
 
-    def digest(self, algorithm: HashingAlgorithm = HashingAlgorithm.MD5):
+    def digest(self, algorithm: HashingAlgorithm = HashingAlgorithm.MD5) -> str:
         """ Get the file digest to verify validaty - if a manager does not have it's own method of creatin file digests
         the md5 checksum will be used for the file contents.
         """
@@ -500,7 +504,7 @@ class Directory(Artefact):
         for artefact in self.ls():
             self._manager.rm(artefact, recursive=True)
 
-class PartialArtefact(Artefact):
+class PartialArtefact(Artefact, File, Directory):
 
     def __init__(self, manager, path: str):
         self._manager = manager
