@@ -66,7 +66,7 @@ def cli(ctx: click.Context, debug: bool, manager: str, **kwargs):
     \b
     Examples:
         >>> stow get s3://my-bucket/my-cool-file.txt local-file.txt
-        <stow.File: c:\\Users\\kieran\\Projects\\personal\\stow\\example.txt modified(2023-09-14 09:14:36+00:00) size(3645479 bytes)>
+        <stow.File: c:\\Users\\kieran\\Projects\\personal\\stow\\local-file.txt modified(2023-09-14 09:14:36+00:00) size(3645479 bytes)>
 
     """
 

@@ -239,7 +239,7 @@ class AbstractManager():
         pass
 
     @abstractmethod
-    def _ls(self, directory: ArtefactOrPathLike, recursive: bool = False) -> Generator[ArtefactType, None, None]:
+    def _ls(self, directory: str, recursive: bool = False) -> Generator[ArtefactType, None, None]:
         """ List all artefacts that are present at the directory objects location and add them into the manager.
 
         Args:
@@ -248,7 +248,7 @@ class AbstractManager():
         pass
 
     @abstractmethod
-    def _rm(self, artefact: ArtefactOrPathLike, /, callback: AbstractCallback):
+    def _rm(self, artefact: ArtefactType, /, callback: AbstractCallback):
         """ Delete the underlying artefact data on the manager.
 
         To avoid possible user error in deleting directories, the user must have already indicated that they want to
