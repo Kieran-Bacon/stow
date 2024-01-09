@@ -34,6 +34,7 @@ class Artefact:
         createdTime: Optional[datetime.datetime] = None,
         modifiedTime: Optional[datetime.datetime] = None,
         accessedTime: Optional[datetime.datetime] = None,
+        metadata: Optional[Dict[str, str]] = None,
         ):
 
         self._manager = manager  # Link back to the owning manager
@@ -42,6 +43,7 @@ class Artefact:
         self._createdTime = createdTime
         self._modifiedTime = modifiedTime
         self._accessedTime = accessedTime
+        self._metadata = metadata
 
     def __reduce__(self):
         return (ArtefactReloader, (self._manager.toConfig(), self._path))
@@ -68,6 +70,13 @@ class Artefact:
     def directory(self) -> 'Directory':
         """ Directory object this artefact exists within """
         return self._manager[self._manager.dirname(self._path)]
+
+    @property
+    def metadata(self):
+        """ Get accessible file metadata as hosted by the manager """
+        if self._metadata is None:
+            self._metadata = self._manager._metadata(self._path)
+        return self._metadata
 
     @property
     def createdTime(self) -> datetime.datetime:
@@ -188,11 +197,17 @@ class File(Artefact):
         isLink: Optional[bool] = None,
         storage_class: Optional[StorageClassInterface] = None
         ):
-        super().__init__(manager, path, modifiedTime=modifiedTime, createdTime=createdTime, accessedTime=accessedTime)
+        super().__init__(
+            manager,
+            path,
+            modifiedTime=modifiedTime,
+            createdTime=createdTime,
+            accessedTime=accessedTime,
+            metadata=metadata
+        )
 
         self._size = size  # The size in bytes of the object
         self._content_type = content_type
-        self._metadata = metadata
         self._digest = digest or {}  # A signature for the file content
         self._isLink = isLink
         self._storage_class = storage_class
@@ -225,13 +240,6 @@ class File(Artefact):
     def content_type(self, value: str):
         self._content_type = value
         self._manager._set_content_type(self._path, value)
-
-    @property
-    def metadata(self):
-        """ Get accessible file metadata as hosted by the manager """
-        if self._metadata is None:
-            self._metadata = self._manager._metadata(self._path)
-        return self._metadata
 
     @property
     def name(self):
@@ -332,6 +340,7 @@ class Directory(Artefact):
         createdTime: Optional[datetime.datetime] = None,
         modifiedTime: Optional[datetime.datetime] = None,
         accessedTime: Optional[datetime.datetime] = None,
+        metadata: Optional[Dict[str, str]] = None,
         isMount: Optional[bool] = None
         ):
         super().__init__(
@@ -339,7 +348,8 @@ class Directory(Artefact):
             path,
             createdTime=createdTime,
             modifiedTime=modifiedTime,
-            accessedTime=accessedTime
+            accessedTime=accessedTime,
+            metadata=metadata
         )
 
         self._isMount = isMount
