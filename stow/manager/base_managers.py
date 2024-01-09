@@ -186,7 +186,7 @@ class LocalManager(Manager, abc.ABC):
         return modified_time, accessed_time
 
     def localise(self, artefact: typing.Union[Artefact, str]) -> Localiser:
-        _, _, path = self._splitManagerArtefactForm(artefact, load=False)
+        _, _, path = self._splitArtefactForm(artefact, load=False, require=False, external=False)
         return LocalLocaliser(self._abspath(path))
 
 class RemoteManager(Manager, abc.ABC):
@@ -203,5 +203,5 @@ class RemoteManager(Manager, abc.ABC):
         return '/'
 
     def localise(self, artefact: typing.Union[Artefact, str]) -> Localiser:
-        _, obj, path = self._splitManagerArtefactForm(artefact, require=False)
+        _, obj, path = self._splitArtefactForm(artefact, require=False, external=False)
         return RemoteLocaliser(self, obj, path)

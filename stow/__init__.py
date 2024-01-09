@@ -2,9 +2,12 @@ __version__ = "1.2.2"
 
 import os
 
-from .artefacts import Artefact, File, Directory, HashingAlgorithm
+from .types import TimestampAble, TimestampLike, StrOrPathLike
+from .artefacts import Artefact, File, Directory, ArtefactType, ArtefactOrPathLike
+from .types import HashingAlgorithm
 from .manager import Manager
 from .storage_classes import StorageClass
+from .worker_config import WorkerPoolConfig
 from . import callbacks
 from . import exceptions
 

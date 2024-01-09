@@ -20,6 +20,7 @@ else:
     import posix
 
 from .. import _utils as utils
+from ..worker_config import WorkerPoolConfig
 from ..artefacts import Artefact, File, Directory, PartialArtefact
 from ..types import HashingAlgorithm
 from ..manager.base_managers import LocalManager
@@ -95,9 +96,11 @@ class FS(LocalManager):
 
         COPY_BUFFER_SIZE = 64 * 1024
 
-    @abc.abstractmethod
+    def _abspath(self, path: str) -> str:
+        ...
+
     def _relative(self, path: str) -> str:
-        pass
+        ...
 
     def _mklink(self, source: str, destination: str, soft: bool):
         if soft:
@@ -405,13 +408,15 @@ class FS(LocalManager):
         source: Artefact,
         destination: str,
         *,
-        callback = DefaultCallback(),
+        callback: AbstractCallback,
         modified_time: Optional[float] = None,
         accessed_time: Optional[float] = None,
+        **kwargs
+        # worker_config: Optional[WorkerPoolConfig] = None,
         ):
 
         # Convert source path
-        sourceAbspath = self._abspath(source.path)
+        sourceAbspath = source.abspath
         sourceStat = os.stat(sourceAbspath)
 
         if isinstance(source, File):
@@ -450,6 +455,10 @@ class FS(LocalManager):
         source: Artefact,
         destination: str,
         /,
+        callback: AbstractCallback,
+        modified_time: Optional[float] = None,
+        accessed_time: Optional[float] = None,
+        worker_config: Optional[WorkerPoolConfig] = None,
         **kwargs
         ):
         """ For remote sources - we want to 'get' the artefact and place it directly at the destination location. This
@@ -465,7 +474,13 @@ class FS(LocalManager):
         # Save the source to the destination
         # NOTE save calls the get method of the source manager - which is the most efficient method of dowloading
         # the artefact to the local fs which is is trying todo.
-        source.save(destinationAbspath, **kwargs)
+        source.save(
+            destinationAbspath,
+            callback=callback,
+            modified_time=modified_time,
+            accessed_time=accessed_time,
+            worker_config=worker_config,
+        )
 
         # Create a partial artefact for the newly downloaded file
         return PartialArtefact(self, destination)
@@ -500,8 +515,23 @@ class FS(LocalManager):
 
         return artefact
 
-    def _cp(self, source: Artefact, destination: str, *, callback):
-        return self._get(source, self._abspath(destination), callback=callback)
+    def _cp(
+        self,
+        source: Artefact,
+        destination: str,
+        *,
+        callback: AbstractCallback,
+        modified_time: Optional[float] = None,
+        accessed_time: Optional[float] = None,
+        **kwargs
+        ):
+        return self._get(
+            source,
+            self._abspath(destination),
+            callback=callback,
+            modified_time=modified_time,
+            accessed_time=accessed_time,
+        )
 
     def _mv(self, source: str, destination: str, *args, **kwargs):
 
@@ -527,7 +557,7 @@ class FS(LocalManager):
                 art = self._identifyPath(entry)
                 yield art
                 if recursive and isinstance(art, Directory):
-                    yield from self._(art.path, recursive=recursive)
+                    yield from self._ls(art.path, recursive=recursive)
 
     def _rmtree(self, path: str, callback = None):
 

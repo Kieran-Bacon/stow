@@ -14,5 +14,8 @@ print(a)
 
 Amazon('hello').exists(File(None, 'path', 3600, None))
 
+stow.mv('file', 'file')
+
+
 
 

@@ -234,9 +234,16 @@ class Test_CLI(unittest.TestCase):
 
     def test_digest(self):
 
-        result = self.runner.invoke(cli, ['digest', 'README.md'])
-        assert result.exit_code == 0
-        assert result.output == "0969dd03886923d75bf9a17078538db0\n"
+        with tempfile.TemporaryDirectory() as directory:
+
+            filepath = os.path.join(directory, 'file1.txt')
+
+            with open(filepath, 'w') as handle:
+                handle.write('This is a file with the same content all the time')
+
+            result = self.runner.invoke(cli, ['digest', filepath])
+            assert result.exit_code == 0
+            assert result.output == "d63fd5fa049caa04c774ff3bdb8c3632\n"
 
     def test_sync(self):
 

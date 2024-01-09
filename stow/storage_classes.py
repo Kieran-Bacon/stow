@@ -1,5 +1,6 @@
 import abc
 import enum
+from typing import (Optional, Union)
 from typing_extensions import Self
 
 class StorageClassInterface(enum.Enum):
@@ -9,14 +10,17 @@ class StorageClassInterface(enum.Enum):
         raise NotImplementedError()
 
     @classmethod
-    def fromGeneric(cls, value: "StorageClass") -> Self:
+    def fromGeneric(cls, value: Optional["StorageClass"]) -> Self:
         raise NotImplementedError()
 
     @classmethod
-    def convert(cls, sclass: Self) -> Self:
-        if isinstance(sclass, cls):
+    def convert(cls, sclass: Union["StorageClassInterface", str]) -> Self:
+        if isinstance(sclass, str):
+            return cls(sclass)
+        elif isinstance(sclass, cls):
             return sclass
-        return cls.fromGeneric(sclass.toGeneric(sclass))
+        else:
+            return cls.fromGeneric(sclass.toGeneric(sclass))
 
 class StorageClass(StorageClassInterface):
     ARCHIVE = enum.auto()

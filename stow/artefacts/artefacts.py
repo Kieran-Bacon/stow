@@ -2,12 +2,13 @@ import os
 import abc
 import datetime
 import typing
-from typing import Union, Optional
+from typing import Union, Optional, Dict
 from typing_extensions import Self
 
 from .interfaces import ManagerInterface, Localiser
+from ..storage_classes import StorageClassInterface, StorageClass
 from ..worker_config import WorkerPoolConfig
-from ..types import HashingAlgorithm, TimestampLike
+from ..types import HashingAlgorithm, TimestampLike, StrOrPathLike
 from .. import _utils as utils
 from ..callbacks import AbstractCallback, DefaultCallback
 from .. import exceptions
@@ -29,9 +30,9 @@ class Artefact:
         self,
         manager: ManagerInterface,
         path: str,
-        modifiedTime: datetime.datetime,
         *,
         createdTime: Optional[datetime.datetime] = None,
+        modifiedTime: Optional[datetime.datetime] = None,
         accessedTime: Optional[datetime.datetime] = None,
         ):
 
@@ -50,7 +51,7 @@ class Artefact:
 
     def __eq__(self, other: "Artefact"):
         return (
-            self.manager is other.manager and
+            self._manager is other._manager and
             type(self) == type(other) and
             self.path == other.path
         )
@@ -64,11 +65,6 @@ class Artefact:
         return self._manager._abspath(self._path)
 
     @property
-    def manager(self):
-        """ Return the manager object this Artefact belongs to """
-        return self._manager
-
-    @property
     def directory(self) -> 'Directory':
         """ Directory object this artefact exists within """
         return self._manager[self._manager.dirname(self._path)]
@@ -76,11 +72,13 @@ class Artefact:
     @property
     def createdTime(self) -> datetime.datetime:
         """ UTC localised datetime of time file last modified by a write/append method """
-        return self._createdTime or self._modifiedTime
+        return self._createdTime or self.modifiedTime
 
     @property
     def modifiedTime(self) -> datetime.datetime:
         """ UTC localised datetime of time file last modified by a write/append method """
+        if self._modifiedTime is None:
+            raise exceptions.ArtefactMetadataUndefined(f"{self} does not have modified time defined")
         return self._modifiedTime
 
     @modifiedTime.setter
@@ -90,7 +88,7 @@ class Artefact:
     @property
     def accessedTime(self) -> datetime.datetime:
         """ UTC localised datetime of time file last modified by a write/append method """
-        return (self._accessedTime or self._modifiedTime)
+        return (self._accessedTime or self.modifiedTime)
     @accessedTime.setter
     def accessedTime(self, _datetime: typing.Union[float, datetime.datetime]):
         self._accessedTime = self._manager.setatime(self, _datetime)
@@ -114,7 +112,7 @@ class Artefact:
     @basename.setter
     def basename(self, basename: str):
         path: str = self._manager.join(self._manager.dirname(self._path), self._manager.basename(basename))
-        self.manager.mv(self, path)
+        self._manager.mv(self, path)
         self._path = path
 
     @property
@@ -131,7 +129,7 @@ class Artefact:
         Returns:
             Localiser: The context manager object
         """
-        return self.manager.localise(self)
+        return self._manager.localise(self)
 
     def save(
         self,
@@ -147,6 +145,7 @@ class Artefact:
         return self._manager.get(
             self,
             path,
+            overwrite=force,
             callback=callback,
             modified_time=modified_time,
             accessed_time=accessed_time,
@@ -162,7 +161,7 @@ class Artefact:
         Raises:
             OperationNotPermitted: If directory and deletion has not been deleted
         """
-        self.manager.rm(self, recursive=force)
+        self._manager.rm(self, recursive=force)
 
 class File(Artefact):
     """ A filesystem file object - a container of bytes representing some data
@@ -178,15 +177,16 @@ class File(Artefact):
         self,
         manager,
         path: str,
-        size: float,
+        size: int,
         modifiedTime: datetime.datetime,
-        /,
+        *,
         content_type: Optional[str] = None,
         metadata: Optional[typing.Dict[str, str]] = None,
         createdTime: Optional[datetime.datetime] = None,
         accessedTime: Optional[datetime.datetime] = None,
         digest: Optional[typing.Dict[HashingAlgorithm, str]] = None,
-        isLink: Optional[bool] = None
+        isLink: Optional[bool] = None,
+        storage_class: Optional[StorageClassInterface] = None
         ):
         super().__init__(manager, path, modifiedTime=modifiedTime, createdTime=createdTime, accessedTime=accessedTime)
 
@@ -195,10 +195,24 @@ class File(Artefact):
         self._metadata = metadata
         self._digest = digest or {}  # A signature for the file content
         self._isLink = isLink
+        self._storage_class = storage_class
 
     def __len__(self): return self.size
     def __repr__(self):
         return '<stow.File: {} modified({}) size({} bytes)>'.format(self._path, self._modifiedTime, self._size)
+
+    @property
+    def storage_class(self) -> Optional[StorageClassInterface]:
+        return self._storage_class
+    @storage_class.setter
+    def storage_class(self, sclass: StorageClassInterface):
+        # Either we have a new method on the managers that allows us access to the storage class for that manager or
+        # we simply call put and fetch the update from the response object1
+        artefact = self._manager.put(self, self, content_type=self.content_type, metadata=self.metadata, storage_class=sclass)
+        self._storage_class = artefact.storage_class
+        self._createdTime = artefact._createdTime
+        self._modifiedTime = artefact._modifiedTime
+        self._accessedTime = artefact._accessedTime
 
     @property
     def content_type(self):
@@ -279,7 +293,7 @@ class File(Artefact):
         return self._digest[algorithm]
 
     @property
-    def size(self):
+    def size(self) -> int:
         """ Size of file content in bytes """
         return self._size
 
@@ -314,24 +328,24 @@ class Directory(Artefact):
         self,
         manager,
         path: str,
-        modifiedTime: datetime.datetime,
         *,
         createdTime: Optional[datetime.datetime] = None,
+        modifiedTime: Optional[datetime.datetime] = None,
         accessedTime: Optional[datetime.datetime] = None,
         isMount: Optional[bool] = None
         ):
         super().__init__(
             manager,
             path,
-            modifiedTime=modifiedTime,
             createdTime=createdTime,
+            modifiedTime=modifiedTime,
             accessedTime=accessedTime
         )
 
         self._isMount = isMount
 
     def __len__(self): return len(self.ls())
-    def __iter__(self): return self._manager.iterls(self)
+    def __iter__(self): return self._manager.iterls(self, recursive=False, ignore_missing=False)
     def __repr__(self): return '<stow.Directory: {}>'.format(self._path)
     def __contains__(self, artefact: typing.Union[Artefact, str]) -> bool:
 
@@ -349,12 +363,16 @@ class Directory(Artefact):
         else:
             raise TypeError(f"Directory ({self}) contains does not support type {type(artefact)} ({artefact})")
 
+    # @property
+    # def modifiedTime(self) -> Optional[datetime.datetime]:
+    #     return self._modifiedTime
+
     def isMount(self):
         if self._isMount is None:
             self._isMount = self._manager._isMount(self)
         return self._isMount
 
-    def mkdir(self, path: str):
+    def mkdir(self, path: str) -> "Directory":
         """ Create a directory nested inside this `Directory` with the relative path given
 
         Args:
@@ -363,7 +381,7 @@ class Directory(Artefact):
         Returns:
             Directory: The newly created directory object
         """
-        return self.manager.mkdir(self.manager.join(self._path, path, separator='/', joinAbsolutes=True))
+        return self._manager.mkdir(self._manager.join(self._path, path, separator='/', joinAbsolutes=True)) # type: ignore
 
     def touch(self, path: str) -> File:
         """ Touch a file at given location relative to this Directory
@@ -374,7 +392,7 @@ class Directory(Artefact):
         Returns:
             File: The newly created file object
         """
-        return self.manager.touch(self.manager.join(self._path, path, separator='/', joinAbsolutes=True))
+        return self._manager.touch(self._manager.join(self._path, path, separator='/', joinAbsolutes=True)) # type: ignore
 
     def relpath(self, artefact: typing.Union[Artefact, str], separator: str = os.sep) -> str:
         """ Assuming the artefact is a member of this directory, return a filepath which is relative to this directory
@@ -402,7 +420,7 @@ class Directory(Artefact):
         #     )
 
         # Return the path
-        return self.manager.relpath(path, self.path, separator=separator)
+        return self._manager.relpath(path, self.path, separator=separator)
 
     def open(self, path: str, mode: str = "r", **kwargs) -> typing.IO[typing.AnyStr]:
         """ Open a file and create a stream to that file. Expose interface of `open`
@@ -415,8 +433,8 @@ class Directory(Artefact):
         Yields:
             io.IOBase: An IO object depending on the mode for interacting with the file
         """
-        return self.manager.open(
-            self.manager.join(self._path, path, separator='/', joinAbsolutes=True),
+        return self._manager.open(
+            self._manager.join(self._path, path, separator='/', joinAbsolutes=True),
             mode,
             **kwargs
         )
@@ -431,15 +449,15 @@ class Directory(Artefact):
         Raises:
             OperationNotPermitted: In the even the target is a directory and recursive has not been toggled
         """
-        return self.manager.rm(self if path is None else self.manager.join(self.path, path, separator='/', joinAbsolutes=True), recursive)
+        return self._manager.rm(self if path is None else self._manager.join(self.path, path, separator='/', joinAbsolutes=True), recursive)
 
     def iterls(
         self,
-        path: Optional[str] = None,
+        path: Optional[StrOrPathLike] = None,
         recursive: bool = False,
         *,
         ignore_missing: bool = False
-        ) -> typing.Generator[Artefact, None, Artefact]:
+        ) -> typing.Generator[Union[File, "Directory"], None, None]:
         """ Create a generator over the contents of this object (or sub-directory)
 
         Args:
@@ -458,11 +476,11 @@ class Directory(Artefact):
         """
 
         try:
-            return self._manager.iterls(
-                self if path is None else self.manager.join(self.path, path, separator='/'),
+            yield from self._manager.iterls(
+                self if path is None else self._manager.join(self.path, path, separator='/'),
                 recursive=recursive,
                 ignore_missing=ignore_missing
-            )
+            ) # type: ignore
         except exceptions.ArtefactNotFound as e:
             raise exceptions.ArtefactNoLongerExists(f"Directory {self} no longer exists") from e
 
@@ -486,7 +504,7 @@ class Directory(Artefact):
             ArtefactNoLongerExists: If the directory can no longer be found in the manager, and
                 ignore_missing is False
         """
-        return set(self.iterls(path, recursive=recursive, ignore_missing=ignore_missing))
+        return set(self.iterls(self, recursive=recursive, ignore_missing=ignore_missing))
 
     def isEmpty(self) -> bool:
         """ Check whether the directory has contents
@@ -494,7 +512,7 @@ class Directory(Artefact):
         Returns:
             bool: True when there is at least one item in the directory False when the directory is empty
         """
-        for _ in self._manager.iterls(self._path):
+        for _ in self._manager.iterls(self._path, recursive=False, ignore_missing=False):
             return False
         else:
             return True
@@ -504,7 +522,7 @@ class Directory(Artefact):
         for artefact in self.ls():
             self._manager.rm(artefact, recursive=True)
 
-class PartialArtefact(Artefact, File, Directory):
+class PartialArtefact(File, Directory):
 
     def __init__(self, manager, path: str):
         self._manager = manager

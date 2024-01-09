@@ -22,7 +22,7 @@ def find(manager: str) -> typing.Type[Manager]:
     """
     return _utils.find(manager)
 
-def connect(manager: str, **kwargs) -> typing.Type[Manager]:
+def connect(manager: str, **kwargs) -> Manager:
     """ Find and connect to a `Manager` using its name (entrypoint name) and return an instance of that `Manager`
     initialised with the kwargs provided. A path can be provided as the location on the manager for a sub manager to be
     created which will be returned instead.

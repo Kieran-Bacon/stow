@@ -130,14 +130,3 @@ class Test_Artefacts(unittest.TestCase):
             {art.path for art in self.manager.ls(recursive=True)},
             {f"{os.sep}directory1", f"{os.sep}file1-changed.txt", f'{os.sep}with_level'}
         )
-
-    def test_manager(self):
-
-        file = self.manager['/file1']
-        directory = self.manager['/directory1']
-
-        self.assertEqual(file.manager, self.manager)
-        self.assertEqual(directory.manager, self.manager)
-
-        with pytest.raises(AttributeError):
-            file.manager = None

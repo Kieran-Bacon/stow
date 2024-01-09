@@ -1,5 +1,6 @@
 import abc
 import typing
+from typing import Union
 
 import tqdm
 
@@ -19,19 +20,19 @@ class AbstractCallback(abc.ABC): # pragma: no cover
         pass
 
     @abc.abstractmethod
-    def addTaskCount(*args):
+    def addTaskCount(self, count: int, isAdding: bool):
         pass
 
     @abc.abstractmethod
-    def added(*args):
+    def added(self, pathOrCount: Union[str, int]):
         pass
 
     @abc.abstractmethod
-    def get_bytes_transfer(*args):
+    def get_bytes_transfer(self, path: str, bytes: int):
         pass
 
     @abc.abstractmethod
-    def removed(*args):
+    def removed(self, pathOrCount: Union[str, int]):
         pass
 
 def do_nothing(*args, **kwargs): # pragma: no cover
@@ -108,7 +109,7 @@ class ProgressCallback(AbstractCallback):
             else:
                 self._removingArtefactsProgress.total += count
 
-    def added(self, path):
+    def added(self, path: Union[str, int]):
         log.debug('Adding path=%s', path)
 
         if path in self._bytesTransferedProgress:
@@ -136,15 +137,18 @@ class ProgressCallback(AbstractCallback):
 
         return pbar.update
 
-    def removed(self, path):
-        log.debug('Removing path=%s', path)
+    def removed(self, path: Union[str, int]):
+        log.debug('Removing %s', path)
 
         if self._removingArtefactsProgress:
-            self._removingArtefactsProgress.update()
-            if self._removingArtefactsProgress.n >= self._removingArtefactsProgress.total:
+
+            self._removingArtefactsProgress.update(path if isinstance(path, int) else 1)
+
+            if self._removingArtefactsProgress.n > self._removingArtefactsProgress.total:
                 self._removingArtefactsProgress = None
         else:
-            log.info(path + ' removed')
+            if isinstance(path, str):
+                log.info(path + ' removed')
 
 def composeCallback(callbacks: typing.Iterable[AbstractCallback]):
     """ Compile an iterable of callback methods together into a single Callback class object """

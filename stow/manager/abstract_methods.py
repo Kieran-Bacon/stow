@@ -61,7 +61,7 @@ class AbstractManager():
         pass
 
     @abstractmethod
-    def _identifyPath(self, managerPath: str) -> Optional[Artefact]:
+    def _identifyPath(self, managerPath: str) -> Optional[ArtefactType]:
         """ For the path given, create an `Artefact` for the object at the location on the manager but do not add it
         into the manager. If no object exists - return None
 
@@ -134,8 +134,9 @@ class AbstractManager():
         metadata: Optional[Dict[str, str]],
         modified_time: Optional[TimestampLike],
         accessed_time: Optional[TimestampLike],
+        content_type: Optional[str],
         storage_class: Optional[StorageClass],
-        worker_config: Optional[WorkerPoolConfig],
+        worker_config: WorkerPoolConfig,
         ) -> ArtefactType:
         """ Put the local filesystem object onto the underlying manager implementation using the absolute paths given.
 
@@ -161,6 +162,7 @@ class AbstractManager():
         metadata: Optional[Dict[str, str]],
         modified_time: Optional[float],
         accessed_time: Optional[float],
+        content_type: Optional[str],
         storage_class: Optional[StorageClass],
         ) -> File:
         """ Put the bytes of a file object onto the underlying manager implementation using the absolute path given.
@@ -184,10 +186,11 @@ class AbstractManager():
         destination: str,
         /,
         callback: AbstractCallback,
-        work_config: Optional[WorkerPoolConfig],
+        worker_config: WorkerPoolConfig,
         metadata: Optional[Dict[str, str]],
         modified_time: Optional[float],
         accessed_time: Optional[float],
+        content_type: Optional[str],
         storage_class: Optional[StorageClass],
         ) -> ArtefactType:
         """ Method for copying an artefact local to the manager to another location on the manager. Implementation
@@ -211,12 +214,13 @@ class AbstractManager():
         destination: str,
         /,
         callback: AbstractCallback,
-        work_config: Optional[WorkerPoolConfig],
+        worker_config: WorkerPoolConfig,
         metadata: Optional[Dict[str, str]],
         modified_time: Optional[float],
         accessed_time: Optional[float],
         storage_class: Optional[StorageClass],
-        ) -> Artefact:
+        content_type: Optional[str],
+        ) -> ArtefactType:
         """ Move an artefact from its location to another location managed by the same manager class. This method should
         attempt exploit manager implementation to have transfer done remotely, and avoid having data downloaded to be
         pushed.

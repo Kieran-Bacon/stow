@@ -39,9 +39,6 @@ class Test_Amazon(unittest.TestCase):
         manager = Amazon('bucket_name')
         self.assertEqual('bucket_name', manager.root)
 
-        file = stow.touch("s3://bucket_name/file.txt")
-        self.assertEqual('bucket_name', file.manager.root)
-
     def test_get_root_directory(self):
 
         manager = Amazon('bucket_name')
@@ -266,7 +263,8 @@ class Test_Amazon(unittest.TestCase):
                 Body=b"This is the content of the file",
             )
 
-        manager = Amazon('bucket_name', max_keys=25)
+        manager = Amazon('bucket_name')
+        manager.s3_max_keys = 25
 
         self.assertEqual(
             {f"/file-{i}.txt" for i in range(50)},
@@ -594,6 +592,7 @@ class Test_Amazon(unittest.TestCase):
             'aws_session_token': None,
             'region_name': sess.region_name,
             'profile_name': os.environ.get('AWS_PROFILE', 'default'),
+            'storage_class': "STANDARD",
             }, manager.toConfig())
 
     def test_digest_md5(self):

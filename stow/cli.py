@@ -1,14 +1,16 @@
 import click
 from click_option_group import optgroup
 
+import dataclasses
 import datetime
 import logging
 import pkg_resources
 from typing import Tuple, Optional, List
 
 from .manager import Manager
-from .artefacts import HashingAlgorithm, File, Directory
-from .callbacks import DefaultCallback, ProgressCallback
+from .artefacts import File, Directory
+from .types import HashingAlgorithm
+from .callbacks import AbstractCallback, DefaultCallback, ProgressCallback
 
 log = logging.getLogger(__name__)
 
@@ -51,6 +53,10 @@ cli_decorators = [
     click.pass_context
 ]
 
+@dataclasses.dataclass
+class StowContext:
+    manager: Manager
+    callback: AbstractCallback
 
 def cli(ctx: click.Context, debug: bool, manager: str, **kwargs):
     """Stow anything anywhere.
@@ -79,6 +85,7 @@ def cli(ctx: click.Context, debug: bool, manager: str, **kwargs):
 
 
     # Attach callback to manager object for reference below
+    # TODO convert default callback into this for the manager
     managerObj.callback = ProgressCallback() # if debug else DefaultCallback()
 
     ctx.obj = managerObj
@@ -260,7 +267,14 @@ def sync(manager: Manager, source: str, destination: str, delete: bool, check_mo
         module = importlib.import_module(p)
         comparator = getattr(module, m)
 
-    manager.sync(source, destination, delete=delete, check_modified_times=check_modified, digest_comparator=comparator)
+    manager.sync(
+        source,
+        destination,
+        delete=delete,
+        check_modified_times=check_modified,
+        digest_comparator=comparator,
+        callback=manager.callback
+    )
 
 @cli.command()
 @click.argument('artefacts', nargs=-1)
@@ -269,4 +283,4 @@ def sync(manager: Manager, source: str, destination: str, delete: bool, check_mo
 def rm(manager: Manager, artefacts: Tuple[str], recursive: bool):
     """ Remove artefact """
     for artefact in artefacts:
-        manager.rm(artefact, recursive=recursive)
+        manager.rm(artefact, recursive=recursive, callback=manager.callback)

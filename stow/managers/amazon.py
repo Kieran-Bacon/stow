@@ -1,28 +1,28 @@
 """ The implementation of Amazon's S3 storage manager for stow """
 
+# pyright: reportTypedDictNotRequiredAccess=false
+
 import os
 import re
 import io
 import typing
-from typing import Union, Optional, Tuple, Type, overload
+from typing import Generator, List, Union, Optional, Tuple, Type, Dict, overload
 from typing_extensions import Self
 import urllib.parse
 import hashlib
-import enum
 import mimetypes
-import datetime
-import threading
-import concurrent.futures as futures
 import logging
 import base64
-import functools
+import datetime
+import dataclasses
 
-from tqdm import tqdm
-import botocore.config
 import boto3
+import botocore.config
 from botocore.exceptions import ClientError, UnauthorizedSSOTokenError
 
-from ..artefacts import Artefact, PartialArtefact, File, Directory, HashingAlgorithm
+from ..worker_config import WorkerPoolConfig
+from ..types import HashingAlgorithm
+from ..artefacts import Artefact, PartialArtefact, File, Directory, ArtefactType
 from ..manager import RemoteManager
 from ..storage_classes import StorageClass, StorageClassInterface
 from ..callbacks import AbstractCallback
@@ -83,6 +83,25 @@ def etagComparator(*files: File) -> bool:
 
     return all(digests[0] == d for d in digests[1:])
 
+@dataclasses.dataclass
+class FileStat:
+    key: str
+    lastModified: datetime.datetime
+    size: int
+    storageClass: str
+
+@dataclasses.dataclass
+class DirectoryStat:
+    prefix: str
+
+@dataclasses.dataclass
+class Dir:
+    files: List[FileStat] = dataclasses.field(default_factory=list)
+    directories: List[DirectoryStat] = dataclasses.field(default_factory=list)
+
+    def __len__(self) -> int:
+        return len(self.files) + len(self.directories)
+
 class Amazon(RemoteManager):
     """ Connect to an amazon s3 bucket using an IAM user credentials or environment variables
 
@@ -133,7 +152,7 @@ class Amazon(RemoteManager):
                 raise NotImplementedError(f'{value} has no generic mapping - Select storage class explicitly')
 
         @classmethod
-        def fromGeneric(cls, generic: StorageClass) -> "Amazon.AmazonStorageClass":
+        def fromGeneric(cls, generic: Optional[StorageClass]) -> "Amazon.AmazonStorageClass":
 
             if generic is StorageClass.STANDARD:
                 return cls.STANDARD
@@ -146,10 +165,10 @@ class Amazon(RemoteManager):
                 raise NotImplementedError(f'{generic} cannot be mapped to specific storage class in S3 - Select storage class explicitly')
 
     @overload
-    def __init__(self, bucket: str):
+    def __init__(self, bucket: str, *, storage_class: AmazonStorageClass = AmazonStorageClass.STANDARD):
         pass
     @overload
-    def __init__(self, bucket: str, *, aws_session: boto3.Session):
+    def __init__(self, bucket: str, *, aws_session: boto3.Session, storage_class: AmazonStorageClass = AmazonStorageClass.STANDARD):
         pass
     @overload
     def __init__(
@@ -159,10 +178,11 @@ class Amazon(RemoteManager):
         aws_access_key_id: str,
         aws_secret_access_key: str,
         aws_session_token: str,
+        storage_class: AmazonStorageClass = AmazonStorageClass.STANDARD
         ):
         pass
     @overload
-    def __init__(self, bucket: str, *, profile_name: str):
+    def __init__(self, bucket: str, *, profile_name: str, storage_class: AmazonStorageClass = AmazonStorageClass.STANDARD):
         pass
     def __init__(
         self,
@@ -174,9 +194,11 @@ class Amazon(RemoteManager):
         aws_session_token: Optional[str] = None,
         region_name: Optional[str] = None,
         profile_name: Optional[str] = None,
+        storage_class: AmazonStorageClass = AmazonStorageClass.STANDARD
     ):
 
         self._bucketName = bucket
+        self._storageClass = self.AmazonStorageClass.convert(storage_class)
 
         # Handle the credentials for this manager
         if aws_session is None:
@@ -202,31 +224,37 @@ class Amazon(RemoteManager):
             'aws_session_token': credentials.token,
             'region_name': aws_session.region_name,
             'profile_name': aws_session.profile_name,
+            'storage_class': storage_class.value
         }
 
         # NOTE
         # The max pool connections default is 10 - so machines with a large number of threads may exceed this count and
         # experience a very slow connection plus urllib3 pool warnings.
         # Thread pools created by stow will be created with the system cpu count
+        cpu_count = os.cpu_count()
+        if cpu_count is not None:
+            cpu_count *=2
+        else:
+            cpu_count = 10
+
         self._aws_session = aws_session
         self._s3 = self._aws_session.client(
             's3',
             config=botocore.config.Config(
-                max_pool_connections=os.cpu_count(),
+                max_pool_connections=cpu_count,
             )
         )
 
         super().__init__()
 
-    _storageClass = AmazonStorageClass.STANDARD
     @property
     def storage_class(self) -> AmazonStorageClass:
         return self._storageClass
     @storage_class.setter
     def storage_class(self, value: Union[StorageClass, str]):
-        self._storageClass = self.AmazonStorageClass(value)
+        self._storageClass = self.AmazonStorageClass.convert(value)
 
-    _s3_max_keys = int(os.environ.get('STOW_AMAZON_MAX_KEYS', 100))
+    _s3_max_keys = int(os.environ.get('STOW_AMAZON_MAX_KEYS', 1000))
     @property
     def s3_max_keys(self) -> int:
         return self._s3_max_keys
@@ -243,7 +271,7 @@ class Amazon(RemoteManager):
                 's3',
                 self._bucketName,
                 managerPath,
-                {},
+                '',
                 '',
                 ''
             ).geturl()
@@ -295,7 +323,8 @@ class Amazon(RemoteManager):
             )
 
         except ClientError as e:
-            if "responseMetdata" in e.response:
+
+            if "ResponseMetadata" in e.response:
                 if e.response['ResponseMetadata']['HTTPStatusCode'] == 404:
                     # No file existed with the given key - check if directory
 
@@ -327,7 +356,7 @@ class Amazon(RemoteManager):
             return self._getMetadataFromHead(response)
 
         except ClientError as e:
-            if "responseMetdata" in e.response:
+            if "ResponseMetadata" in e.response:
                 if e.response['ResponseMetadata']['HTTPStatusCode'] == 404:
                     raise exceptions.ArtefactNoLongerExists(
                         f'Failed to fetch metadata information for {key}'
@@ -387,13 +416,13 @@ class Amazon(RemoteManager):
 
     def _get(
         self,
-        source: Artefact,
+        source: ArtefactType,
         destination: str,
         *,
-        worker_pool: Optional[futures.Executor],
-        callback,
-        modified_time: float = None,
-        accessed_time: float = None
+        callback: AbstractCallback,
+        worker_config: WorkerPoolConfig,
+        modified_time: Optional[float],
+        accessed_time: Optional[float]
         ):
 
         # Convert manager path to s3
@@ -402,53 +431,40 @@ class Amazon(RemoteManager):
         # If the source object is a directory
         if isinstance(source, Directory):
 
-            with (worker_pool or self._workerPool()) as executor:
+            # Loop through all objects under that prefix and create them locally
+            for results in self._list_objects(self._bucketName, keyName):
+                callback.addTaskCount(len(results), isAdding=True)
 
-            with futures.ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
+                for metadata in results.files:
 
-                future_collection = []
+                    # Get the artefact manager path
+                    artefactPath = metadata.key
 
-                # Loop through all objects under that prefix and create them locally
-                for results in self._list_objects(self._bucketName, keyName):
-                    callback.addTaskCount(len(results), isAdding=True)
+                    # Get the objects relative path to the directory
+                    relativePath = self.relpath(artefactPath, keyName)
 
-                    for metadata, _ in results:
+                    # Create object absolute path locally
+                    path = os.path.join(destination, relativePath)
 
-                        # Get the artefact manager path
-                        artefactPath = metadata['Key']
+                    # Download the artefact to that location
+                    if artefactPath[-1] != '/':
 
-                        # Get the objects relative path to the directory
-                        relativePath = self.relpath(artefactPath, keyName)
+                        # Ensure the directory for that object
+                        os.makedirs(os.path.dirname(path), exist_ok=True)
+                        times = (accessed_time or metadata.lastModified.timestamp(), modified_time or metadata.lastModified.timestamp())
+                        transfer = callback.get_bytes_transfer(path, metadata.size)
 
-                        # Create object absolute path locally
-                        path = os.path.join(destination, relativePath)
+                        worker_config.submit(
+                            self._download_file,
+                            artefactPath,
+                            path,
+                            times,
+                            callback=callback,
+                            transfer=transfer
+                        )
 
-                        # Download the artefact to that location
-                        if artefactPath[-1] != '/':
-
-                            # Ensure the directory for that object
-                            os.makedirs(os.path.dirname(path), exist_ok=True)
-                            times = (accessed_time or metadata['LastModified'].timestamp(), modified_time or metadata['LastModified'].timestamp())
-                            transfer = callback.get_bytes_transfer(path, metadata['Size'])
-
-                            future = executor.submit(
-                                # self._s3.download_file,
-                                self._download_file,
-                                artefactPath,
-                                path,
-                                times,
-                                callback=callback,
-                                transfer=transfer
-                            )
-                            future_collection.append(future)
-
-                        else:
-                            os.makedirs(path, exist_ok=True)
-
-                for future in futures.as_completed(future_collection):
-                    exception = future.exception()
-                    if exception:
-                        raise exception
+                    else:
+                        os.makedirs(path, exist_ok=True)
 
         else:
 
@@ -462,7 +478,7 @@ class Amazon(RemoteManager):
             )
             callback.added(destination)
 
-    def _getBytes(self, source: Artefact, callback = None) -> bytes:
+    def _getBytes(self, source: File, callback: AbstractCallback) -> bytes:
 
         # Get buffer to recieve bytes
         bytes_buffer = io.BytesIO()
@@ -484,8 +500,10 @@ class Amazon(RemoteManager):
         self,
         source: File,
         destination: str,
-        extra_args: typing.Dict,
-        callback = None
+        extra_args: typing.Dict[str, str],
+        callback: AbstractCallback,
+        content_type: Optional[str],
+        storage_class: AmazonStorageClass
         ):
 
         with source.localise() as abspath:
@@ -494,8 +512,8 @@ class Amazon(RemoteManager):
                 self._bucketName,
                 self._managerPath(destination),
                 ExtraArgs={
-                    "StorageClass": self._storageClass.value,
-                    "ContentType": (mimetypes.guess_type(destination)[0] or 'application/octet-stream'),
+                    "StorageClass": storage_class.value,
+                    "ContentType": (content_type or mimetypes.guess_type(destination)[0] or 'application/octet-stream'),
                     **extra_args
                 },
                 Callback=callback.get_bytes_transfer(destination, source.size)
@@ -503,69 +521,73 @@ class Amazon(RemoteManager):
 
         callback.added(destination)
 
-    def _put(self, source: Artefact, destination: str, *, metadata = None, callback = None, **kwargs):
+    def _put(
+        self,
+        source: ArtefactType,
+        destination: str,
+        *,
+        callback: AbstractCallback,
+        worker_config: WorkerPoolConfig,
+        content_type: Optional[str],
+        storage_class: Optional[StorageClass],
+        metadata: Dict[str, str],
+        **kwargs
+        ):
 
         # Setup metadata about the objects being put
+        amazon_storage_class = self.AmazonStorageClass.convert(storage_class or self.storage_class)
         extra_args = {}
         if metadata is not None:
             extra_args['Metadata'] = {str(k): str(v) for k, v in metadata.items()}
 
         if isinstance(source, Directory):
 
-            # Create a thread pool to upload multiple files in parallel
-            with self._workerPool() as executor:
-                future_collection = []
+            directories = [source]
 
-                directories = [source]
+            while directories:
+                directory = directories.pop(0)
 
-                while directories:
-                    directory = directories.pop(0)
-
-                    artefact = None
-                    for artefact in directory.iterls():
-                        if isinstance(artefact, File):
-
-                            file_destination = self.join(
-                                destination,
-                                source.relpath(artefact),
-                                separator='/'
-                            )
-
-                            future_collection.append(
-                                executor.submit(
-                                    self._localise_put_file,
-                                    artefact,
-                                    file_destination,
-                                    extra_args=extra_args,
-                                    callback=callback
-                                )
-                            )
-
-                        else:
-                            directories.append(artefact)
-
-                    if artefact is None:
+                artefact = None
+                for artefact in directory.iterls():
+                    if isinstance(artefact, File):
 
                         file_destination = self.join(
                             destination,
-                            source.relpath(directory),
+                            source.relpath(artefact),
                             separator='/'
-                        ) + '/'
-
-
-                        future_collection.append(
-                            executor.submit(
-                                self._s3.put_object,
-                                Body=b'',
-                                Bucket=self._bucketName,
-                                Key=self._managerPath(file_destination)
-                            )
                         )
 
-                for future in futures.as_completed(future_collection):
-                    exception = future.exception()
-                    if exception is not None:
-                        raise exception
+                        worker_config.submit(
+                            self._localise_put_file,
+                            artefact,
+                            file_destination,
+                            extra_args=extra_args,
+                            callback=callback,
+                            content_type=content_type,
+                            storage_class=amazon_storage_class
+                        )
+
+                    else:
+                        directories.append(artefact)
+
+                if artefact is None:
+                    # The directory was empty and therefore nothing was uploaded.
+
+                    file_destination = self._managerPath(
+                            self.join(
+                            destination,
+                            source.relpath(directory),
+                            separator='/'
+                        )
+                    ) + '/'
+
+                    worker_config.submit(
+                        self._s3.put_object,
+                        Body=b'',
+                        Bucket=self._bucketName,
+                        Key=file_destination,
+                        # StorageClass=amazon_storage_class.value  # This is a dictionary file so I don't know if its needed
+                    )
 
         else:
 
@@ -573,7 +595,9 @@ class Amazon(RemoteManager):
                 source,
                 destination,
                 extra_args=extra_args,
-                callback=callback
+                callback=callback,
+                content_type=content_type,
+                storage_class=amazon_storage_class
             )
 
         return PartialArtefact(self, destination)
@@ -583,19 +607,22 @@ class Amazon(RemoteManager):
         fileBytes: bytes,
         destination: str,
         *,
-        callback,
-        metadata: typing.Dict[str, str] = None,
+        callback: AbstractCallback,
+        metadata: Optional[Dict[str, str]] = None,
+        content_type: Optional[str],
+        storage_class: Optional[StorageClass],
         **kwargs
         ):
 
+        amazon_storage_class = self.AmazonStorageClass.convert(storage_class or self.storage_class)
 
         self._s3.upload_fileobj(
             io.BytesIO(fileBytes),
             self._bucketName,
             self._managerPath(destination),
             ExtraArgs={
-                "StorageClass": self._storageClass.value,
-                "ContentType": (mimetypes.guess_type(destination)[0] or 'application/octet-stream'),
+                "StorageClass": amazon_storage_class.value,
+                "ContentType": (content_type or mimetypes.guess_type(destination)[0] or 'application/octet-stream'),
                 "Metadata": ({str(k): str(v) for k, v in metadata.items()} if metadata else {})
             },
             Callback=callback.get_bytes_transfer(destination, len(fileBytes))
@@ -604,7 +631,7 @@ class Amazon(RemoteManager):
 
         return PartialArtefact(self, destination)
 
-    def _list_objects(self, bucket: str, key: str, delimiter: str = "") -> typing.List[typing.Tuple[typing.Dict, bool]]:
+    def _list_objects(self, bucket: str, key: str, delimiter: str = "") -> Generator[Dir, None, None]:
 
         if key:
             key += '/'
@@ -616,13 +643,29 @@ class Amazon(RemoteManager):
                 Prefix=key,
                 Marker=marker,
                 Delimiter=delimiter,
-                MaxKeys=self._S3_MAX_KEYS
+                MaxKeys=self._s3_max_keys
             )
 
-            results = [(metadata, True) for metadata in response.get('Contents', [])]
-            results.extend([(prefix, False) for prefix in response.get('CommonPrefixes', [])])
+            page = Dir()
 
-            yield results
+            for metadata in response.get('Contents', []):
+                page.files.append(
+                    FileStat(
+                        key=metadata['Key'],
+                        lastModified=metadata['LastModified'],
+                        storageClass=metadata['StorageClass'],
+                        size=metadata['Size']
+                    )
+                )
+
+            for metadata in response.get('CommonPrefixes', []):
+                page.directories.append(
+                    DirectoryStat(
+                        prefix=metadata['Prefix']
+                    )
+                )
+
+            yield page
 
             if not response['IsTruncated']:
                 break
@@ -633,12 +676,31 @@ class Amazon(RemoteManager):
             else:
                 marker = response['Contents'][-1]['Key']
 
+    def _singleCP(self, *, Key: str, callback: AbstractCallback, **kwargs):
+        self._s3.copy_object(Key=Key, **kwargs)
+        callback.added(Key)
 
-    def _cp(self, source: Artefact, destination: str, *, callback) -> Artefact:
+
+    def _cp(
+        self,
+        source: Artefact,
+        destination: str,
+        *,
+        callback: AbstractCallback,
+        metadata: Optional[Dict[str, str]],
+        content_type: Optional[str],
+        storage_class: Optional[StorageClassInterface],
+        worker_config: WorkerPoolConfig,
+        **kwargs
+        ) -> Artefact:
 
         # Convert the paths to s3 paths
         sourceBucket, sourcePath = self.manager(source).root, self._managerPath(source.path)
         destinationPath = self._managerPath(destination)
+        amazon_storage_class = self.AmazonStorageClass.convert(storage_class or self.storage_class)
+
+        copy_args = {}
+        if metadata: copy_args['Metadata'] = metadata
 
         if isinstance(source, Directory):
 
@@ -646,49 +708,69 @@ class Amazon(RemoteManager):
 
                 callback.addTaskCount(len(results), isAdding=True)
 
-                for fileMetadata, _ in results:
+                for fileMetadata in results.files:
 
                     # Copy the object from the source object to the relative location in the destination location
-                    relpath = self.relpath(fileMetadata['Key'], sourcePath, separator='/')
-                    if fileMetadata['Key'][-1] == '/':
+                    relpath = self.relpath(fileMetadata.key, sourcePath, separator='/')
+                    if fileMetadata.key[-1] == '/':
                         # Resolve the relpath method removing trailing separators
                         relpath += '/'
 
                     subDestination = self.join(destinationPath, relpath, separator='/')
 
-                    self._s3.copy_object(
+                    worker_config.submit(
+                        self._singleCP,
                         CopySource={
                             "Bucket": sourceBucket,
-                            "Key": fileMetadata['Key']
+                            "Key": fileMetadata.key
                         },
                         Bucket=self._bucketName,
                         # The Relative path to the source joined onto the destination path
-                        Key=subDestination
+                        Key=subDestination,
+                        ContentType=(content_type or mimetypes.guess_type(destination)[0] or 'application/octet-stream'),
+                        StorageClass=amazon_storage_class.value,
+                        callback=callback,
+                        **copy_args
                     )
-                    callback.added(subDestination)
 
         else:
             # Copy the object from the source object to the relative location in the destination location
-            self._s3.copy_object(
+            worker_config.submit(
+                self._singleCP,
                 CopySource={
                     "Bucket": sourceBucket,
                     "Key": sourcePath
                 },
                 Bucket=self._bucketName,
                 # The Relative path to the source joined onto the destination path
-                Key=destinationPath
+                Key=destinationPath,
+                ContentType=(content_type or mimetypes.guess_type(destination)[0] or 'application/octet-stream'),
+                StorageClass=amazon_storage_class.value,
+                callback=callback,
+                **copy_args
             )
-            callback.added(destinationPath)
 
         return PartialArtefact(self, destination)
 
-    def _mv(self, source: Artefact, destination: str, *, callback):
+    def _mv(
+        self,
+        source: Artefact,
+        destination: str,
+        *,
+        callback: AbstractCallback,
+        **kwargs
+        ):
 
         # Copy the source objects to the destination
-        copied_artefact = self._cp(source, destination, callback=callback)
+        copied_artefact = self._cp(
+            source,
+            destination,
+            callback=callback,
+            **kwargs
+        )
 
         # Delete the source objects now it has been entirely copied
-        source.manager._rm(source, callback=callback)
+        source._manager._rm(source, callback=callback)
 
         return copied_artefact
 
@@ -696,26 +778,27 @@ class Amazon(RemoteManager):
 
         for results in self._list_objects(self._bucketName, self._managerPath(directory), delimiter='/'):
 
-            for metadata, is_file in results:
+            for metadata in results.files:
 
-                if is_file:
-                    if metadata['Key'].endswith('/'):
-                        continue
+                if metadata.key.endswith('/'):
+                    continue
 
-                    yield File(
-                        self,
-                        '/' + metadata['Key'],
-                        modifiedTime=metadata['LastModified'],
-                        size=metadata['Size']
-                    )
+                # NOTE - metadata is not added as we don't know it all yet - Better to have it added by head object
+                yield File(
+                    self,
+                    '/' + metadata.key,
+                    modifiedTime=metadata.lastModified,
+                    size=metadata.size,
+                    storage_class=self.AmazonStorageClass(metadata.storageClass)
+                )
 
-                else:
-                    path = '/' + metadata['Prefix'][:-1]
-                    yield Directory(self, '/' + metadata['Prefix'][:-1])
-                    if recursive:
-                        yield from self._ls(path, recursive=recursive)
+            for metadata in results.directories:
+                path = '/' + metadata.prefix[:-1]
+                yield Directory(self, path)
+                if recursive:
+                    yield from self._ls(path, recursive=recursive)
 
-    def _rm(self, artefact: Artefact, *, callback):
+    def _rm(self, artefact: Artefact, *, callback: AbstractCallback):
 
         key = self._managerPath(artefact.path)
 
@@ -724,33 +807,35 @@ class Amazon(RemoteManager):
             # Iterate through the list objects - and enqueue them to be deleted
             keys = []
             for results in self._list_objects(self._bucketName, key):
-                callback.addTaskCount(len(results), isAdding=False)
-                for file_metadata, _ in results:
-                    keys.append({"Key": file_metadata['Key']})
+                if not results.files:
+                    return
+
+                callback.addTaskCount(len(results.files), isAdding=False)
+
+                # Call the delete on the items -
+                # NOTE max number of items is 1000 to delete (which is the max of the list_objects endpoint also)
+                response = self._s3.delete_objects(
+                    Bucket=self._bucketName,
+                    Delete={
+                        "Objects": [{"Key": file_metadata.key} for file_metadata in results.files],
+                        "Quiet": True
+                    }
+                )
+
+                if 'Errors' in response:
+                    errors = []
+                    for errored in response['Errors']:
+                        msg = f"{errored['Code']}: {errored['Message']} - failed to delete {errored['Key']}"
+                        log.error(msg)
+                        errors.append(msg)
+
+                    raise RuntimeWarning(f'Failed to delete items in s3: {errors}')
+
+                callback.removed(len(results))
 
         else:
-            keys = [{"Key": key}]
-
-        # Delete the enqueued objects
-        response = self._s3.delete_objects(
-            Bucket=self._bucketName,
-            Delete={
-                "Objects": keys,
-                "Quiet": True
-            }
-        )
-
-        for deleted in response['Deleted']:
-            callback.removed(deleted['Key'])
-
-        if 'Errors' in response:
-            errors = []
-            for errored in response['Errors']:
-                msg = f"{errored['code']}: {errored['message']} - failed to delete {errored['Key']}"
-                log.error(msg)
-                errors.append(msg)
-
-            raise RuntimeWarning(f'Failed to delete items in s3: {errors}')
+            self._s3.delete_object(Bucket=self._bucketName, Key=key)
+            callback.removed(key)
 
     @classmethod
     def _signatureFromURL(cls, url: urllib.parse.ParseResult):
@@ -764,8 +849,7 @@ class Amazon(RemoteManager):
             "aws_secret_access_key": queryData.get("aws_secret_access_key", [None])[0],
             "aws_session_token": queryData.get("aws_session_token", [None])[0],
             "region_name": queryData.get("region_name", [None])[0],
-            "profile_name": queryData.get("profile", [None])[0],
-            "storage_class": queryData.get("storage_class", ['STANDARD'])[0],
+            "profile_name": queryData.get("profile", [None])[0]
         }
 
         return signature, (url.path or '/')
