@@ -98,9 +98,8 @@ class WorkerPoolConfig:
         for future in concurrent.futures.as_completed(self.futures):
             try:
                 future.result()
-            except:
+            except Exception as e:
                 logger.exception('Worker experienced unhandled exception')
-                self.forceStop()
                 raise
 
 
@@ -117,13 +116,14 @@ class WorkerPoolConfig:
                     self.executor.shutdown()
                     if not self._externalExecutor:
                         self.__class__.__WORKER_POOL = None
-        except:
-            self.forceStop()
+        except Exception as e:
+            self.forceStop(e)
+            raise
 
         finally:
             self._concluded = True
 
-    def forceStop(self):
+    def forceStop(self, exception: Optional[Exception] = None):
 
         if self._stopped:
             return
@@ -136,23 +136,14 @@ class WorkerPoolConfig:
             child.forceStop()
 
         if self._parent is None:
+
             # It will start in the main thread which will be the parent
             self.executor.shutdown(wait=False, cancel_futures=True)
+            if not self._externalExecutor:
+                self.__class__.__WORKER_POOL = None
+
+            if exception is None:
+                raise RuntimeError('WorkerPool experienced error that was not raised properly')
+            raise exception
         else:
             self._parent.forceStop()
-
-# import functools
-# def isWorkerOptimised(function):
-
-#     @functools.wraps(function)
-#     def wrapper(*args, worker_config: Optional[WorkerPoolConfig], **kwargs):
-
-#         if worker_config is None:
-#             worker_config = WorkerPoolConfig(shutdown=True)
-
-#         try:
-#             return function(*args, worker_config=worker_config, **kwargs)
-#         finally:
-#             worker_config.conclude()
-
-#     return wrapper
