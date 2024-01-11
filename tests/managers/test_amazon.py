@@ -678,7 +678,7 @@ class Test_Amazon(unittest.TestCase):
 
         manager = Amazon('bucket_name')
 
-        art_checksum = manager['/file-1.txt'].digest(stow.HashingAlgorithm.CRC32)
+        art_checksum = manager.artefact('/file-1.txt', type=stow.File).digest(stow.HashingAlgorithm.CRC32)
         man_checksum = manager.digest('/file-1.txt', stow.HashingAlgorithm.CRC32)
         crc32_checksum = hex(binascii.crc32(b'Content') & 0xFFFFFFFF)[2:]
 

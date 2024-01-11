@@ -9,6 +9,7 @@ import datetime
 import time
 
 import stow
+import stow.managers
 from stow.managers.filesystem import FS
 from stow.managers.amazon import Amazon
 
@@ -69,7 +70,7 @@ class Test_Stateless(unittest.TestCase):
         stow.isfile(os.path.abspath(__file__))
 
         with self.assertRaises(TypeError):
-            stow.isfile(("other://file.txt",))
+            stow.isfile(("other://file.txt",)) # type: ignore
 
     def test_artefact(self):
 
@@ -83,7 +84,7 @@ class Test_Stateless(unittest.TestCase):
 
             stats = os.stat(filepath)
 
-            artefact = stow.artefact(filepath)
+            artefact = stow.artefact(filepath, type=stow.File)
 
             self.assertIsInstance(artefact, stow.File)
             self.assertEqual(artefact.size, len(text))
