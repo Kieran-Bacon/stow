@@ -86,7 +86,7 @@ def cli(ctx: click.Context, debug: bool, manager: str, **kwargs):
 
     # Attach callback to manager object for reference below
     # TODO convert default callback into this for the manager
-    managerObj.callback = ProgressCallback() # if debug else DefaultCallback()
+    DefaultCallback.become(ProgressCallback())
 
     ctx.obj = managerObj
 
@@ -123,7 +123,7 @@ def cp(manager: Manager, source: str, destination: str, merge: str, merge_strat:
             for artefact in manager.iterls(source, recursive=True):
                 copy_path = manager.join(destination, manager.relpath(artefact, source))
                 if isinstance(artefact, File):
-                    manager.cp(artefact, copy_path, callback=manager.callback)
+                    manager.cp(artefact, copy_path)
                 else:
                     manager.mkdir(copy_path)
 
@@ -137,13 +137,13 @@ def cp(manager: Manager, source: str, destination: str, merge: str, merge_strat:
                             manager.name(copy_path) + "-COPY." + manager.extension(copy_path)
                         )
 
-                    manager.cp(artefact, copy_path, callback=manager.callback)
+                    manager.cp(artefact, copy_path)
 
                 else:
                     manager.mkdir(copy_path)
 
     else:
-        manager.cp(source=source, destination=destination, overwrite=overwrite, callback=manager.callback)
+        manager.cp(source=source, destination=destination, overwrite=overwrite)
 
 @cli.command()
 @click.argument('artefacts', nargs=-1)
@@ -215,8 +215,8 @@ def get(manager: Manager, source: str, destination: str, overwrite: bool):
 @click.pass_obj
 def ls(manager: Manager, artefact: str, recursive: bool):
     """ List artefacts in a directory """
-    for artefact in manager.iterls(artefact, recursive=recursive, ignore_missing=True):
-        print(artefact)
+    for subArtefacts in manager.iterls(artefact, recursive=recursive, ignore_missing=True):
+        print(subArtefacts)
 
 @cli.command()
 @click.argument('source')
@@ -238,7 +238,7 @@ def put(manager: Manager, source: str, destination: str, overwrite: bool):
 
 @cli.command()
 @click.argument('artefact')
-@click.option('--algo', type=click.Choice(HashingAlgorithm.__members__, case_sensitive=False), default='MD5', help='Checksum algorithm - default MD5')
+@click.option('--algo', type=click.Choice(list(HashingAlgorithm.__members__.keys()), case_sensitive=False), default='MD5', help='Checksum algorithm - default MD5')
 @click.pass_obj
 def digest(manager: Manager, artefact: str, algo: str):
     """ Get artefact checksum using digest algorithm"""
@@ -261,19 +261,19 @@ def sync(manager: Manager, source: str, destination: str, delete: bool, check_mo
         print('No comparison criteria provided, must either select comparator function or use modified time')
         exit(1)
 
+    comparator_fn = None
     if comparator is not None:
         import importlib
         p, m = comparator.rsplit('.', 1)
         module = importlib.import_module(p)
-        comparator = getattr(module, m)
+        comparator_fn = getattr(module, m)
 
     manager.sync(
         source,
         destination,
         delete=delete,
         check_modified_times=check_modified,
-        digest_comparator=comparator,
-        callback=manager.callback
+        artefact_comparator=comparator_fn,
     )
 
 @cli.command()
@@ -283,4 +283,4 @@ def sync(manager: Manager, source: str, destination: str, delete: bool, check_mo
 def rm(manager: Manager, artefacts: Tuple[str], recursive: bool):
     """ Remove artefact """
     for artefact in artefacts:
-        manager.rm(artefact, recursive=recursive, callback=manager.callback)
+        manager.rm(artefact, recursive=recursive)
