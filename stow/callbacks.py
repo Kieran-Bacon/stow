@@ -1,6 +1,6 @@
 import abc
 import typing
-from typing import Union
+from typing import Union, Optional
 
 import tqdm
 
@@ -40,17 +40,28 @@ def do_nothing(*args, **kwargs): # pragma: no cover
 
 class DefaultCallback(AbstractCallback): # pragma: no cover
 
-    def addTaskCount(*args, **kwargs):
-        pass
+    _target: Optional[AbstractCallback] = None
 
-    def added(*args):
-        pass
+    @classmethod
+    def become(cls, target: AbstractCallback):
+        cls._target = target
 
-    def get_bytes_transfer(self, *args):
-        return do_nothing
+    def addTaskCount(self, *args, **kwargs):
+        if self._target is not None:
+            return self._target.addTaskCount(*args, **kwargs)
 
-    def removed(*args):
-        pass
+    def added(self, *args, **kwargs):
+        if self._target is not None:
+            return self._target.added(*args, **kwargs)
+
+    def get_bytes_transfer(self, *args, **kwargs):
+        if self._target is not None:
+            return self._target.get_bytes_transfer(*args, **kwargs)
+
+    def removed(self, *args, **kwargs):
+        if self._target is not None:
+            return self._target.removed(*args, **kwargs)
+
 
 class ProgressCallback(AbstractCallback):
 
