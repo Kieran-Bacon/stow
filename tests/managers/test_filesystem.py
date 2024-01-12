@@ -522,16 +522,16 @@ class Test_Filesystem(unittest.TestCase):
                 self.manager.rm(folder)
 
             # Remove recursively
-            self.manager.rm(folder, True)
+            self.manager.rm(folder, recursive=True)
 
-            self.assertEqual(self.manager['/'].ls(), set())
+            self.assertEqual(self.manager.artefact('/', type=stow.Directory).ls(), set())
 
     def test_manager_open(self):
 
         with self.manager.open('/directory/file.txt', 'w') as handle:
             handle.write('some content')
 
-        file = self.manager['/directory/file.txt']
+        file = self.manager.artefact('/directory/file.txt', type=stow.File)
 
         with file.open() as handle:
             self.assertEqual(handle.read(), 'some content')

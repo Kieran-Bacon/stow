@@ -94,7 +94,8 @@ class Test_Directories(unittest.TestCase):
 
         directory = self.manager.ls().pop()
 
-        self.assertIsInstance(directory, stow.Directory)
+        if isinstance(directory, stow.File):
+            raise ValueError('Incorrect type')
 
         directory.rm('/file1')
 

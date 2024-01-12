@@ -311,7 +311,7 @@ class File(Artefact):
         return self._isLink
 
     @typing.overload
-    def open(self, mode: typing.Literal['r', 'w'], **kwargs) -> typing.TextIO:
+    def open(self, mode: typing.Literal['r', 'w'] = 'r', **kwargs) -> typing.TextIO:
         pass
     @typing.overload
     def open(self, mode: typing.Literal['rb', 'wb'], **kwargs) -> typing.BinaryIO:
@@ -449,7 +449,14 @@ class Directory(Artefact):
             **kwargs
         )
 
-    def rm(self, path: Optional[str] = None, recursive: bool = False):
+    def rm(
+            self,
+            *paths: str,
+            recursive: bool = False,
+            callback: AbstractCallback = DefaultCallback(),
+            ignore_missing: bool = False,
+            worker_config: Optional[WorkerPoolConfig] = None,
+        ):
         """ Remove an artefact at the given location
 
         Args:
@@ -459,7 +466,15 @@ class Directory(Artefact):
         Raises:
             OperationNotPermitted: In the even the target is a directory and recursive has not been toggled
         """
-        return self._manager.rm(self if path is None else self._manager.join(self.path, path, separator='/', joinAbsolutes=True), recursive)
+
+
+        return self._manager.rm(
+            *([self._manager.join(self, path, joinAbsolutes=True) for path in paths] if paths else (self,)),
+            recursive=recursive,
+            callback=callback,
+            ignore_missing=ignore_missing,
+            worker_config=worker_config,
+        )
 
     def iterls(
         self,

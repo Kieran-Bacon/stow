@@ -1,5 +1,7 @@
 """ Test the amazon underlying manager """
 
+# pyright: reportTypedDictNotRequiredAccess=false
+
 from multiprocessing.sharedctypes import Value
 import os
 import io
@@ -20,7 +22,7 @@ from botocore.exceptions import ClientError
 
 
 import stow.exceptions
-from stow.cli import cli
+from stow.cli import cli, cat
 from stow.managers.amazon import Amazon, etagComparator
 
 @mock_s3
@@ -606,7 +608,7 @@ class Test_Amazon(unittest.TestCase):
         manager = Amazon('bucket_name')
 
         with pytest.raises(NotImplementedError):
-            manager['/file-1.txt'].digest(stow.HashingAlgorithm.MD5)
+            manager.artefact('/file-1.txt', type=stow.File).digest(stow.HashingAlgorithm.MD5)
 
         with pytest.raises(NotImplementedError):
             manager.digest('/file-1.txt', stow.HashingAlgorithm.MD5)
@@ -622,7 +624,7 @@ class Test_Amazon(unittest.TestCase):
 
         manager = Amazon('bucket_name')
 
-        art_checksum = manager['/file-1.txt'].digest(stow.HashingAlgorithm.SHA1)
+        art_checksum = manager.artefact('/file-1.txt', type=stow.File).digest(stow.HashingAlgorithm.SHA1)
         man_checksum = manager.digest('/file-1.txt', stow.HashingAlgorithm.SHA1)
         sha1_checksum = hashlib.sha1(b'Content').hexdigest()
 
@@ -641,26 +643,7 @@ class Test_Amazon(unittest.TestCase):
 
         manager = Amazon('bucket_name')
 
-        art_checksum = manager['/file-1.txt'].digest(stow.HashingAlgorithm.SHA256)
-        man_checksum = manager.digest('/file-1.txt', stow.HashingAlgorithm.SHA256)
-        sha1_checksum = hashlib.sha256(b'Content').hexdigest()
-
-
-        self.assertEqual(art_checksum, man_checksum)
-        self.assertEqual(sha1_checksum, man_checksum)
-
-    def test_digest_sha256(self):
-
-        self.s3.put_object(
-            Bucket="bucket_name",
-            Key="file-1.txt",
-            Body=b"Content",
-            ChecksumAlgorithm="SHA256"
-        )
-
-        manager = Amazon('bucket_name')
-
-        art_checksum = manager['/file-1.txt'].digest(stow.HashingAlgorithm.SHA256)
+        art_checksum = manager.artefact('/file-1.txt', type=stow.File).digest(stow.HashingAlgorithm.SHA256)
         man_checksum = manager.digest('/file-1.txt', stow.HashingAlgorithm.SHA256)
         sha256_checksum = hashlib.sha256(b'Content').hexdigest()
 
@@ -697,7 +680,7 @@ class Test_Amazon(unittest.TestCase):
 
         manager = Amazon('bucket_name')
 
-        art_checksum = manager['/file-1.txt'].digest(stow.HashingAlgorithm.CRC32C)
+        art_checksum = manager.artefact('/file-1.txt', type=stow.File).digest(stow.HashingAlgorithm.CRC32C)
         man_checksum = manager.digest('/file-1.txt', stow.HashingAlgorithm.CRC32C)
         # crc32c_checksun = hex(zlib.crc32(b'Content') & 0xffffffff)[2:]
         from crc32c import crc32c
@@ -792,19 +775,18 @@ class Test_Amazon(unittest.TestCase):
 
             self.assertTrue(
                 etagComparator(*[
-                    stow.artefact(x)
+                    stow.artefact(x, type=stow.File)
                     for x in [stow.join(directory, 'file-1.txt'), stow.join(directory, 'file-2.txt'), 's3://bucket_name/file-1.txt']
                 ])
             )
 
             self.assertFalse(
-                etagComparator(*[stow.artefact(x) for x in [stow.join(directory, 'file-1.txt'), stow.join(directory, 'file-3.txt'), stow.join(directory, 'file-5.txt')]])
+                etagComparator(*[stow.artefact(x, type=stow.File) for x in [stow.join(directory, 'file-1.txt'), stow.join(directory, 'file-3.txt'), stow.join(directory, 'file-5.txt')]])
             )
 
             with open(stow.join(directory, 'file-4.txt'), 'wb') as handle:
                 handle.write(large_file_contents)
 
             self.assertTrue(
-                # etagComparator(*[stow.artefact(x) for x in [stow.join(directory, 'file-4.txt'), 's3://bucket_name/large-file.txt']])
-                etagComparator(*[stow.artefact(x) for x in [stow.join(directory, 'file-4.txt'), stow.join(directory, 'file-4.txt')]])
+                etagComparator(*[stow.artefact(x, type=stow.File) for x in [stow.join(directory, 'file-4.txt'), stow.join(directory, 'file-4.txt')]])
             )

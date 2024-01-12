@@ -2,7 +2,8 @@ import os
 import re
 import io
 import typing
-from typing import (Literal, Union, Optional, Dict, Iterable, Tuple, List, overload)
+from typing import (Any, Literal, Union, Optional, Dict, Iterable, Tuple, List, Type, overload)
+from typing_extensions import Self
 import urllib
 import urllib.parse
 import tempfile
@@ -17,7 +18,7 @@ from ..worker_config import WorkerPoolConfig
 from ..localiser import Localiser
 from ..types import StrOrPathLike, TimestampLike, TimestampAble, HashingAlgorithm
 from ..storage_classes import StorageClass
-from ..artefacts import Artefact, File, Directory, PartialArtefact, ArtefactType, ArtefactOrPathLike
+from ..artefacts import Artefact, File, Directory, PartialArtefact, ArtefactType, ArtefactOrPathLike, Metadata, FrozenMetadata, Callable
 from ..callbacks import AbstractCallback, DefaultCallback
 from .. import _utils as utils
 from .. import exceptions
@@ -41,6 +42,7 @@ class Manager(AbstractManager):
     SEPARATOR = os.sep
     SEPARATORS = ['\\', '/']
     ISOLATED = False
+    OVERWRITEABLE = False
 
     _READONLYMODES = ["r", "rb"]
     _MULTI_SEP_REGEX = re.compile(r"(\\{2,})|(\/{2,})")
@@ -82,6 +84,22 @@ class Manager(AbstractManager):
         """
         return artefact.__fspath__() if isinstance(artefact, os.PathLike) else artefact
 
+    @staticmethod
+    def _freezeMetadata(metadata: Metadata, artefact: ArtefactType) -> FrozenMetadata:
+
+        frozenMetadata = {}
+
+        for key, value in metadata.items():
+            if callable(value):
+                val = value(artefact)
+                if isinstance(val, str):
+                    frozenMetadata[key] = val
+
+            else:
+                frozenMetadata[key] = str(value)
+
+        return frozenMetadata
+
     @overload
     def _splitArtefactForm(
         self,
@@ -89,7 +107,7 @@ class Manager(AbstractManager):
         load: bool = ...,
         require: bool = ...,
         external: bool = ...,
-    ) -> typing.Tuple['Manager', Union[File, Directory], str]:
+    ) -> typing.Tuple[Self, Union[File, Directory], str]:
         ...
     @overload
     def _splitArtefactForm(
@@ -98,7 +116,7 @@ class Manager(AbstractManager):
         load: bool = ...,
         require: typing.Literal[True] = ...,
         external: bool = ...,
-    ) -> typing.Tuple['Manager', Union[File, Directory], str]:
+    ) -> typing.Tuple[Self, Union[File, Directory], str]:
         ...
     @overload
     def _splitArtefactForm(
@@ -107,7 +125,7 @@ class Manager(AbstractManager):
         load: bool = ...,
         require: bool = ...,
         external: bool = ...,
-    ) -> typing.Tuple['Manager', Union[File, Directory, None], str]:
+    ) -> typing.Tuple[Self, Union[File, Directory, None], str]:
         ...
     def _splitArtefactForm(
         self,
@@ -115,7 +133,7 @@ class Manager(AbstractManager):
         load: bool = True,
         require: bool = True,
         external: bool = True,
-        ) -> typing.Tuple['Manager', Union[File, Directory, None], str]:
+        ) -> typing.Tuple[Self, Union[File, Directory, None], str]:
         """ Convert the incoming object which could be either an artefact or relative path into a standardised form for
         both such that functions can be easily convert and use what they require
 
@@ -130,8 +148,7 @@ class Manager(AbstractManager):
         """
 
         if isinstance(artefact, (File, Directory)):
-            manager: Manager = artefact._manager # type: ignore
-            return manager, artefact, artefact.path
+            return artefact._manager, artefact, artefact.path  # type: ignore
 
         else:
 
@@ -181,7 +198,7 @@ class Manager(AbstractManager):
         """ Set the content type of the file """
         raise NotImplementedError('Manager does not have an method for changing the content-type for the path given')
 
-    def manager(self, artefact: ArtefactOrPathLike) -> 'Manager':
+    def manager(self, artefact: ArtefactOrPathLike) -> Self:
         """ Fetch the manager object for the artefact
 
         Params:
@@ -192,7 +209,16 @@ class Manager(AbstractManager):
         """
         return self._splitArtefactForm(artefact, external=False)[0]
 
-    def artefact(self, path: StrOrPathLike) -> Artefact:
+    @overload
+    def artefact(self, path: ArtefactOrPathLike, *, type: Type[File]) -> File:
+        ...
+    @overload
+    def artefact(self, path: ArtefactOrPathLike, *, type: Type[Directory]) -> Directory:
+        ...
+    @overload
+    def artefact(self, path: ArtefactOrPathLike) -> ArtefactType:
+        ...
+    def artefact(self, path: ArtefactOrPathLike, *, type: Optional[Type[ArtefactType]] = None) -> ArtefactType:
         """ Fetch an artefact object for the given path
 
         Params:
@@ -562,7 +588,7 @@ class Manager(AbstractManager):
         return os.path.lexists(artefact)
 
     # @classmethod
-    def join(self, *paths: str, separator=None, joinAbsolutes: bool = False) -> str:
+    def join(self, *paths: ArtefactOrPathLike, separator=None, joinAbsolutes: bool = False) -> str:
         """ Join one or more path components intelligently. The return value is the concatenation of path and any
         members of *paths with exactly one directory separator following each non-empty part except the last,
         meaning that the result will only end in a separator if the last part is empty. If a component is an absolute
@@ -796,7 +822,7 @@ class Manager(AbstractManager):
         modified_time: Optional[TimestampLike] = None,
         accessed_time: Optional[TimestampLike] = None,
         worker_config: Optional[WorkerPoolConfig] = None,
-        ) -> Artefact:
+        ) -> ArtefactType:
         pass
     def get(
         self,
@@ -828,7 +854,6 @@ class Manager(AbstractManager):
 
             # Ensure the destination - Remove or raise issue for a local artefact at the location where the get is called
             if destination is not None:
-                callback.setDescription(f"Get {obj.path} -> {destination}")
 
                 if os.path.exists(destination):
                     localManager: Manager = utils.connect(manager="FS")
@@ -869,7 +894,7 @@ class Manager(AbstractManager):
         overwrite: bool = False,
         *,
         callback: AbstractCallback = DefaultCallback(),
-        metadata: Optional[typing.Dict[str, str]] = None,
+        metadata: Optional[Metadata] = None,
         modified_time: Optional[TimestampLike] = None,
         accessed_time: Optional[TimestampLike] = None,
         content_type: Optional[str] = None,
@@ -884,7 +909,7 @@ class Manager(AbstractManager):
         destination: ArtefactOrPathLike,
         overwrite: bool = False,
         *,
-        metadata: Optional[typing.Dict[str, str]] = None,
+        metadata: Optional[Metadata] = None,
         callback: AbstractCallback = DefaultCallback(),
         modified_time: Optional[TimestampLike] = None,
         accessed_time: Optional[TimestampLike] = None,
@@ -896,18 +921,18 @@ class Manager(AbstractManager):
     @overload
     def put(
         self,
-        source: str,
+        source: ArtefactOrPathLike,
         destination: ArtefactOrPathLike,
         overwrite: bool = False,
         *,
-        metadata: Optional[typing.Dict[str, str]] = None,
+        metadata: Optional[Metadata] = None,
         callback: AbstractCallback = DefaultCallback(),
         modified_time: Optional[TimestampLike] = None,
         accessed_time: Optional[TimestampLike] = None,
         content_type: Optional[str] = None,
         storage_class: Optional[StorageClass] = None,
         worker_config: Optional[WorkerPoolConfig] = None,
-        ) -> Artefact:
+        ) -> ArtefactType:
         pass
     def put(
         self,
@@ -915,14 +940,14 @@ class Manager(AbstractManager):
         destination: ArtefactOrPathLike,
         overwrite: bool = False,
         *,
-        metadata: Optional[typing.Dict[str, str]] = None,
+        metadata: Optional[Metadata] = None,
         callback: AbstractCallback = DefaultCallback(),
         modified_time: Optional[TimestampLike] = None,
         accessed_time: Optional[TimestampLike] = None,
         content_type: Optional[str] = None,
         storage_class: Optional[StorageClass] = None,
         worker_config: Optional[WorkerPoolConfig] = None,
-        ) -> Artefact:
+        ) -> ArtefactType:
         """ Put a local artefact onto the remote at the location given.
 
         Args:
@@ -950,7 +975,7 @@ class Manager(AbstractManager):
             # Note - we are not deleting the destination until after we have validated the source
             if isinstance(source, (bytes, bytearray, memoryview)):
 
-                if destinationObj is not None:
+                if not destinationManager.OVERWRITEABLE and destinationObj is not None:
                     self.rm(destinationObj, recursive=overwrite, callback=callback, ignore_missing=True)
 
                 putArtefact = destinationManager._putBytes(
@@ -969,7 +994,7 @@ class Manager(AbstractManager):
                 # Validate source before deleting destination
                 _, sourceObj, _ = self._splitArtefactForm(source)
 
-                if destinationObj is not None:
+                if not destinationManager.OVERWRITEABLE and destinationObj is not None:
                     self.rm(destinationObj, recursive=overwrite, callback=callback, ignore_missing=True)
 
                 putArtefact = destinationManager._put(
@@ -996,7 +1021,7 @@ class Manager(AbstractManager):
         overwrite: bool = False,
         *,
         callback: AbstractCallback = DefaultCallback(),
-        metadata: Optional[typing.Dict[str, str]] = None,
+        metadata: Optional[Metadata] = None,
         modified_time: Optional[datetime.datetime] = None,
         accessed_time: Optional[datetime.datetime] = None,
         storage_class: Optional[StorageClass] = None,
@@ -1065,7 +1090,7 @@ class Manager(AbstractManager):
         overwrite: bool = False,
         *,
         callback: AbstractCallback = DefaultCallback(),
-        metadata: Optional[typing.Dict[str, str]] = None,
+        metadata: Optional[Metadata] = None,
         content_type: Optional[str] = None,
         modified_time: Optional[datetime.datetime] = None,
         accessed_time: Optional[datetime.datetime] = None,
@@ -1090,7 +1115,7 @@ class Manager(AbstractManager):
             # Load the source object that is to be copied
             sourceManager, sourceObj, sourcePath = self._splitArtefactForm(source, external=False)
             destinationManager, destinationObj, destinationPath = self._splitArtefactForm(
-                destination, require=False, external=True
+                destination, require=False, external=False
             )
 
             # Prevent the overwriting of a directory without permission
@@ -1137,11 +1162,11 @@ class Manager(AbstractManager):
 
     def rm(
         self,
-        artefact: ArtefactOrPathLike,
+        *artefacts: Union[ArtefactOrPathLike, List[ArtefactOrPathLike]],
         recursive: bool = False,
-        *,
+        callback: AbstractCallback = DefaultCallback(),
         ignore_missing: bool = False,
-        callback: AbstractCallback = DefaultCallback()
+        worker_config: Optional[WorkerPoolConfig] = None
         ) -> None:
         """ Remove an artefact from the manager using the artefact object or its relative path. If its a directory,
         remove it if it is empty, or all of its contents if recursive has been set to true.
@@ -1151,34 +1176,167 @@ class Manager(AbstractManager):
             recursive (bool) = False: whether to accept the deletion of a directory which has contents
         """
 
-        try:
-            manager, obj, _ = self._splitArtefactForm(artefact, external=False)
-        except exceptions.ArtefactNotFound:
-            if ignore_missing:
-                return
-            raise
+        worker_config = worker_config or WorkerPoolConfig(shutdown=True)
 
-        if isinstance(obj, Directory) and not recursive and not obj.isEmpty():
-            raise exceptions.OperationNotPermitted(
-                "Cannot delete a container object that isn't empty - set recursive to True to proceed"
+        # For each of the managers groups created to delete the items
+        groupedDeletes: Dict[Self, List[str]] = {}
+
+        for artefactOrGroup in artefacts:
+            for artefact in (artefactOrGroup if not isinstance(artefactOrGroup, (str, os.PathLike)) else (artefactOrGroup,)):
+
+                # Parse the passed arguments into their components - only load if necessary
+                manager, obj, path = self._splitArtefactForm(artefact, load=False, require=not ignore_missing or not recursive, external=False)
+
+                if not recursive and isinstance(obj, Directory) and not obj.isEmpty():
+                    raise exceptions.OperationNotPermitted(
+                        "Cannot delete a container object that isn't empty - set recursive to True to proceed"
+                    )
+
+                groupedDeletes.setdefault(manager, []).append(path)
+
+        try:
+            for manager, group in groupedDeletes.items():
+                manager._rm(*group, callback=callback, worker_config=worker_config)
+
+        finally:
+            worker_config.conclude()
+
+
+    def _sync(
+        self,
+        sourceManager: Self,
+        sourceObj: ArtefactType,
+        destinationManager: Self,
+        destinationObj: Union[ArtefactType, str],
+
+        delete: bool,
+        check_modified_times: bool,
+        artefact_comparator: Optional[typing.Callable[[File, File], bool]],
+        callback: AbstractCallback,
+        overwrite: bool,
+
+        sync_method: Callable,
+        sync_arguments: Dict[str, Any],
+        worker_config: WorkerPoolConfig
+    ) -> ArtefactType:
+
+        callback.reviewing(1)
+
+        if isinstance(destinationObj, str):
+            # The destination doesn't exist - sync the entire source
+
+            log.warning("Syncing: Destination=%s doesn't exist therefore putting entire source=%s", destinationObj, sourceObj)
+            sync_method(
+                sourceObj,
+                destinationObj,
+                worker_config=worker_config,
+                **sync_arguments
             )
 
-        # Remove the artefact from the manager
-        manager._rm(obj, callback=callback)  # Remove the underlying data objects
+        elif isinstance(destinationObj, File):
+            if isinstance(sourceObj, Directory):
+                # The source is a directory - we simply replace the file
+                sync_method(
+                    sourceObj,
+                    destinationObj,
+                    worker_config=worker_config,
+                    **sync_arguments
+                )
+
+            elif (
+                (not check_modified_times or destinationObj.modifiedTime < sourceObj.modifiedTime) and
+                (artefact_comparator is None or not artefact_comparator(sourceObj, destinationObj))
+                ):
+
+                sync_method(
+                    sourceObj,
+                    destinationObj,
+                    worker_config=worker_config,
+                    **sync_arguments
+                )
+
+            else:
+                log.debug('%s already synced', destinationObj)
+
+        else:
+            # Desintation object is a dictionary
+            if isinstance(sourceObj, File):
+                # We are trying to sync a file to a directory - this is a put
+                sync_method(
+                    sourceObj,
+                    destinationObj,
+                    worker_config=worker_config,
+                    **sync_arguments
+                )
+
+            else:
+
+                # Syncing a source directory to a destination directory
+                destinationMap = {artefact.basename: artefact for artefact in destinationManager.ls(destinationObj)}
+                callback.reviewing(len(destinationMap))
+
+                # Recursively fill in destination at this recursion level
+                for artefact in sourceManager.iterls(sourceObj):
+                    if artefact.basename in destinationMap:
+
+                        self._sync(
+                            sourceManager,
+                            artefact,
+                            destinationManager,
+                            destinationMap.pop(artefact.basename),
+                            check_modified_times=check_modified_times,
+                            artefact_comparator=artefact_comparator,
+                            delete=delete,
+                            callback=callback,
+                            overwrite=overwrite,
+                            worker_config=worker_config,
+                            sync_method=sync_method,
+                            sync_arguments=sync_arguments
+                        )
+
+                        callback.reviewed(1)
+
+                    else:
+                        callback.reviewing(1)
+
+                        sync_method(
+                            artefact,
+                            destinationManager.join(destinationObj.path, artefact.basename),
+                            worker_config=worker_config,
+                            **sync_arguments
+                        )
+
+                        callback.reviewed(1)
+
+                # Any remaining destionation objects were not targets of sync - delete if argument passed
+                if delete:
+                    destinationManager.rm(
+                        destinationMap.values(),
+                        recursive=sync_arguments['overwrite'],
+                        worker_config=worker_config
+                    )
+
+                callback.reviewed(len(destinationMap))
+
+        callback.reviewed(1)
+        worker_config.conclude()
+
+        return PartialArtefact(destinationManager, destinationObj if isinstance(destinationObj, str) else destinationObj.path)
 
     def sync(
         self,
         source: Union[File, Directory, str],
         destination: ArtefactOrPathLike,
         *,
+        delete: bool = False,
+        check_modified_times: bool = True,
+        artefact_comparator: Optional[typing.Callable[[File, File], bool]] = None,
+
         storage_class: Optional[StorageClass] = None,
-        metadata: Optional[typing.Dict[str, str]] = None,
+        metadata: Optional[Metadata] = None,
         modified_time: Optional[datetime.datetime] = None,
         accessed_time: Optional[datetime.datetime] = None,
         overwrite: bool = False,
-        delete: bool = False,
-        check_modified_times: bool = True,
-        digest_comparator: Optional[typing.Callable[[File, File], bool]] = None,
         worker_config: Optional[WorkerPoolConfig] = None,
         callback: AbstractCallback = DefaultCallback()
         ) -> ArtefactType:
@@ -1190,8 +1348,7 @@ class Manager(AbstractManager):
             delete: Togger the deletion of artefacts that are members of the destination which do not conflict with
                 the source.
             check_modified_times (bool): Prevent sync even if digest is different, if destination is newer than source
-            digest_comparator: (Callable): A comparison method that takes possible syncing targets and allows for
-                dynamic sync checking of tags or custom digests
+            artefact_comparator: (Callable): Callable used to compare a source and destination object, Should return True when items are equal (which will mean that there is no action to perform)
 
         Raises:
             ArtefactNotFound: In the event that the source directory doesn't exist
@@ -1214,99 +1371,36 @@ class Manager(AbstractManager):
             sync_method = destinationManager.put
 
         sync_arguments = {
-            "overwrite": overwrite,
             "metadata": metadata,
             "modified_time": modified_time,
             "accessed_time": accessed_time,
             "storage_class": storage_class,
-            "callback": callback,
-            "worker_config": worker_config.extend()
+            "overwrite": overwrite,
+            "callback": callback
         }
 
-        if destinationObj is None:
-            # The destination doesn't exist - sync the entire source
-
-            log.warning("Syncing: Destination=%s doesn't exist therefore putting entire source=%s", destination, source)
-            worker_config.submit(
-                sync_method,
+        try:
+            return self._sync(
+                sourceManager,
                 sourceObj,
-                destinationPath,
-                **sync_arguments
+                destinationManager,
+                (destinationObj if destinationObj is not None else destinationPath),
+                delete,
+                check_modified_times,
+                artefact_comparator,
+                callback=callback,
+                overwrite=overwrite,
+                sync_method=sync_method,
+                sync_arguments=sync_arguments,
+                worker_config=worker_config.extend()
             )
+        except:
+            print('Its done!')
+            worker_config.conclude(cancel=True)
+            raise
 
-        elif isinstance(destinationObj, File):
-            if isinstance(sourceObj, Directory):
-                # The source is a directory - we simply replace the file
-                worker_config.submit(
-                    sync_method,
-                    sourceObj,
-                    destinationObj,
-                    **sync_arguments
-                )
-
-            elif (
-                (not check_modified_times or destinationObj.modifiedTime < sourceObj.modifiedTime) and
-                (digest_comparator is None or not digest_comparator(sourceObj, destinationObj))
-                ):
-
-                worker_config.submit(
-                    sync_method,
-                    sourceObj,
-                    destinationObj,
-                    **sync_arguments
-                )
-
-            else:
-                log.debug('%s already synced', destination)
-
-        else:
-            # Desintation object is a dictionary
-            if isinstance(sourceObj, File):
-                # We are trying to sync a file to a directory - this is a put
-                worker_config.submit(
-                    sync_method,
-                    sourceObj,
-                    destinationObj,
-                    **sync_arguments
-                )
-
-            else:
-
-                # Syncing a source directory to a destination directory
-                destinationMap = {artefact.basename: artefact for artefact in destinationManager.ls(destinationObj)}
-
-                # Recursively fill in destination at this recursion level
-                for artefact in sourceManager.iterls(sourceObj):
-                    if artefact.basename in destinationMap:
-                        worker_config.submit(
-                            self.sync,
-                            artefact,
-                            destinationMap.pop(artefact.basename),
-                            check_modified_times=check_modified_times,
-                            digest_comparator=digest_comparator,
-                            **sync_arguments
-                        )
-
-                    else:
-                        worker_config.submit(
-                            sync_method,
-                            artefact,
-                            destinationManager.join(destinationObj.path, artefact.basename),
-                            **sync_arguments
-                        )
-
-                # Any remaining destionation objects were not targets of sync - delete if argument passed
-                if delete:
-                    for artefact in destinationMap.values():
-                        worker_config.submit(
-                            destinationManager.rm,
-                            artefact,
-                            recursive=overwrite,
-                        )
-
-        worker_config.conclude()
-
-        return PartialArtefact(destinationManager, destinationPath)
+        finally:
+            worker_config.conclude()
 
     def iterls(
         self,
@@ -1401,7 +1495,7 @@ class Manager(AbstractManager):
     def _mklink(self, *args, **kwargs):
         raise NotImplementedError(f'Manager {self} does not support links')
 
-    def mklink(self, source: Artefact, destination: str, soft: bool = True) -> Artefact:
+    def mklink(self, source: ArtefactOrPathLike, destination: str, soft: bool = True) -> ArtefactType:
         """ Create a symbolic link
 
         Args:
@@ -1421,7 +1515,7 @@ class Manager(AbstractManager):
         modified_time: Optional[TimestampLike] = None,
         accessed_time: Optional[TimestampLike] = None,
         *,
-        metadata: Optional[Dict[str, str]] = None,
+        metadata: Optional[Metadata] = None,
         content_type: Optional[str] = None,
         storage_class: Optional[StorageClass] = None
         ) -> File:
@@ -1434,6 +1528,8 @@ class Manager(AbstractManager):
         manager, artefact, path = self._splitArtefactForm(relpath, require=False, external=False)
 
         if artefact is not None:
+            if isinstance(artefact, Directory):
+                raise ValueError(f'Cannot touch directory: {artefact}')
             log.debug("artefact=%s already exists - updating artefact times mt=%s at=%s", path, modified_time, accessed_time, extra={'method': 'touch'})
             manager._set_artefact_time(artefact, modified_time=modified_time,accessed_time=accessed_time)
             return artefact

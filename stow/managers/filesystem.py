@@ -191,7 +191,7 @@ class FS(LocalManager):
 
                     transfer(destination_handle.write(buffer))
 
-        callback.added(source)
+        callback.written(source)
 
     if posix is not None and hasattr(posix, '_fcopyfile'):
         # The implementation is MAC os - there is
@@ -209,7 +209,7 @@ class FS(LocalManager):
                         posix._COPYFILE_DATA
                     )
 
-            callback.added(source)
+            callback.written(source)
 
     elif hasattr(os, "sendfile"):
         # Linux with sendfile protocol
@@ -261,7 +261,7 @@ class FS(LocalManager):
                             offset += sent
                             transfer(sent)
 
-            callback.added(source)
+            callback.written(source)
 
     elif os.name == 'nt':
 
@@ -299,7 +299,7 @@ class FS(LocalManager):
                                 # Entire buffer replaced with read - write entire buffer
                                 transfer(destination_handle.write(mv))
 
-            callback.added(source)
+            callback.written(source)
 
     else:
 
@@ -355,9 +355,6 @@ class FS(LocalManager):
         # Ensure the desintation
         os.makedirs(destination, exist_ok=True)
 
-        # Add that you are copying self
-        callback.addTaskCount(1, isAdding=True)
-
         # Scan the directory - Copy all the entries to the new location
         with os.scandir(source) as scandir_it:
             for entry in scandir_it:
@@ -366,6 +363,7 @@ class FS(LocalManager):
                 entryStat = entry.stat()
 
                 if entry.is_dir():
+                    callback.writing(1)
                     self._copytree(
                         entry.path,
                         subdestination,
@@ -375,7 +373,7 @@ class FS(LocalManager):
                         accessed_time
                     )
                 else:
-                    callback.addTaskCount(1, isAdding=True)
+                    callback.writing(1)
 
                     sourceStat = entry.stat()
                     self._copyfile(
@@ -400,7 +398,7 @@ class FS(LocalManager):
             modified_time,
             accessed_time
         )
-        callback.added(source)
+        callback.written(source)
 
 
     def _get(
@@ -414,6 +412,8 @@ class FS(LocalManager):
         **kwargs
         # worker_config: Optional[WorkerPoolConfig] = None,
         ):
+
+        callback.writing(1)
 
         # Convert source path
         sourceAbspath = source.abspath
@@ -433,7 +433,7 @@ class FS(LocalManager):
                 modified_time,
                 accessed_time
             )
-            callback.added(destination)
+            callback.written(destination)
 
         else:
 
@@ -496,6 +496,8 @@ class FS(LocalManager):
         **kwargs
         ):
 
+        callback.writing(1)
+
         # Convert destination path
         destinationAbspath = self._abspath(destination)
 
@@ -513,6 +515,7 @@ class FS(LocalManager):
         if any((modified_time, accessed_time)):
             utils.utime(destinationAbspath, modified_time=modified_time, accessed_time=accessed_time)
 
+        callback.written(1)
         return artefact
 
     def _cp(
@@ -533,7 +536,7 @@ class FS(LocalManager):
             accessed_time=accessed_time,
         )
 
-    def _mv(self, source: str, destination: str, *args, **kwargs):
+    def _mv(self, source: str, destination: str, *args, callback: AbstractCallback, **kwargs):
 
         sourceAbspath = self._abspath(source)
         destinationAbspath = self._abspath(destination)
@@ -542,7 +545,9 @@ class FS(LocalManager):
         os.makedirs(os.path.dirname(destinationAbspath), exist_ok=True)
 
         # Move the source artefact
+        callback.writing(1)
         os.rename(sourceAbspath, destinationAbspath)
+        callback.written(1)
 
         return PartialArtefact(self, self._relative(destinationAbspath))
 
@@ -559,7 +564,7 @@ class FS(LocalManager):
                 if recursive and isinstance(art, Directory):
                     yield from self._ls(art.path, recursive=recursive)
 
-    def _rmtree(self, path: str, callback = None):
+    def _rmtree(self, path: str, callback: AbstractCallback):
 
         # TODO check if it is faster to separate them out into two lists and then iterate over them
         # or is it faster to iterate one straight away (given the call to callback would have to be run more)
@@ -574,7 +579,7 @@ class FS(LocalManager):
                     file_entries.append(entry)
 
         # Record the number of items to delete - All files in this directory plus self (child directires will add themselves)
-        callback.addTaskCount(len(file_entries) + 1, isAdding=False)
+        callback.deleting(len(file_entries))
 
         # For each artefact in path - delete or recursively delete
         for directory_entry in directory_entries:
@@ -582,22 +587,26 @@ class FS(LocalManager):
 
         for file_entry in file_entries:
                 os.remove(file_entry.path)
-                callback.removed(file_entry.path)
+                callback.deleted(file_entry.path)
 
         os.rmdir(path)
-        callback.removed(path)
+        callback.deleted(path)
 
-    def _rm(self, artefact: Artefact, *, callback):
+    def _rm(self, *artefacts: str, callback: AbstractCallback, **kwargs):
 
-        # Convert the artefact
-        path = self._abspath(artefact.path)
+        callback.deleting(len(artefacts))
 
-        if isinstance(artefact, Directory):
-            self._rmtree(path, callback=callback)
+        for artefact in artefacts:
+            # Convert the artefact
+            path = self._abspath(artefact)
 
-        else:
-            os.remove(path)
-            callback.removed(path)
+            if os.path.isdir(path):
+                self._rmtree(path, callback=callback)
+
+            else:
+                os.remove(path)
+
+            callback.deleted(path)
 
     if os.name == 'nt':
         @classmethod

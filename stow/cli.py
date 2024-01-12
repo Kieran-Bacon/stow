@@ -41,7 +41,6 @@ for entry_point in pkg_resources.iter_entry_points('stow_managers'):
         managerOptions.append(optgroup.option(*args, **kwargs))
 
 cli_decorators = [
-    click.group(),
     click.option(
         '-m', '--manager',
         type=click.Choice(['auto', *managerConfigs.keys()], case_sensitive=False),
@@ -58,6 +57,15 @@ class StowContext:
     manager: Manager
     callback: AbstractCallback
 
+def dynamicDecorators(cli_decorators):
+    def wraps(func):
+        for decorator in cli_decorators[::-1]:
+            func = decorator(func)
+        return func
+    return wraps
+
+@click.group()
+@dynamicDecorators(cli_decorators)
 def cli(ctx: click.Context, debug: bool, manager: str, **kwargs):
     """Stow anything anywhere.
 
@@ -70,11 +78,9 @@ def cli(ctx: click.Context, debug: bool, manager: str, **kwargs):
 
     """
 
-    if debug:
-        logging.basicConfig(level=logging.DEBUG)
-        for logger in ['stow.callbacks']:
-            logging.getLogger(logger).propagate = False
-        log.info('Debugging enabled')
+    logging.basicConfig(level=logging.DEBUG if debug else logging.INFO)
+    for logger in ['stow.callbacks']:
+        logging.getLogger(logger).propagate = False
 
     if manager == 'auto':
         managerObj = Manager()
@@ -83,15 +89,10 @@ def cli(ctx: click.Context, debug: bool, manager: str, **kwargs):
         config = managerConfigs[manager]
         managerObj = config.initialise(kwargs)
 
-
-    # Attach callback to manager object for reference below
-    # TODO convert default callback into this for the manager
+    # Update all default callbacks to
     DefaultCallback.become(ProgressCallback())
 
     ctx.obj = managerObj
-
-for decorator in cli_decorators[::-1]:
-    cli = decorator(cli)
 
 @cli.command()
 @click.argument('artefacts', nargs=-1)

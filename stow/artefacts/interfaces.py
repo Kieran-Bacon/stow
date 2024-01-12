@@ -126,7 +126,14 @@ class ManagerInterface:
         pass
 
     @abc.abstractmethod
-    def rm(self, path: StrOrPathLike, recursive: bool) -> None:
+    def rm(
+        self,
+        *path: StrOrPathLike,
+        recursive: bool,
+        callback: AbstractCallback,
+        worker_config: Optional[WorkerPoolConfig],
+        ignore_missing: bool = False
+        ) -> None:
         pass
 
     def iterls(self, artefact, recursive: bool, ignore_missing: bool) -> Generator[os.PathLike, None, None]:

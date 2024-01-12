@@ -6,7 +6,7 @@ import contextlib
 from ..worker_config import WorkerPoolConfig
 from ..types import TimestampLike, HashingAlgorithm
 from ..storage_classes import StorageClass
-from ..artefacts import Artefact, File, Directory, ArtefactType, ArtefactOrPathLike
+from ..artefacts import Artefact, File, Directory, ArtefactType, ArtefactOrPathLike, Metadata
 from ..callbacks import AbstractCallback
 
 class AbstractManager():
@@ -131,7 +131,7 @@ class AbstractManager():
         destination: str,
         /,
         callback: AbstractCallback,
-        metadata: Optional[Dict[str, str]],
+        metadata: Optional[Metadata],
         modified_time: Optional[TimestampLike],
         accessed_time: Optional[TimestampLike],
         content_type: Optional[str],
@@ -159,7 +159,7 @@ class AbstractManager():
         destination: str,
         *,
         callback: AbstractCallback,
-        metadata: Optional[Dict[str, str]],
+        metadata: Optional[Metadata],
         modified_time: Optional[float],
         accessed_time: Optional[float],
         content_type: Optional[str],
@@ -187,7 +187,7 @@ class AbstractManager():
         /,
         callback: AbstractCallback,
         worker_config: WorkerPoolConfig,
-        metadata: Optional[Dict[str, str]],
+        metadata: Optional[Metadata],
         modified_time: Optional[float],
         accessed_time: Optional[float],
         content_type: Optional[str],
@@ -215,7 +215,7 @@ class AbstractManager():
         /,
         callback: AbstractCallback,
         worker_config: WorkerPoolConfig,
-        metadata: Optional[Dict[str, str]],
+        metadata: Optional[Metadata],
         modified_time: Optional[float],
         accessed_time: Optional[float],
         storage_class: Optional[StorageClass],
@@ -248,7 +248,7 @@ class AbstractManager():
         pass
 
     @abstractmethod
-    def _rm(self, artefact: ArtefactType, /, callback: AbstractCallback):
+    def _rm(self, *artefact: str, callback: AbstractCallback, worker_config: WorkerPoolConfig):
         """ Delete the underlying artefact data on the manager.
 
         To avoid possible user error in deleting directories, the user must have already indicated that they want to

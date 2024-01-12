@@ -63,33 +63,3 @@ class Test_ProgressCallback(unittest.TestCase):
             s3.put(directory, '/directory', callback=combinedCallback)
 
             s3.rm('/directory', recursive=True, callback=combinedCallback)
-
-    def test_description_cant_change(self):
-
-        pc = stow.callbacks.ProgressCallback()
-        pc.setDescription('A')
-        pc.setDescription('B')
-
-        self.assertEqual(pc._desc, 'A')
-
-    def test_multilevel_progress(self):
-
-        pbar = stow.callbacks.ProgressCallback()
-
-        pbar.removed('file')
-
-        pbar.addTaskCount(10)
-        pbar.addTaskCount(10)
-
-        pbar.addTaskCount(10, False)
-        pbar.addTaskCount(10, False)
-
-
-
-
-
-
-
-
-
-

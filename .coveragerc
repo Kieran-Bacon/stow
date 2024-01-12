@@ -3,7 +3,7 @@ branch = True
 
 [report]
 # Regexes for lines to exclude from consideration
-exclude_lines =
+exclude_also =
     pragma: no cover
     AbstractContextManager
     # pass
@@ -12,6 +12,7 @@ exclude_lines =
     if os.name == 'nt':
     @abc.abstractmethod
     @abstractmethod
+    \.\.\.
 
 ignore_errors = True
 

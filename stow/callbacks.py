@@ -1,8 +1,9 @@
 import abc
 import typing
-from typing import Union, Optional
+from typing import Union, Optional, Tuple, Any
 
 import tqdm
+import queue
 
 import logging
 log = logging.getLogger(__name__)
@@ -16,29 +17,44 @@ class AbstractCallback(abc.ABC): # pragma: no cover
         is_downloading (bool) = True: Toggled by the manager depending on what activity is happening
     """
 
-    def setDescription(self, description: str):
-        pass
+    @abc.abstractmethod
+    def reviewing(self, count: int):
+        ...
 
     @abc.abstractmethod
-    def addTaskCount(self, count: int, isAdding: bool):
-        pass
+    def reviewed(self, pathOrCount: Union[str, int]):
+        ...
 
     @abc.abstractmethod
-    def added(self, pathOrCount: Union[str, int]):
-        pass
+    def writing(self, count: int):
+        ...
+
+    @abc.abstractmethod
+    def written(self, pathOrCount: Union[str, int]):
+        ...
+
+    @abc.abstractmethod
+    def deleting(self, count: int):
+        ...
+
+    @abc.abstractmethod
+    def deleted(self, pathOrCount: Union[str, int]):
+        ...
 
     @abc.abstractmethod
     def get_bytes_transfer(self, path: str, bytes: int):
         pass
 
-    @abc.abstractmethod
-    def removed(self, pathOrCount: Union[str, int]):
-        pass
+class NoneImplementedCallback(AbstractCallback):
+    def reviewing(self, count: int): return super().reviewing(count)
+    def reviewed(self, pathOrCount: Union[str,int]): return super().reviewed(pathOrCount)
+    def writing(self, count: int): return super().writing(count)
+    def written(self, pathOrCount: Union[str, int]): return super().written(pathOrCount)
+    def deleting(self, count: int): return super().deleting(count)
+    def deleted(self, pathOrCount: Union[str,int]):return super().deleted(pathOrCount)
+    def get_bytes_transfer(self, path: str, bytes: int): return super().get_bytes_transfer(path, bytes)
 
-def do_nothing(*args, **kwargs): # pragma: no cover
-    pass
-
-class DefaultCallback(AbstractCallback): # pragma: no cover
+class DefaultCallback(NoneImplementedCallback): # pragma: no cover
 
     _target: Optional[AbstractCallback] = None
 
@@ -46,151 +62,141 @@ class DefaultCallback(AbstractCallback): # pragma: no cover
     def become(cls, target: AbstractCallback):
         cls._target = target
 
-    def addTaskCount(self, *args, **kwargs):
-        if self._target is not None:
-            return self._target.addTaskCount(*args, **kwargs)
-
-    def added(self, *args, **kwargs):
-        if self._target is not None:
-            return self._target.added(*args, **kwargs)
-
-    def get_bytes_transfer(self, *args, **kwargs):
-        if self._target is not None:
-            return self._target.get_bytes_transfer(*args, **kwargs)
-
-    def removed(self, *args, **kwargs):
-        if self._target is not None:
-            return self._target.removed(*args, **kwargs)
+    def __getattribute__(self, attr):
+        if attr == 'become':
+            return super().__getattribute__(attr)
+        if attr == 'get_bytes_transfer':
+            return lambda *args, **kwargs: (lambda *args, **kwargs: None)
+        return getattr(super().__getattribute__('_target'), attr, lambda *args, **kwargs: None)
 
 
+import weakref
 class ProgressCallback(AbstractCallback):
 
-    def __init__(self, desc: str = ""):
+    def __init__(self):
 
-        self._desc = desc
-        self._addingArtefactsProgress = None
-        self._removingArtefactsProgress = None
-        self._bytesTransferedProgress = {}
+        self._reviewingProgressBar = None
+        self._writingProgressBar = None
+        self._deletingProgressBar = None
 
-        self._positionOffset = 0
+        self._positionPool = queue.Queue()
+        self._positionOffset = -1
+        self._transferBars = []
 
-    def _getNextPositionOffset(self):
-        val = self._positionOffset
-        self._positionOffset += 1
-        return val
 
-    def setDescription(self, description: str):
-        if not self._desc:
-            self._desc = description
+    def _getNextPositionOffset(self) -> int:
 
-    def addTaskCount(self, count: int, isAdding: bool = True):
-        log.debug('Adding task counts: %s', (isAdding or -1)*count)
+        try:
+            position = self._positionPool.get_nowait()
+        except queue.Empty:
+            self._positionOffset += 1
+            position = self._positionOffset
 
-        # if self._addingArtefactsProgress is None:
-        #     self._addingArtefactsProgress = tqdm.tqdm(
-        #         desc=self._desc,
-        #         total=1,
-        #         unit='artefacts'
-        #     )
+        # print(position)
+        return position
 
-        # self._addingArtefactsProgress.total += count
-
-        if isAdding:
-            if self._addingArtefactsProgress is None:
-                self._addingArtefactsProgress = tqdm.tqdm(
-                    desc=f"{self._desc}::Creating artefacts" if self._desc else "Creating artefacts",
-                    total=count,
-                    unit='artefacts',
-                    position=self._getNextPositionOffset()
-                )
-
-            else:
-                self._addingArtefactsProgress.total += count
-
+    @staticmethod
+    def _updatePbar(pbar: tqdm.tqdm, pathOrCount: Union[str, int]):
+        if isinstance(pathOrCount, int):
+            pbar.update(pathOrCount)
         else:
+            pbar.desc = pbar.desc.split(' ')[0] + " " + pathOrCount
+            pbar.update()
 
-            if self._removingArtefactsProgress is None:
-                self._removingArtefactsProgress = tqdm.tqdm(
-                    desc=f"{self._desc}::Removing artefacts" if self._desc else "Removing artefacts",
-                    total=count,
-                    unit='artefacts',
-                    position=self._getNextPositionOffset()
-                )
 
-            else:
-                self._removingArtefactsProgress.total += count
-
-    def added(self, path: Union[str, int]):
-        log.debug('Adding path=%s', path)
-
-        if path in self._bytesTransferedProgress:
-            pbar = self._bytesTransferedProgress.pop(path)
-            pbar.close()
-
-        if self._addingArtefactsProgress:
-            self._addingArtefactsProgress.update()
-            if self._addingArtefactsProgress.n >= self._addingArtefactsProgress.total:
-                self._addingArtefactsProgress = None
-        else:
-            log.info(path + ' added')
-
-    def get_bytes_transfer(self, path, total):
-        log.debug('Initialising transfer for path=%s', path)
-
-        self._bytesTransferedProgress[path] = pbar = tqdm.tqdm(
-            desc=f'{path} transfered',
+    def _pbar(self, desc, total):
+        return tqdm.tqdm(
+            desc=desc,
             total=total,
-            unit='bytes',
-            leave=False,
+            unit=' Artefacts',
+            leave=True,
             position=self._getNextPositionOffset()
-            # disable=True
         )
 
-        return pbar.update
+    def reviewing(self, count: int):
+        if self._reviewingProgressBar is None:
+            self._reviewingProgressBar = self._pbar('Reviewing', count)
+        self._reviewingProgressBar.total += count
 
-    def removed(self, path: Union[str, int]):
-        log.debug('Removing %s', path)
+    def reviewed(self, pathOrCount: Union[str, int]):
+        self._updatePbar(self._reviewingProgressBar, pathOrCount)
 
-        if self._removingArtefactsProgress:
+    def writing(self, count: int):
+        if self._writingProgressBar is None:
+            self._writingProgressBar = self._pbar('Writing', count)
+        self._writingProgressBar.total += count
 
-            self._removingArtefactsProgress.update(path if isinstance(path, int) else 1)
+    def written(self, pathOrCount: Union[str, int]):
+        self._updatePbar(self._writingProgressBar, pathOrCount)
 
-            if self._removingArtefactsProgress.n > self._removingArtefactsProgress.total:
-                self._removingArtefactsProgress = None
+    def deleting(self, count: int):
+        if self._deletingProgressBar is None:
+            self._deletingProgressBar = self._pbar('Deleting', count)
+        self._deletingProgressBar.total += count
+
+    def deleted(self, pathOrCount: Union[str, int]):
+        self._updatePbar(self._deletingProgressBar, pathOrCount)
+
+    @staticmethod
+    def sizeof_fmt(num, suffix="B") -> Tuple[float, int, str]:
+        for i, unit in enumerate(("", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi", "Yi")):
+            if abs(num) < 1024.0:
+                return 1024.0**i, num, unit + suffix
+            num /= 1024.0
         else:
-            if isinstance(path, str):
-                log.info(path + ' removed')
+            raise RuntimeError('File size exceeds all of human data to this point - so probs a problem')
+
+
+
+    def get_bytes_transfer(self, path, total_bytes_transfer):
+        log.debug('Initialising transfer for path=%s', path)
+
+        divisor, total, unit = self.sizeof_fmt(total_bytes_transfer)
+        divisor = 1
+        total = total_bytes_transfer
+        unit = 'bytes'
+
+        position = self._getNextPositionOffset()
+
+        pbar = tqdm.tqdm(
+            desc=f'{path} transfered',
+            total=total_bytes_transfer,
+            # unit=unit,
+            unit_scale=divisor,
+            leave=False,
+            position=position
+        )
+        self._transferBars.append(pbar)
+
+        transfer = pbar.update
+
+        def onRelease():
+            self._positionPool.put(position)
+
+        weakref.finalize(transfer, onRelease)
+
+        # def update(bytes_, released = False):
+        #     if released:
+        #         return
+        #     pbar.update(max(pbar.total - pbar.n, bytes_/divisor))
+        #     if pbar.n >= pbar.total:
+        #         self._positionPool.put(abs(pbar.pos))
+        #         update.__defaults__ = (True,)
+
+        return transfer
 
 def composeCallback(callbacks: typing.Iterable[AbstractCallback]):
     """ Compile an iterable of callback methods together into a single Callback class object """
 
-    class ComposedCallback(AbstractCallback):
+    class ComposedCallback(NoneImplementedCallback):
         """ Composed callback object """
 
-        # Save the callbacks on the class parameters
-        _callbacks = callbacks
+        def __getattribute__(self, __name: str) -> Any:
 
-        def addTaskCount(self, *args, **kwargs):
-            for callback in self._callbacks:
-                callback.addTaskCount(*args, **kwargs)
+            def apply(*args, **kwargs):
+                for callback in callbacks:
+                    getattr(callback, __name)(*args, **kwargs)
 
-        def get_bytes_transfer(self, *args, **kwargs):
-            transfers = []
-            for callback in self._callbacks:
-                transfers.append(callback.get_bytes_transfer(*args, **kwargs))
+            return apply
 
-            def transferWrapper(*args, **kwargs):
-                for transfer in transfers:
-                    transfer(*args, **kwargs)
-
-            return transferWrapper
-
-        def added(self, *args, **kwargs):
-            for callback in self._callbacks:
-                callback.added(*args, **kwargs)
-
-        def removed(self, *args, **kwargs):
-            for callback in self._callbacks:
-                callback.removed(*args, **kwargs)
-
-    return ComposedCallback()
+    return ComposedCallback() # type: ignore

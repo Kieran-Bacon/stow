@@ -41,7 +41,7 @@ class Test_Artefacts(unittest.TestCase):
 
     def test_path(self):
 
-        file = self.manager['/file1']
+        file = self.manager.artefact('/file1', type=stow.File)
         self.assertEqual(file.path, f"{os.sep}file1")
 
         file.path = '/directory1/file1'
