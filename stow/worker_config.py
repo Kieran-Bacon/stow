@@ -39,7 +39,7 @@ class WorkerPoolConfig:
         self.will_join = join
         self.will_shutdown = shutdown
 
-        self._futures: List[concurrent.futures.Future] = []
+        self.futures: List[concurrent.futures.Future] = []
 
     @property
     def executor(self):
@@ -48,17 +48,20 @@ class WorkerPoolConfig:
         return self._executor
 
     def submit(self, *args, **kwargs):
-        self._futures.append(
+        self.futures.append(
             self.executor.submit(*args, **kwargs)
         )
 
     def extend(self, join: bool = False, shutdown: bool = False) -> "WorkerPoolConfig":
         config = WorkerPoolConfig(self._executor, join=join, shutdown=shutdown)
-        config._futures = self._futures
+        config.futures = self.futures
         return config
 
+    def detach(self):
+        return WorkerPoolConfig(self._executor, join=True, shutdown=False)
+
     def join(self):
-        for future in concurrent.futures.as_completed(self._futures):
+        for future in concurrent.futures.as_completed(self.futures):
             future.result()
 
     def conclude(self, cancel: bool = False):
@@ -71,7 +74,7 @@ class WorkerPoolConfig:
             raise
 
         finally:
-            if self.will_shutdown or cancel:
-                self.executor.shutdown(wait=cancel, cancel_futures=cancel)
+            if self._executor is not None and (self.will_shutdown or cancel):
+                self._executor.shutdown(wait=cancel, cancel_futures=cancel)
                 if not self._externalExecutor:
                     self.__class__.__WORKER_POOL = None
