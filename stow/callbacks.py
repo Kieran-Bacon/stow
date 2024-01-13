@@ -116,26 +116,32 @@ class ProgressCallback(AbstractCallback):
     def reviewing(self, count: int):
         if self._reviewingProgressBar is None:
             self._reviewingProgressBar = self._pbar('Reviewing', count)
-        self._reviewingProgressBar.total += count
+        else:
+            self._reviewingProgressBar.total += count
 
     def reviewed(self, pathOrCount: Union[str, int]):
-        self._updatePbar(self._reviewingProgressBar, pathOrCount)
+        if self._reviewingProgressBar:
+            self._updatePbar(self._reviewingProgressBar, pathOrCount)
 
     def writing(self, count: int):
         if self._writingProgressBar is None:
             self._writingProgressBar = self._pbar('Writing', count)
-        self._writingProgressBar.total += count
+        else:
+            self._writingProgressBar.total += count
 
     def written(self, pathOrCount: Union[str, int]):
-        self._updatePbar(self._writingProgressBar, pathOrCount)
+        if self._writingProgressBar:
+            self._updatePbar(self._writingProgressBar, pathOrCount)
 
     def deleting(self, count: int):
         if self._deletingProgressBar is None:
             self._deletingProgressBar = self._pbar('Deleting', count)
-        self._deletingProgressBar.total += count
+        else:
+            self._deletingProgressBar.total += count
 
     def deleted(self, pathOrCount: Union[str, int]):
-        self._updatePbar(self._deletingProgressBar, pathOrCount)
+        if self._deletingProgressBar:
+            self._updatePbar(self._deletingProgressBar, pathOrCount)
 
     @staticmethod
     def sizeof_fmt(num, suffix="B") -> Tuple[float, int, str]:
