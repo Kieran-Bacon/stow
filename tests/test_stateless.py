@@ -750,11 +750,7 @@ class Test_Stateless(unittest.TestCase):
             # This will replace the second file
             stow.cp(dir1_file, dir2_file)
 
-            dir1 = stow.join(dir1, 'dir')
-            dir2 = stow.join(dir2, 'dir')
-
-            stow.mkdir(dir1)
-            stow.mkdir(dir2)
+            self.assertTrue(stow.exists(dir1_file, dir2_file))
 
             with self.assertRaises(stow.exceptions.OperationNotPermitted):
                 stow.cp(dir1, dir2)
@@ -820,16 +816,11 @@ class Test_Stateless(unittest.TestCase):
             # This will replace the second file
             stow.mv(dir1_file, dir2_file)
 
-            dir1 = stow.join(dir1, 'dir')
-            dir2 = stow.join(dir2, 'dir')
-
-            stow.mkdir(dir1)
-            stow.mkdir(dir2)
-
             with self.assertRaises(stow.exceptions.OperationNotPermitted):
                 stow.mv(dir1, dir2)
 
             stow.mv(dir1, dir2, overwrite=True)
+
 
     @mock_s3
     def test_mv_between_managers(self):
@@ -942,6 +933,7 @@ class Test_Stateless(unittest.TestCase):
 
             stow.touch(stow.join(directory, 'dir1', 'hello'))
             stow.mkdir(stow.join(directory, 'dir2', 'hello'))
+            stow.mkdir(stow.join(directory, 'dir2', 'hello', 'file1.txt'))
 
             with self.assertRaises(stow.exceptions.OperationNotPermitted):
                 stow.sync(
