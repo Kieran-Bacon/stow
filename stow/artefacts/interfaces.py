@@ -43,6 +43,9 @@ class ManagerInterface:
     def _rm(self, path: StrOrPathLike, *, callback: AbstractCallback):
         ...
 
+    def artefact(self, artefact: StrOrPathLike, type: Optional[os.PathLike[str]] = None) -> os.PathLike[str]:
+        ...
+
     def exists(self, artefact) -> bool:
         ...
 
@@ -160,8 +163,9 @@ class ManagerInterface:
     def digest(self, artefact, algo: HashingAlgorithm) -> str:
         ...
 
+    @property
     @abc.abstractmethod
-    def toConfig(self) -> None:
+    def config(self) -> Dict[str, str]:
         pass
 
 

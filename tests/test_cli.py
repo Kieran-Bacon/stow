@@ -197,7 +197,7 @@ class Test_CLI(unittest.TestCase):
             result = self.runner.invoke(cli, ['ls', source])
             assert result.exit_code == 0
 
-            self.assertEqual(len(result.output.split('\n')), 2, msg=result.output)
+            self.assertEqual(len(result.output.splitlines()), 3, msg=result.output)
 
     def test_mv(self):
 

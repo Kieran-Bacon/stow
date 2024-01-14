@@ -1,6 +1,7 @@
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 import urllib.parse
-from typing import Union, Optional, Dict, Generator
+from typing import Union, Optional, Dict, Generator, Tuple
+from typing_extensions import Self
 import contextlib
 
 from ..worker_config import WorkerPoolConfig
@@ -9,7 +10,7 @@ from ..storage_classes import StorageClass
 from ..artefacts import Artefact, File, Directory, ArtefactType, ArtefactOrPathLike, Metadata
 from ..callbacks import AbstractCallback
 
-class AbstractManager():
+class AbstractManager:
     """ The abstract manager interface - outlines and details the methods that should be implemented
     by developers that want to extend the stow manager library
     """
@@ -239,11 +240,35 @@ class AbstractManager():
         pass
 
     @abstractmethod
-    def _ls(self, directory: str, recursive: bool = False) -> Generator[ArtefactType, None, None]:
+    def _ls(
+        self,
+        directory: str,
+        recursive: bool = False,
+        *,
+        include_metadata: bool = False,
+        worker_config: Optional[WorkerPoolConfig] = None,
+        ) -> Generator[ArtefactType, None, None]:
         """ List all artefacts that are present at the directory objects location and add them into the manager.
 
         Args:
             managerPath: the manager path to the directory whose content is to be indexed
+        """
+        pass
+
+    @abstractmethod
+    def _overwrite(self, artefact: Optional[ArtefactType], overwrite: bool, callback: AbstractCallback):
+        """ Signals that the provided argument is about to be overwritten - take any actions necessary to permit that to
+        happen or raise error if not acceptable.
+
+        Default manager behaviour is governed by environment variables
+        - SAFE_FILE_OVERWRITE
+        - SAFE_DIRECTORY_OVERWRITE
+        If not safe then they will be deleted via `rm` before writing
+
+        Args:
+            artefact: The artefact to be overwritten
+            overwrite (bool): The flag to indicate whether the user is agrees to overwrite
+            callback (AbstractCallback): A callback that could track the consequences
         """
         pass
 
@@ -265,7 +290,7 @@ class AbstractManager():
 
     @classmethod
     @abstractmethod
-    def _signatureFromURL(cls, url: urllib.parse.ParseResult):
+    def _signatureFromURL(cls, url: urllib.parse.ParseResult) -> Tuple[Self, str]:
         """ Create the signature that can be passed to the init of the manager to create a new instance using the
         information passed via the url ParseResult object that will have been created via the stateless interface
 
@@ -279,6 +304,12 @@ class AbstractManager():
         Raises:
             Error: Errors due to missing information and so on
         """
+        pass
+
+    @property
+    @abstractmethod
+    def protocol(self) -> str:
+        """ The protocol for the manager e.g. fs/s3/k8s """
         pass
 
     @property
@@ -304,8 +335,9 @@ class AbstractManager():
         """
         pass
 
+    @property
     @abstractmethod
-    def toConfig(self) -> dict:
+    def config(self) -> Dict[str, str]:
         """ Generate a config which can be unpacked into the `connect` interface to initialise this
         manager. To be used to seralise and de-seralise a manager object.
 

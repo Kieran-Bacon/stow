@@ -7,8 +7,9 @@ import contextlib
 import datetime
 import hashlib
 
-from .. import _utils as utils
+from .. import utils as utils
 from ..artefacts import Artefact
+from .abstract_methods import AbstractManager
 from .manager import Manager, Localiser
 # from .. import _utils as utils
 
@@ -155,7 +156,7 @@ class RemoteLocaliser(Localiser):
             self._manager.rm(self._artefact, recursive=True)
 
 
-class LocalManager(Manager, abc.ABC):
+class LocalManager(Manager, AbstractManager):
     """ Abstract Base Class for managers that will be working with local artefacts.
     """
 
@@ -189,7 +190,7 @@ class LocalManager(Manager, abc.ABC):
         _, _, path = self._splitArtefactForm(artefact, load=False, require=False, external=False)
         return LocalLocaliser(self._abspath(path))
 
-class RemoteManager(Manager, abc.ABC):
+class RemoteManager(Manager, AbstractManager):
     """ Abstract Base Class for managers that will be working with remote artefacts so efficiency with fetching and
     pushing files is important for time and bandwidth
     """

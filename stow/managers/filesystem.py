@@ -6,20 +6,20 @@ import sys
 import errno
 import stat
 import datetime
-import urllib
+import urllib.parse
 from typing import Optional, Union
 
 import binascii
 import hashlib
 
-posix = None
 if os.name == 'nt':
     import ctypes
 
 else:
     import posix
 
-from .. import _utils as utils
+from ..artefacts import ArtefactType
+from .. import utils as utils
 from ..worker_config import WorkerPoolConfig
 from ..artefacts import Artefact, File, Directory, PartialArtefact
 from ..types import HashingAlgorithm
@@ -62,45 +62,32 @@ class FS(LocalManager):
         path (str): The local relative path to where the manager is to be initialised
     """
 
-    def __new__(cls, path: Optional[str] = None, drive: Optional[str] = None):
-        # Note - Though the arguments must match the instances called from super, they do not have to have the same
-        # defaults. This allows use to handle the default behaviour differently for the managers
+    SEPARATORS_STRING = ''.join(LocalManager.SEPARATORS)
 
-        if path is None:
-            return super().__new__(RootFS) # type: ignore
 
-        else:
-            return super().__new__(SubdirectoryFS) # type: ignore
+    def __init__(self, path: str = ''):
+        self._drive, self._path = os.path.splitdrive(path)
 
     if os.name == 'nt':
-
-        def __init__(self, path: str = os.path.sep, drive: str = 'c'):
-            super().__init__()
-
-            self._drive = drive
-            expected_drive, self._path = os.path.splitdrive(path)
-
-            if expected_drive and drive.lower() != expected_drive[:-1].lower():
-                raise ValueError(f'Drive letter passed does not match drive letter of path: {drive} != ({expected_drive}):{self._path}')
-
-            self._root = self._drive + ':' + self._path
-
         COPY_BUFFER_SIZE = 1024 * 1024
 
     else:
-        def __init__(self, path: str = os.path.sep, drive: str = ''):
-            super().__init__()
-            self._drive = drive
-            _, self._root = os.path.splitdrive(path)
-            self._path = self._root
-
         COPY_BUFFER_SIZE = 64 * 1024
 
     def _abspath(self, path: str) -> str:
-        ...
+        return os.path.abspath(
+            os.path.join(
+                self._drive,
+                self._path or self.SEPARATOR,
+                path.lstrip(self.SEPARATORS_STRING)
+            )
+        )
 
-    def _relative(self, path: str) -> str:
-        ...
+    def _relative(self, abspath: str) -> str:
+        _, path = os.path.splitdrive(abspath)
+        return path.removeprefix(self._path) or self.SEPARATOR
+        # relpath = path.removeprefix(self._path)
+        # return self.SEPARATOR + relpath
 
     def _mklink(self, source: str, destination: str, soft: bool):
         if soft:
@@ -193,7 +180,44 @@ class FS(LocalManager):
 
         callback.written(source)
 
-    if posix is not None and hasattr(posix, '_fcopyfile'):
+    if os.name == 'nt':
+        def _copyfile(self, source: str, destination: str, sourceStat: os.stat_result, callback):
+            """ readinto()/memoryview() based variant of copyfile
+            """
+
+            # Open the source and destination location
+            with open(source, 'rb') as source_handle:
+                with open(destination, 'wb') as destination_handle:
+
+                    # Ensure that there is a need to transfer any data
+                    source_length = sourceStat.st_size
+                    if not source_length:
+                        return
+
+                    # Setup the read buffer for readinto and callback tracker
+                    transfer = callback.get_bytes_transfer(destination, source_length)
+                    read_size = min(source_length, self.COPY_BUFFER_SIZE)
+
+                    # Create a bytes array and a view onto it -
+                    with memoryview(bytearray(read_size)) as mv:
+                        while True:
+                            read = source_handle.readinto(mv)
+                            if not read:
+                                # Nothing more to read
+                                break
+
+                            elif read < read_size:
+                                # Ensure that only part written into is written to destination
+                                with mv[:read] as smv:
+                                    transfer(destination_handle.write(smv))
+
+                            else:
+                                # Entire buffer replaced with read - write entire buffer
+                                transfer(destination_handle.write(mv))
+
+            callback.written(source)
+
+    elif hasattr(posix, '_fcopyfile'):
         # The implementation is MAC os - there is
 
         def _copyfile(self, source: str, destination: str, callback):
@@ -263,48 +287,8 @@ class FS(LocalManager):
 
             callback.written(source)
 
-    elif os.name == 'nt':
-
-        def _copyfile(self, source: str, destination: str, sourceStat: os.stat_result, callback):
-            """ readinto()/memoryview() based variant of copyfile
-            """
-
-            # Open the source and destination location
-            with open(source, 'rb') as source_handle:
-                with open(destination, 'wb') as destination_handle:
-
-                    # Ensure that there is a need to transfer any data
-                    source_length = sourceStat.st_size
-                    if not source_length:
-                        return
-
-                    # Setup the read buffer for readinto and callback tracker
-                    transfer = callback.get_bytes_transfer(destination, source_length)
-                    read_size = min(source_length, self.COPY_BUFFER_SIZE)
-
-                    # Create a bytes array and a view onto it -
-                    with memoryview(bytearray(read_size)) as mv:
-                        while True:
-                            read = source_handle.readinto(mv)
-                            if not read:
-                                # Nothing more to read
-                                break
-
-                            elif read < read_size:
-                                # Ensure that only part written into is written to destination
-                                with mv[:read] as smv:
-                                    transfer(destination_handle.write(smv))
-
-                            else:
-                                # Entire buffer replaced with read - write entire buffer
-                                transfer(destination_handle.write(mv))
-
-            callback.written(source)
-
     else:
-
         _copyfile = _defaultcopyfile
-
 
     def _copystats(
         self,
@@ -446,7 +430,7 @@ class FS(LocalManager):
                 accessed_time=accessed_time
             )
 
-    def _getBytes(self, source: Artefact, *, callback = None) -> bytes:
+    def _getBytes(self, source: Artefact, **kwargs) -> bytes:
         with open(self._abspath(source.path), "rb") as handle:
             return handle.read()
 
@@ -536,9 +520,9 @@ class FS(LocalManager):
             accessed_time=accessed_time,
         )
 
-    def _mv(self, source: str, destination: str, *args, callback: AbstractCallback, **kwargs):
+    def _mv(self, source: ArtefactType, destination: str, *args, callback: AbstractCallback, **kwargs):
 
-        sourceAbspath = self._abspath(source)
+        sourceAbspath = self._abspath(source.path)
         destinationAbspath = self._abspath(destination)
 
         # Ensure the destination location
@@ -551,7 +535,7 @@ class FS(LocalManager):
 
         return PartialArtefact(self, self._relative(destinationAbspath))
 
-    def _ls(self, directory: str, recursive: bool = False):
+    def _ls(self, directory: str, recursive: bool = False, **kwargs):
 
         # Get a path to the folder
         abspath = self._abspath(directory)
@@ -608,24 +592,25 @@ class FS(LocalManager):
 
             callback.deleted(path)
 
-    if os.name == 'nt':
-        @classmethod
-        def _signatureFromURL(cls, url: urllib.parse.ParseResult):
-            return {'drive': url.scheme or 'c'}, os.path.splitdrive(os.path.abspath(os.path.expanduser(url.path)))[1]
+    def _cwd(self) -> str:
+        _, path = os.path.splitdrive(os.getcwd())
+        return self.SEPARATOR + path.removeprefix(self._path) if path.startswith(self._path) else self.SEPARATOR
 
-        def toConfig(self):
-            return {'manager': 'FS', 'path': self._root, 'drive': self._drive}
-    else:
-        @classmethod
-        def _signatureFromURL(cls, url: urllib.parse.ParseResult):
-            return {}, os.path.abspath(os.path.expanduser(url.path))
-
-        def toConfig(self):
-            return {'manager': 'FS', 'path': self._root}
     @property
-    def root(self):
-        return self._root
+    def protocol(self):
+        return 'FS'
 
+    @property
+    def root(self) -> str:
+        return os.path.join(self._drive, self._path)
+
+    @property
+    def config(self):
+        return {'path': os.path.join(self._drive, self._path)}
+
+    @classmethod
+    def _signatureFromURL(cls, url: urllib.parse.ParseResult):
+        return {'path': url.scheme and url.scheme + ':'}, os.path.join(os.getcwd(), url.path)
 
     class CommandLineConfig:
         def __init__(self, manager):
@@ -640,32 +625,3 @@ class FS(LocalManager):
         def initialise(self, kwargs):
             # return self._manager(kwargs.get('root',))
             return self._manager()
-
-
-class RootFS(FS):
-
-    if os.name == 'nt':
-        def _abspath(self, managerPath: str) -> str:
-            return self._drive + ':' + os.path.splitdrive(os.path.abspath(managerPath))[1]
-
-    else:
-        def _abspath(self, managerPath: str) -> str:
-            return os.path.abspath(managerPath)
-
-    def _relative(self, abspath: str) -> str:
-        return abspath
-
-class SubdirectoryFS(FS):
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._rootLength = len(self._root)
-
-    def _cwd(self):
-        return self.SEPARATOR
-
-    def _abspath(self, managerPath: str) -> str:
-        return os.path.abspath(self.join(self._root, managerPath, joinAbsolutes=True))
-
-    def _relative(self, abspath: str) -> str:
-        return abspath[self._rootLength:] or os.sep

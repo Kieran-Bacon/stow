@@ -66,12 +66,11 @@ class Test_Artefacts(unittest.TestCase):
             {f"{os.sep}another_directory", f"{os.sep}another_directory{os.sep}directory2", f'{os.sep}another_directory{os.sep}directory2{os.sep}file1'}
         )
 
-    def test_directory(self):
 
-        file = self.manager['/file1']
+        file = self.manager['/another_directory/directory2/file1']
 
         self.assertIsInstance(file.directory, stow.Directory)
-        self.assertEqual(file.directory.path, os.sep)
+        self.assertEqual(file.directory.path, f'{os.sep}another_directory{os.sep}directory2')
 
     def test_basename(self):
 

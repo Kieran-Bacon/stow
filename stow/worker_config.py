@@ -1,13 +1,24 @@
 import functools
 import concurrent.futures
 import dataclasses
-from typing import (List, Optional)
-from typing_extensions import Self
+from typing import (List, Optional, Callable, TypeVar)
+from typing_extensions import Self, ParamSpec
 import time
 import queue
 
 import logging
 logger = logging.getLogger(__name__)
+
+_P = ParamSpec('_P')
+_T = TypeVar('_T')
+
+class SequencialExecutor(concurrent.futures.Executor):
+
+    def submit(self, __fn: Callable[_P, _T], *args: _P.args, **kwargs: _P.kwargs) -> concurrent.futures.Future[_T]:
+
+        future = concurrent.futures.Future()
+        future.set_result(__fn(*args, **kwargs))
+        return future
 
 class WorkerPoolConfig:
 
@@ -26,18 +37,22 @@ class WorkerPoolConfig:
         max_workers: Optional[int] = None
     ):
 
+        self._externalExecutor = True
+        self.will_shutdown = shutdown
         if executor is None:
-            self._executor = None
-            self._externalExecutor = False
+            if max_workers == 0:
+                self._executor = SequencialExecutor()
+            else:
+                self._executor = None
+                self._externalExecutor = False
+                self.will_shutdown &= not self.__WORKER_POOL  # You will only be able to shutdown if a pool hasn't already been created
 
         else:
             self._executor = executor
-            self._externalExecutor = True
 
         self.max_workers = max_workers
 
         self.will_join = join
-        self.will_shutdown = shutdown
 
         self.futures: List[concurrent.futures.Future] = []
 

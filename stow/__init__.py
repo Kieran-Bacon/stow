@@ -12,11 +12,6 @@ from . import callbacks
 from . import exceptions
 
 # Expose the util functions
-from .utils import (
-    find,
-    connect,
-    parseURL
-)
 
 env = os.environ
 getcwd = os.getcwd
@@ -24,6 +19,9 @@ getcwd = os.getcwd
 # Create the stateless manager
 Manager = Manager()
 
+find = Manager.find
+connect = Manager.connect
+parseURL = Manager.parseURL
 manager = Manager.manager
 artefact = Manager.artefact
 abspath = Manager.abspath

@@ -216,8 +216,12 @@ def get(manager: Manager, source: str, destination: str, overwrite: bool):
 @click.pass_obj
 def ls(manager: Manager, artefact: str, recursive: bool):
     """ List artefacts in a directory """
+
+    print('Name'.ljust(70)+'|Type'.ljust(10)+' |Creation Date')
+    print('='*114)
     for subArtefacts in manager.iterls(artefact, recursive=recursive, ignore_missing=True):
-        print(subArtefacts)
+        print(f"{subArtefacts.path.ljust(70)} {subArtefacts.__class__.__name__.ljust(10)} {subArtefacts.modifiedTime}")
+
 
 @cli.command()
 @click.argument('source')

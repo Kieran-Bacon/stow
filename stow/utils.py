@@ -1,69 +1,88 @@
 """ House utilities for the finding and creation of Managers """
 
-import typing
-import functools
+import os
 import dataclasses
+import datetime
 
-from . import _utils
-from .manager import Manager
+from typing import Union, Optional
 
-def find(manager: str) -> typing.Type[Manager]:
-    """ Fetch the `Manager` class hosted on the 'stow_managers' entrypoint with
-    the given name `manager` entry name.
+from .types import TimestampLike, TimestampAble
 
-    Args:
-        manager: The name of the `Manager` class to be returned
+def timestampToFloat(timestampLike: TimestampLike) -> float:
+    return (timestampLike.timestamp() if isinstance(timestampLike, TimestampAble) else float(timestampLike))
 
-    Returns:
-        Manager: The `Manager` class for the manager name provided
+def timestampToDatetime(timestamp: TimestampLike) -> datetime.datetime:
+    return datetime.datetime.fromtimestamp(timestampToFloat(timestamp), tz=datetime.timezone.utc)
 
-    Raises:
-        ValueError: In the event that a manager with the provided name couldn't be found
-    """
-    return _utils.find(manager)
-
-def connect(manager: str, **kwargs) -> Manager:
-    """ Find and connect to a `Manager` using its name (entrypoint name) and return an instance of that `Manager`
-    initialised with the kwargs provided. A path can be provided as the location on the manager for a sub manager to be
-    created which will be returned instead.
-
-    Args:
-        manager: The name of the manager class
-        **kwargs: Keyworded arguments to be passed to the Manager init
-
-    Returns:
-        Manager: A storage manager or sub manager which can be used to put and get artefacts
-
-    Note:
-        References to `Manager` created by this method are stored to avoid multiple definitions of managers on similar
-        locations.
-
-        The stateless interface uses this method as the backend for its functions and as such you can fetch any active
-        session by using this function rather than initalising a `Manager` directly
-    """
-    return _utils.connect(manager, **kwargs)
+def timestampToFloatOrNone(time: Optional[TimestampLike]) -> Union[float, None]:
+    return time if time is None else (time.timestamp() if isinstance(time, TimestampAble) else float(time))
 
 @dataclasses.dataclass
-class ParsedURL:
-    """ House pointers to manager """
-    manager: Manager
-    relpath: str
+class ArtefactModifiedAndAccessedTime:
+    modified_time: datetime.datetime
+    accessed_time: datetime.datetime
 
-@functools.lru_cache
-def parseURL(stowURL: str, default_manager = None) -> ParsedURL:
-    """ Parse the passed stow URL and return a ParsedURL a named tuple of manager and relpath
+    def __iter__(self):
+        yield self.modified_time
+        yield self.accessed_time
 
-    Example:
-        manager, relpath = stow.parseURL("s3://example-bucket/path/to/file)
+def utime(
+        filepath: str,
+        modified_time: Optional[TimestampLike],
+        accessed_time: Optional[TimestampLike]
+    ) -> ArtefactModifiedAndAccessedTime:
+    """ Better utime interface for the updating of file times - defaults to preserving the original time and allowing
 
-        result = stow.parseURL("s3://example-bucket/path/to/file)
-        result.manager
-        result.relpath
-
-    Args:
-        stowURL: The path to be parsed and manager identified
-
-    Returns:
-        typing.NamedTuple: Holding the manager and relative path of
+    Behaviour:
+        1. Pass both times and have them interpreted correctly and set on the file
+        2. Pass either a modified or an accessed time to set that one specifically
+        3. Pass nothing to update both to now (default utime behaviour)
     """
-    return ParsedURL(*_utils.parseURL(stowURL))
+
+    if modified_time is None:
+
+        if accessed_time is None:
+            # Neither time was set - update the file times to now (default)
+            os.utime(filepath)
+            stat = os.stat(filepath)
+
+            return ArtefactModifiedAndAccessedTime(
+                timestampToDatetime(stat.st_mtime),
+                timestampToDatetime(stat.st_atime)
+            )
+
+        else:
+            # The accessed time was set - the modified time needs to be read in to be preserved
+            stat = os.stat(filepath)
+
+            os.utime(filepath, (timestampToFloat(accessed_time), float(stat.st_mtime)))
+
+            return ArtefactModifiedAndAccessedTime(
+                timestampToDatetime(stat.st_mtime),
+                timestampToDatetime(accessed_time)
+            )
+
+    else:
+        # The modified time was set
+
+        # Convert the modified time (true in regardless of access time)
+
+        if accessed_time is None:
+            # Access time was not set - preserve access time and updated modified time
+
+            stat = os.stat(filepath)
+            os.utime(filepath, (float(stat.st_atime), timestampToFloat(modified_time)))
+            return ArtefactModifiedAndAccessedTime(
+                timestampToDatetime(modified_time),
+                timestampToDatetime(stat.st_atime)
+            )
+
+        else:
+            # Both have been updated - set new times on filepath
+
+            os.utime(filepath, (timestampToFloat(accessed_time), timestampToFloat(modified_time)))
+
+            return ArtefactModifiedAndAccessedTime(
+                timestampToDatetime(modified_time),
+                timestampToDatetime(accessed_time)
+            )

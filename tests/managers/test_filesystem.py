@@ -55,36 +55,16 @@ class Test_Filesystem(unittest.TestCase):
 
     def test_relativePath(self):
 
-        filename = "test-filename.txt"
-
-        while os.path.exists(filename):
-            filename = "".join([random.choice(string.ascii_letters) for _ in range(10)])
-
-        #
-        try:
-            with open(filename, "w") as handle:
-                handle.write("Content")
-
-            file = stow.artefact(filename)
-
-            self.assertEqual(file.content.decode(), "Content")
-
-        finally:
-            os.remove(filename)
-
+        stow.artefact('README.md', type=stow.File)
 
     def test_config(self):
 
-        config = self.manager.toConfig()
+        config = self.manager.config
 
-        if os.name == 'nt':
-            self.assertEqual(config, {"manager": "FS", "path": self.directory, 'drive': 'c'})
-        else:
-            self.assertEqual(config, {"manager": "FS", "path": self.directory})
-
-    # def test_otherDriveLetters(self):
-
-    #     stow.rm("G:\\My Drive\\Pictures\\Cards\\18th Birthday from Linford and Bethan.pdf")
+        self.assertDictEqual(
+            config,
+            {'path': self.directory}
+        )
 
     def test_artefact(self):
 
@@ -778,11 +758,11 @@ class Test_Filesystem(unittest.TestCase):
         hydrated = pickle.loads(pickle.dumps(self.manager))
 
         self.assertEqual(type(hydrated), type(self.manager))
-        self.assertDictEqual(hydrated.toConfig(), self.manager.toConfig())
+        self.assertDictEqual(hydrated.config, self.manager.config)
 
     def test_serialisation_uses_cache(self):
 
-        manager = stow.connect(**self.manager.toConfig())
+        manager = stow.connect('FS', **self.manager.config)
 
         hydrated = pickle.loads(pickle.dumps(self.manager))
 

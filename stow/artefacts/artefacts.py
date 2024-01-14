@@ -6,16 +6,17 @@ from typing import Union, Optional, Dict
 from typing_extensions import Self
 
 from .interfaces import ManagerInterface, Localiser
-from ..storage_classes import StorageClassInterface, StorageClass
+from ..storage_classes import StorageClassInterface
 from ..worker_config import WorkerPoolConfig
 from ..types import HashingAlgorithm, TimestampLike, StrOrPathLike
-from .. import _utils as utils
+from .. import utils
 from ..callbacks import AbstractCallback, DefaultCallback
 from .. import exceptions
 
 class ArtefactReloader:
-    def __new__(cls, config, path):
-        return utils.connect(**config)[path]
+    def __new__(cls, protocol, config, path):
+        from ..manager.manager import Manager
+        return Manager.connect(manager=protocol, **config)[path]
 
 class Artefact:
     """ Artefacts are the items that are being stored - it is possible that through another mechanism that these items
@@ -46,7 +47,7 @@ class Artefact:
         self._metadata = metadata
 
     def __reduce__(self):
-        return (ArtefactReloader, (self._manager.toConfig(), self._path))
+        return (ArtefactReloader, (self._manager.protocol, self._manager.config, self._path))
 
     def __hash__(self):
         return hash(self.abspath)
@@ -69,7 +70,7 @@ class Artefact:
     @property
     def directory(self) -> 'Directory':
         """ Directory object this artefact exists within """
-        return self._manager[self._manager.dirname(self._path)]
+        return self._manager.artefact(self._manager.dirname(self._path), type=Directory)
 
     @property
     def metadata(self):
@@ -307,7 +308,7 @@ class File(Artefact):
 
     def isLink(self):
         if self._isLink is None:
-            self._isLink = self._manager._isLink(self)
+            self._isLink = self._manager._isLink(self.path)
         return self._isLink
 
     @typing.overload
@@ -373,13 +374,13 @@ class Directory(Artefact):
         else:
             raise TypeError(f"Directory ({self}) contains does not support type {type(artefact)} ({artefact})")
 
-    # @property
-    # def modifiedTime(self) -> Optional[datetime.datetime]:
-    #     return self._modifiedTime
+    @property
+    def modifiedTime(self) -> Optional[datetime.datetime]:
+        return self._modifiedTime
 
     def isMount(self):
         if self._isMount is None:
-            self._isMount = self._manager._isMount(self)
+            self._isMount = self._manager._isMount(self.path)
         return self._isMount
 
     def mkdir(self, path: str) -> "Directory":

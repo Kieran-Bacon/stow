@@ -22,7 +22,7 @@ class Test_UtilFunctions(unittest.TestCase):
         self.package_iter = self.pkg_patcher.start()
         self.package_iter.side_effect = lambda x: [Resource()]
 
-        stow.utils._utils.MANAGERS = {}
+        stow.Manager._clearManagerCache()
 
     def tearDown(self) -> None:
         self.pkg_patcher.stop()
@@ -31,7 +31,7 @@ class Test_UtilFunctions(unittest.TestCase):
     def test_findFS(self):
 
         # Test that this returns the manager class
-        managerClass = stow.utils.find("FS")
+        managerClass = stow.find("FS")
 
         # Check that the
         self.assertEqual(managerClass, FS)
@@ -40,7 +40,7 @@ class Test_UtilFunctions(unittest.TestCase):
         self.assertEqual(self.package_iter.call_count, 1)
 
         # Test that this returns the manager class
-        managerClass = stow.utils.find("FS")
+        managerClass = stow.find("FS")
 
         # Check that the
         self.assertEqual(managerClass, FS)
@@ -51,7 +51,7 @@ class Test_UtilFunctions(unittest.TestCase):
     def test_findFails(self):
 
         with self.assertRaises(ValueError):
-            stow.utils.find("Somethingthatdoesntexist")
+            stow.find("Somethingthatdoesntexist")
 
     def test_connect(self):
 
@@ -59,19 +59,19 @@ class Test_UtilFunctions(unittest.TestCase):
             os.makedirs(os.path.join(directory, "demo"))
 
             # Create a fs
-            manager = stow.utils.connect(manager="FS", path=directory)
+            manager = stow.connect(manager="FS", path=directory)
 
             # We had to find the manager and return it
             self.assertEqual(self.package_iter.call_count, 1)
 
-            managerB = stow.utils.connect(manager="FS", path=directory)
+            managerB = stow.connect(manager="FS", path=directory)
 
             # Assert that there is caching of the params at the connect level
             self.assertEqual(self.package_iter.call_count, 1)
             self.assertIs(manager, managerB)
 
             # Create another FS manager
-            managerC = stow.utils.connect(manager="FS", path=os.path.join(directory, 'submanager'))
+            managerC = stow.connect(manager="FS", path=os.path.join(directory, 'submanager'))
 
             self.assertEqual(self.package_iter.call_count, 1)
             self.assertIsNot(manager, managerC)

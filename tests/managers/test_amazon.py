@@ -39,7 +39,7 @@ class Test_Amazon(unittest.TestCase):
     def test_root(self):
 
         manager = Amazon('bucket_name')
-        self.assertEqual('bucket_name', manager.root)
+        self.assertEqual('/bucket_name', manager.root)
 
     def test_get_root_directory(self):
 
@@ -392,7 +392,7 @@ class Test_Amazon(unittest.TestCase):
 
         self.assertEqual(
             {a.path for a in stow.ls('s3://bucket_name')},
-            {'/source', '/file.txt'}
+            {'/bucket_name/source', '/bucket_name/file.txt'}
         )
 
 
@@ -501,7 +501,7 @@ class Test_Amazon(unittest.TestCase):
 
         manager = Amazon('bucket_name')
 
-        manager.mv('/source', '/destination')
+        manager.mv('/source', '/destination', worker_config=stow.WorkerPoolConfig(max_workers=0))
 
         expected_artefacts = {
             "/destination": stow.Directory,
@@ -581,21 +581,16 @@ class Test_Amazon(unittest.TestCase):
 
         manager.rm('/directory', recursive=True)
 
-    def test_toConfig(self):
+    def test_config(self):
 
         sess = boto3.Session()
 
-        manager = Amazon('bucket_name')
         self.assertDictEqual({
-            "manager": 'AWS',
-            'bucket': 'bucket_name',
+            'path': 'bucket_name',
             'aws_access_key': 'foobar_key',
             'aws_secret_key': 'foobar_secret',
-            'aws_session_token': None,
-            'region_name': sess.region_name,
-            'profile_name': os.environ.get('AWS_PROFILE', 'default'),
-            'storage_class': "STANDARD",
-            }, manager.toConfig())
+            'default_region': sess.region_name,
+            }, Amazon('bucket_name').config)
 
     def test_digest_md5(self):
 
@@ -716,9 +711,11 @@ class Test_Amazon(unittest.TestCase):
         manager = Amazon('bucket_name')
         manager2 = Amazon('bucket_name_2')
 
-        manager.mv('/file-2.txt', 's3://bucket_name_2/file-2.txt')
+        manager2.mv(manager.artefact('/file-2.txt'), '/file-2.txt')
         self.assertFalse(manager.exists('/file-1.txt'))
-        self.assertTrue(manager2.exists('s3://bucket_name_2/file-1.txt'))
+        self.assertFalse(manager.exists('/file-2.txt'))
+        self.assertTrue(manager2.exists('/file-1.txt'))
+        self.assertTrue(manager2.exists('/file-2.txt'))
 
     def test_cli(self):
 
@@ -738,10 +735,8 @@ class Test_Amazon(unittest.TestCase):
         assert result.exit_code == 0
 
         result = runner.invoke(cli, ['-m', 's3', 'exists', 'file-1.txt'])
-        assert result.exit_code == 1
-
-        result = runner.invoke(cli, ['-m', 's3', '-b', 'bucket_name', 'exists', 'file-1.txt'])
         assert result.exit_code == 0
+        assert not result.return_value
 
     def test_etagComparator(self):
 

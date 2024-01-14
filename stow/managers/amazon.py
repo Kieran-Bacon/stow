@@ -6,23 +6,26 @@ import os
 import re
 import io
 import typing
-from typing import Generator, List, Union, Optional, Tuple, Type, Dict, overload
+from typing import Generator, List, Union, Optional, Tuple, Type, Dict, overload, Literal
 from typing_extensions import Self
 import urllib.parse
 import hashlib
 import mimetypes
 import logging
 import base64
-import datetime
 import dataclasses
+import concurrent
+import concurrent.futures
 
 import boto3
 import botocore.config
+import boto3.exceptions
 from botocore.exceptions import ClientError, UnauthorizedSSOTokenError
 
+from .. import utils as utils
 from ..worker_config import WorkerPoolConfig
 from ..types import HashingAlgorithm
-from ..artefacts import Artefact, PartialArtefact, File, Directory, ArtefactType, Metadata
+from ..artefacts import Artefact, PartialArtefact, File, Directory, ArtefactType, Metadata, ArtefactOrPathLike, ArtefactOrStr
 from ..manager import RemoteManager
 from ..storage_classes import StorageClass, StorageClassInterface
 from ..callbacks import AbstractCallback
@@ -84,23 +87,59 @@ def etagComparator(*files: File) -> bool:
     return all(digests[0] == d for d in digests[1:])
 
 @dataclasses.dataclass
-class FileStat:
-    key: str
-    lastModified: datetime.datetime
-    size: int
-    storageClass: str
-
-@dataclasses.dataclass
-class DirectoryStat:
-    prefix: str
-
-@dataclasses.dataclass
-class Dir:
-    files: List[FileStat] = dataclasses.field(default_factory=list)
-    directories: List[DirectoryStat] = dataclasses.field(default_factory=list)
+class DirStat:
+    bucket: Optional[str]
+    path: str
+    keys: List[str] = dataclasses.field(default_factory=list)
+    files: List[File] = dataclasses.field(default_factory=list)
+    directory_keys: List[str] = dataclasses.field(default_factory=list)
+    directories: List[Directory] = dataclasses.field(default_factory=list)
+    next_marker: Optional[str] = None
 
     def __len__(self) -> int:
         return len(self.files) + len(self.directories)
+
+class AmazonStorageClass(StorageClassInterface):
+    STANDARD = 'STANDARD'
+    REDUCED_REDUNDANCY = 'REDUCED_REDUNDANCY'
+    STANDARD_IA = 'STANDARD_IA'
+    ONEZONE_IA = 'ONEZONE_IA'
+    INTELLIGENT_TIERING = 'INTELLIGENT_TIERING'
+    GLACIER = 'GLACIER'
+    DEEP_ARCHIVE = 'DEEP_ARCHIVE'
+    OUTPOSTS = 'OUTPOSTS'
+
+    @classmethod
+    def toGeneric(cls, value) -> StorageClass:
+        value = cls(value)
+        if value is cls.STANDARD:
+            return StorageClass.STANDARD
+        elif value is cls.REDUCED_REDUNDANCY:
+            return StorageClass.REDUCED_REDUNDANCY
+        elif value in (cls.STANDARD_IA, cls.ONEZONE_IA):
+            return StorageClass.INFREQUENT_ACCESS
+        elif value is cls.INTELLIGENT_TIERING:
+            return StorageClass.INTELLIGENT_TIERING
+        elif value in (cls.GLACIER, cls.DEEP_ARCHIVE):
+            return StorageClass.ARCHIVE
+        elif value is cls.OUTPOSTS:
+            return StorageClass.HIGH_PERFORMANCE
+        else:
+            raise NotImplementedError(f'{value} has no generic mapping - Select storage class explicitly')
+
+    @classmethod
+    def fromGeneric(cls, generic: Optional[StorageClass]) -> "AmazonStorageClass":
+
+        if generic is StorageClass.STANDARD:
+            return cls.STANDARD
+        elif generic is StorageClass.REDUCED_REDUNDANCY:
+            return cls.REDUCED_REDUNDANCY
+        elif generic is StorageClass.INFREQUENT_ACCESS:
+            log.warning('Interpreting %s as %s - could have meant %s', generic, cls.STANDARD_IA, cls.ONEZONE_IA)
+            return cls.STANDARD_IA
+        else:
+            raise NotImplementedError(f'{generic} cannot be mapped to specific storage class in S3 - Select storage class explicitly')
+
 
 class Amazon(RemoteManager):
     """ Connect to an amazon s3 bucket using an IAM user credentials or environment variables
@@ -115,7 +154,8 @@ class Amazon(RemoteManager):
 
     """
 
-    OVERWRITEABLE = False
+    SAFE_FILE_OVERWRITE = True
+    SAFE_DIRECTORY_OVERWRITE = False  # The directory can have lingering artefacts during - must remove files beforehand
     SEPARATOR = '/'
 
     # Define regex for the object key
@@ -123,83 +163,61 @@ class Amazon(RemoteManager):
     _S3_OBJECT_KEY = re.compile(r"^[a-zA-Z0-9!_.*'()\- ]+(/[a-zA-Z0-9!_.*'()\- ]+)*$")
     _S3_DISALLOWED_CHARACTERS = "{}^%`]'`\"<>[~#|"
 
+    _s3_max_keys = int(os.environ.get('STOW_AMAZON_MAX_KEYS', 1000))
 
-    class AmazonStorageClass(StorageClassInterface):
-        STANDARD = 'STANDARD'
-        REDUCED_REDUNDANCY = 'REDUCED_REDUNDANCY'
-        STANDARD_IA = 'STANDARD_IA'
-        ONEZONE_IA = 'ONEZONE_IA'
-        INTELLIGENT_TIERING = 'INTELLIGENT_TIERING'
-        GLACIER = 'GLACIER'
-        DEEP_ARCHIVE = 'DEEP_ARCHIVE'
-        OUTPOSTS = 'OUTPOSTS'
-
-        @classmethod
-        def toGeneric(cls, value) -> StorageClass:
-            value = cls(value)
-            if value is cls.STANDARD:
-                return StorageClass.STANDARD
-            elif value is cls.REDUCED_REDUNDANCY:
-                return StorageClass.REDUCED_REDUNDANCY
-            elif value in (cls.STANDARD_IA, cls.ONEZONE_IA):
-                return StorageClass.INFREQUENT_ACCESS
-            elif value is cls.INTELLIGENT_TIERING:
-                return StorageClass.INTELLIGENT_TIERING
-            elif value in (cls.GLACIER, cls.DEEP_ARCHIVE):
-                return StorageClass.ARCHIVE
-            elif value is cls.OUTPOSTS:
-                return StorageClass.HIGH_PERFORMANCE
-            else:
-                raise NotImplementedError(f'{value} has no generic mapping - Select storage class explicitly')
-
-        @classmethod
-        def fromGeneric(cls, generic: Optional[StorageClass]) -> "Amazon.AmazonStorageClass":
-
-            if generic is StorageClass.STANDARD:
-                return cls.STANDARD
-            elif generic is StorageClass.REDUCED_REDUNDANCY:
-                return cls.REDUCED_REDUNDANCY
-            elif generic is StorageClass.INFREQUENT_ACCESS:
-                log.warning('Interpreting %s as %s - could have meant %s', generic, cls.STANDARD_IA, cls.ONEZONE_IA)
-                return cls.STANDARD_IA
-            else:
-                raise NotImplementedError(f'{generic} cannot be mapped to specific storage class in S3 - Select storage class explicitly')
-
-    @overload
-    def __init__(self, bucket: str, *, storage_class: AmazonStorageClass = AmazonStorageClass.STANDARD):
-        pass
-    @overload
-    def __init__(self, bucket: str, *, aws_session: boto3.Session, storage_class: AmazonStorageClass = AmazonStorageClass.STANDARD):
-        pass
     @overload
     def __init__(
         self,
-        bucket: str,
+        path: str = ...,
+        *,
+        storage_class: AmazonStorageClass = ...
+        ):
+        ...
+    @overload
+    def __init__(
+        self,
+        path: str = ...,
+        *,
+        aws_session: boto3.Session,
+        storage_class: AmazonStorageClass = ...
+        ):
+        ...
+    @overload
+    def __init__(
+        self,
+        path: str = ...,
         *,
         aws_access_key_id: str,
         aws_secret_access_key: str,
-        aws_session_token: str,
-        storage_class: AmazonStorageClass = AmazonStorageClass.STANDARD
+        aws_session_token: Optional[str] = ...,
+        default_region: Optional[str] = ...,
+        storage_class: AmazonStorageClass = ...
         ):
-        pass
+        ...
     @overload
-    def __init__(self, bucket: str, *, profile_name: str, storage_class: AmazonStorageClass = AmazonStorageClass.STANDARD):
-        pass
     def __init__(
         self,
-        bucket: str,
+        path: str = ...,
+        *,
+        profile_name: str,
+        storage_class: AmazonStorageClass = ...
+        ):
+        ...
+    def __init__(
+        self,
+        path: str = '',
         *,
         aws_session: Optional[boto3.Session] = None,
         aws_access_key_id: Optional[str] = None,
         aws_secret_access_key: Optional[str] = None,
         aws_session_token: Optional[str] = None,
-        region_name: Optional[str] = None,
+        default_region: Optional[str] = None,
         profile_name: Optional[str] = None,
         storage_class: AmazonStorageClass = AmazonStorageClass.STANDARD
     ):
 
-        self._bucketName = bucket
-        self._storageClass = self.AmazonStorageClass.convert(storage_class)
+        self._path = self._validatePath(path)
+        self._storageClass = AmazonStorageClass.convert(storage_class)
 
         # Handle the credentials for this manager
         if aws_session is None:
@@ -207,81 +225,96 @@ class Amazon(RemoteManager):
                 aws_access_key_id=aws_access_key_id,
                 aws_secret_access_key=aws_secret_access_key,
                 aws_session_token=aws_session_token,
-                region_name=region_name,
+                region_name=default_region,
                 profile_name=profile_name
             )
 
         credentials = aws_session.get_credentials()
         if credentials is None:
             raise exceptions.OperationNotPermitted(
-                f'No credentials found to connect to s3 bucket [{bucket}] - either provide credentials or setup environment variables according to https://boto3.amazonaws.com/v1/documentation/api/latest/guide/credentials.html'
+                f'No credentials found - either provide credentials or setup environment variables according to https://boto3.amazonaws.com/v1/documentation/api/latest/guide/credentials.html'
             )
 
         self._config = {
-            'manager': 'AWS',
-            'bucket': self._bucketName,
             'aws_access_key': credentials.access_key,
             'aws_secret_key': credentials.secret_key,
-            'aws_session_token': credentials.token,
-            'region_name': aws_session.region_name,
-            'profile_name': aws_session.profile_name,
-            'storage_class': storage_class.value
+            'default_region': aws_session.region_name,
         }
+        if self._path: self._config['path'] = self._path
+        if aws_session.profile_name != 'default': self._config['profile_name'] = aws_session.profile_name
+        if credentials.token: self._config['aws_session_token'] = credentials.token
+        if self._storageClass is not AmazonStorageClass.STANDARD: self._config['storage_class'] = self._storageClass.value
+
 
         # NOTE
         # The max pool connections default is 10 - so machines with a large number of threads may exceed this count and
         # experience a very slow connection plus urllib3 pool warnings.
         # Thread pools created by stow will be created with the system cpu count
-        cpu_count = os.cpu_count()
-        if cpu_count is not None:
-            cpu_count *=2
-        else:
-            cpu_count = 10
-
         self._aws_session = aws_session
         self._s3 = self._aws_session.client(
             's3',
             config=botocore.config.Config(
-                max_pool_connections=cpu_count,
+                max_pool_connections=(os.cpu_count() or 5)*2,
             )
         )
 
         super().__init__()
 
-    @property
-    def storage_class(self) -> AmazonStorageClass:
-        return self._storageClass
-    @storage_class.setter
-    def storage_class(self, value: Union[StorageClass, str]):
-        self._storageClass = self.AmazonStorageClass.convert(value)
-
-    _s3_max_keys = int(os.environ.get('STOW_AMAZON_MAX_KEYS', 1000))
-    @property
-    def s3_max_keys(self) -> int:
-        return self._s3_max_keys
-    @s3_max_keys.setter
-    def s3_max_keys(self, value: int):
-        self._s3_max_keys = value
-
     def __repr__(self):
-        return f'<Manager(S3): {self._bucketName}>'
+        if self._path:
+            return f'<Manager(S3): {self._path}>'
+        else:
+            return f'<Manager(S3)>'
+
+    def _ensureBucket(self, bucket: str) -> bool:
+        """ Check whether a bucket is accessible - creating it if it doesn't exists and raising errors if a permission
+        issues exists
+
+        Returns:
+            bool: True if the bucket was created - False if it exists and we have permissions to it
+        """
+        try:
+            self._s3.head_bucket(Bucket=bucket)
+
+        except ClientError as e:
+            status_code = e.response['ResponseMetadata']['HTTPStatusCode']
+
+            if status_code == 404:
+                # We can create the bucket as it doesn't exist currently
+                log.warning('Creating s3 bucket=[%s] as it does not already exist and is available')
+                self._s3.create_bucket(Bucket=bucket)
+                return True
+
+            elif status_code == 403:
+                # Bucket already exists and cannot be written too
+                raise exceptions.OperationNotPermitted('You do not have permissions to access s3 bucket [%s]') from e
+
+            raise
+        return False
 
     def _abspath(self, managerPath: str) -> str:
 
+        bucket, path = self._pathComponents(managerPath)
+
+        # NOTE abspath doesn't return
+
         return urllib.parse.ParseResult(
                 's3',
-                self._bucketName,
-                managerPath,
-                '',
+                bucket,
+                path,
+                '',# urllib.parse.urlencode(self._config),
                 '',
                 ''
             ).geturl()
 
-    def _managerPath(self, managerPath: str) -> str:
+    def _managerPath(self, bucket: str, key: str) -> str:
+        return '/' + ('/'.join((bucket, key))).removeprefix(self._path).lstrip('/')
+
+    def _validatePath(self, managerPath: str) -> str:
         """ Difference between AWS and manager path is the removal of a leading '/'. As such remove
         the first character
         """
-        abspath = managerPath.replace("\\", "/").strip("/")
+        abspath = managerPath.replace("\\", "/").lstrip("/")
         if (
             abspath and
             # self._S3_OBJECT_KEY.match(abspath) is None
@@ -294,6 +327,32 @@ class Amazon(RemoteManager):
 
         return abspath
 
+    @overload
+    def _pathComponents(self, artefact: File) -> Tuple[str, str]:
+        ...
+    @overload
+    def _pathComponents(self, artefact: ArtefactOrStr, optional: Literal[False]) -> Tuple[str, str]:
+        ...
+    @overload
+    def _pathComponents(self, artefact: ArtefactOrStr, optional: Literal[True] = True) -> Tuple[Optional[str], str]:
+        ...
+    def _pathComponents(self, artefact: ArtefactOrStr, optional: bool = True) -> Tuple[Optional[str], str]:
+
+        artefactPath = artefact.path if isinstance(artefact, Artefact) else artefact
+
+        path = self.join(self._path, self._validatePath(artefactPath), joinAbsolutes=True).lstrip('/')
+
+        if not path:
+            return None, ''
+
+        components = path.split('/')
+
+        if len(components) == 1:
+            return path, ''
+        else:
+            return components[0], '/'.join(components[1:])
+
+
     @staticmethod
     def _getMetadataFromHead(head_object_data):
 
@@ -302,68 +361,90 @@ class Amazon(RemoteManager):
 
         return metadata
 
-    def _identifyPath(self, managerPath: str) -> typing.Union[Artefact, None]:
+    @overload
+    def _identifyPath(self, managerPath: str, *, type: Type[File]) -> File:
+        ...
+    @overload
+    def _identifyPath(self, managerPath: str, *, type: Optional[Type[ArtefactType]] = None) -> typing.Union[Artefact, None]:
+        ...
+    def _identifyPath(self, managerPath: str, *, type: Optional[Type[ArtefactType]] = None) -> typing.Union[Artefact, None]:
 
-        key = self._managerPath(managerPath)
-        if not key:
+        bucket, key = self._pathComponents(managerPath)
+
+        if bucket is None:
+            # The identify directory
             return Directory(self, '/')
 
-        try:
-            response = self._s3.head_object(
-                Bucket=self._bucketName,
-                Key=key
-            )
+        elif not key:
+            # The bucket directory
+            try:
+                bucketHead = self._s3.head_bucket(Bucket=bucket)
+                return Directory(self, '/' + bucket)
+            except:
+                return None
 
-            return File(
-                self,
-                '/' + key,
-                modifiedTime=response['LastModified'],
-                size=response['ContentLength'],
-                metadata=self._getMetadataFromHead(response),
-                content_type=response['ContentType'],
-            )
+        else:
 
-        except ClientError as e:
+            try:
+                response = self._s3.head_object(
+                    Bucket=bucket,
+                    Key=key
+                )
 
-            if "ResponseMetadata" in e.response:
-                if e.response['ResponseMetadata']['HTTPStatusCode'] == 404:
-                    # No file existed with the given key - check if directory
+                return File(
+                    self,
+                    self._managerPath(bucket, key),
+                    modifiedTime=response['LastModified'],
+                    size=response['ContentLength'],
+                    metadata=self._getMetadataFromHead(response),
+                    content_type=response['ContentType'],
+                )
 
-                    resp = self._s3.list_objects(
-                        Bucket=self._bucketName,
-                        Prefix=key and key+'/',
-                        Delimiter='/',
-                        MaxKeys=1
-                    )
-                    if "Contents" in resp or "CommonPrefixes" in resp:
-                        return Directory(self, '/' + key)
+            except ClientError as e:
 
-                    return None
+                if "ResponseMetadata" in e.response:
+                    if e.response['ResponseMetadata']['HTTPStatusCode'] == 404:
+                        # No file existed with the given key - check if directory
 
-            raise
+                        resp = self._s3.list_objects(
+                            Bucket=bucket,
+                            Prefix=key and key+'/',
+                            Delimiter='/',
+                            MaxKeys=1
+                        )
+                        if "Contents" in resp or "CommonPrefixes" in resp:
+                            return Directory(self, self._managerPath(bucket, key))
+
+                        return None
+
+                raise
 
     def _exists(self, managerPath: str):
         return self._identifyPath(managerPath) is not None
 
     def _metadata(self, managerPath: str) -> typing.Dict[str, str]:
-        key = self._managerPath(managerPath)
+        bucket, key = self._pathComponents(managerPath)
 
-        try:
-            response = self._s3.head_object(
-                Bucket=self._bucketName,
-                Key=key
-            )
+        if bucket is None or key is None:
+            return {}
 
-            return self._getMetadataFromHead(response)
+        else:
+            try:
+                response = self._s3.head_object(
+                    Bucket=bucket,
+                    Key=key
+                )
 
-        except ClientError as e:
-            if "ResponseMetadata" in e.response:
-                if e.response['ResponseMetadata']['HTTPStatusCode'] == 404:
-                    raise exceptions.ArtefactNoLongerExists(
-                        f'Failed to fetch metadata information for {key}'
-                    )
+                return self._getMetadataFromHead(response)
 
-            raise
+            except ClientError as e:
+                if "ResponseMetadata" in e.response:
+                    if e.response['ResponseMetadata']['HTTPStatusCode'] == 404:
+                        raise exceptions.ArtefactNoLongerExists(
+                            f'Failed to fetch metadata information for {key}'
+                        )
+
+                raise
 
     def _digest(self, file: File, algorithm: HashingAlgorithm):
 
@@ -372,9 +453,11 @@ class Amazon(RemoteManager):
 
         else:
 
+            bucket, key = self._pathComponents(file)
+
             attributes = self._s3.get_object_attributes(
-                Bucket=self._bucketName,
-                Key=self._managerPath(file.path),
+                Bucket=bucket,
+                Key=key,
                 ObjectAttributes=['Checksum']
             )
             checksums = attributes['Checksum']
@@ -403,17 +486,127 @@ class Amazon(RemoteManager):
     def _isMount(self, _: str):
         return False
 
+    def _list_objects(
+            self,
+            bucket: Optional[str],
+            key: str,
+            delimiter: Literal['/', ''] = "",
+            include_metadata: bool = False,
+            paginate: bool = True,
+            marker: str = "",
+            include_directory_placeholder: bool = True
+        ) -> Generator[DirStat, None, None]:
+
+        if bucket is None:
+            if delimiter:
+                yield DirStat(
+                    bucket=bucket,
+                    path=key,
+                    directories=[Directory(self, bucket['Name'], modifiedTime=bucket['CreationDate']) for bucket in self._s3.list_buckets()['Buckets']]
+                )
+            else:
+                for bucket_name in self._s3.list_buckets():
+                    yield from self._list_objects(bucket_name, key, delimiter=delimiter)
+
+        else:
+
+            if key:
+                key += '/'
+
+            while True:
+                response = self._s3.list_objects(
+                    Bucket=bucket,
+                    Prefix=key,
+                    Marker=marker,
+                    Delimiter=delimiter,
+                    MaxKeys=self._s3_max_keys
+                )
+
+                keys, files = [], []
+                for objectdata in response.get('Contents', []):
+                    objectKey = objectdata['Key']
+
+                    if not include_directory_placeholder and objectKey[-1] == '/':
+                        continue
+
+                    keys.append(objectKey)
+
+                    if include_metadata:
+                        # Head the object to pull all the metadata
+                        objectdata = self._s3.head_object(
+                            Bucket=bucket,
+                            Key=objectdata['Key']
+                        )
+
+                        files.append(
+                            File(
+                                self,
+                                self._managerPath(bucket, objectKey),
+                                modifiedTime=objectdata['LastModified'],
+                                size=objectdata['ContentLength'],
+                                metadata=self._getMetadataFromHead(objectdata),
+                                content_type=objectdata['ContentType'],
+                                storage_class=AmazonStorageClass(objectdata['StorageClass'])
+                            )
+                        )
+
+                    else:
+                        files.append(
+                            File(
+                                self,
+                                self._managerPath(bucket, objectKey),
+                                modifiedTime=objectdata['LastModified'],
+                                size=objectdata['Size'],
+                                storage_class=AmazonStorageClass(objectdata['StorageClass'])
+                            )
+                        )
+
+                directory_keys, directories = [], []
+                for metadata in response.get('CommonPrefixes', []):
+                    directoryKey = metadata['Prefix'][:-1]
+
+                    directory_keys.append(directoryKey)
+
+                    directories.append(
+                        Directory(
+                                self,
+                                self._managerPath(bucket, directoryKey)
+                        )
+                    )
+
+
+                nextMarker = response.get('NextMarker')
+
+                stat = DirStat(
+                    bucket=bucket,
+                    path=key,
+                    keys=keys,
+                    files=files,
+                    directory_keys=directory_keys,
+                    directories=directories,
+                    next_marker=nextMarker
+                )
+
+                yield stat
+
+                if paginate and nextMarker:
+                    marker = response['NextMarker']
+                else:
+                    break
+
     def _download_file(
-        self,
-        artefactPath: str,
-        path: str,
-        times: Tuple[float, float],
-        callback,
-        transfer,
+            self,
+            s3File: File,
+            destination: str,
+            modified_time,
+            accessed_time,
+            callback
         ):
-        self._s3.download_file(self._bucketName, artefactPath, path, Callback=transfer)
-        os.utime(path, times)
-        callback.written(artefactPath)
+
+        transfer = callback.get_bytes_transfer(s3File.path, s3File.size)
+        self._s3.download_file(*self._pathComponents(s3File), destination, Callback=transfer)
+        utils.utime(destination, modified_time=modified_time, accessed_time=accessed_time)
+        callback.written(destination)
 
     def _get(
         self,
@@ -426,74 +619,86 @@ class Amazon(RemoteManager):
         accessed_time: Optional[float]
         ):
 
-        # Convert manager path to s3
-        keyName = self._managerPath(source.path)
+        bucket, key = self._pathComponents(source)
 
-        # If the source object is a directory
-        if isinstance(source, Directory):
+        if bucket is None:
 
-            # Loop through all objects under that prefix and create them locally
-            for results in self._list_objects(self._bucketName, keyName):
-                callback.writing(len(results))
+            worker_config = worker_config.detach()
 
-                for metadata in results.files:
+            for bucket in self._s3.list_buckets()['Buckets']:
+                worker_config.submit(
+                    self._get,
+                    self.join(source, bucket['Name']),
+                    self.join(destination, bucket['Name']),
+                    callback=callback,
+                    modified_time=modified_time,
+                    accessed_time=accessed_time,
+                    worker_config=worker_config
+                )
 
-                    # Get the artefact manager path
-                    artefactPath = metadata.key
-
-                    # Get the objects relative path to the directory
-                    relativePath = self.relpath(artefactPath, keyName)
-
-                    # Create object absolute path locally
-                    path = os.path.join(destination, relativePath)
-
-                    # Download the artefact to that location
-                    if artefactPath[-1] != '/':
-
-                        # Ensure the directory for that object
-                        os.makedirs(os.path.dirname(path), exist_ok=True)
-                        times = (accessed_time or metadata.lastModified.timestamp(), modified_time or metadata.lastModified.timestamp())
-                        callback.writing(1)
-                        transfer = callback.get_bytes_transfer(path, metadata.size)
-
-                        worker_config.submit(
-                            self._download_file,
-                            artefactPath,
-                            path,
-                            times,
-                            callback=callback,
-                            transfer=transfer
-                        )
-
-                    else:
-                        os.makedirs(path, exist_ok=True)
+            worker_config.conclude()
 
         else:
 
-            callback.writing(1)
-            transfer = callback.get_bytes_transfer(destination, source.size)
-            worker_config.submit(
-                self._download_file,
-                keyName,
-                destination,
-                times = (accessed_time or source.accessedTime.timestamp(), modified_time or source.modifiedTime.timestamp()),
-                callback=callback,
-                transfer=transfer
-            )
+            # If the source object is a directory
+            if isinstance(source, Directory):
+
+                # Loop through all objects under that prefix and create them locally
+                for results in self._list_objects(bucket, key):
+                    callback.writing(len(results))
+
+                    for s3File in results.files:
+
+                        # Create object absolute path locally
+                        destinationPath = os.path.join(destination, source.relpath(s3File, separator='/'))
+
+                        # Download the artefact to that location
+                        if s3File.path[-1] != '/':
+
+                            # Ensure the directory for that object
+                            os.makedirs(os.path.dirname(destinationPath), exist_ok=True)
+
+                            callback.writing(1)
+
+                            worker_config.submit(
+                                self._download_file,
+                                s3File,
+                                destinationPath,
+                                modified_time=modified_time or s3File.modifiedTime,
+                                accessed_time=accessed_time or s3File.accessedTime,
+                                callback=callback,
+                            )
+
+                        else:
+                            os.makedirs(destinationPath, exist_ok=True)
+
+            else:
+
+                callback.writing(1)
+
+                worker_config.submit(
+                    self._download_file,
+                    source,
+                    destination,
+                    modified_time=modified_time or source.modifiedTime.timestamp(),
+                    accessed_time=accessed_time or source.accessedTime.timestamp(),
+                    callback=callback,
+                )
 
     def _getBytes(self, source: File, callback: AbstractCallback) -> bytes:
+
+        bucket, key = self._pathComponents(source)
 
         # Get buffer to recieve bytes
         bytes_buffer = io.BytesIO()
         callback.writing(1)
 
         # Fetch the file bytes and write them to the buffer
-        transfer = callback.get_bytes_transfer(source.path, source.size)
         self._s3.download_fileobj(
-            Bucket=self._bucketName,
-            Key=self._managerPath(source.path),
+            Bucket=bucket,
+            Key=key,
             Fileobj=bytes_buffer,
-            Callback=transfer
+            Callback=callback.get_bytes_transfer(source.path, source.size)
         )
         callback.written(source.path)
 
@@ -503,7 +708,8 @@ class Amazon(RemoteManager):
     def _localise_put_file(
         self,
         source: File,
-        destination: str,
+        bucket: str,
+        key: str,
         extra_args: typing.Dict[str, str],
         callback: AbstractCallback,
         content_type: Optional[str],
@@ -513,19 +719,40 @@ class Amazon(RemoteManager):
         callback.writing(1)
 
         with source.localise() as abspath:
-            self._s3.upload_file(
-                abspath,
-                self._bucketName,
-                self._managerPath(destination),
-                ExtraArgs={
-                    "StorageClass": storage_class.value,
-                    "ContentType": (content_type or mimetypes.guess_type(destination)[0] or 'application/octet-stream'),
-                    **extra_args
-                },
-                Callback=callback.get_bytes_transfer(destination, source.size)
-            )
+            try:
+                self._s3.upload_file(
+                    abspath,
+                    bucket,
+                    key,
+                    ExtraArgs={
+                        "StorageClass": storage_class.value,
+                        "ContentType": (content_type or mimetypes.guess_type(key)[0] or 'application/octet-stream'),
+                        **extra_args
+                    },
+                    Callback=callback.get_bytes_transfer(key, source.size)
+                )
 
-        callback.written(destination)
+            except boto3.exceptions.S3UploadFailedError as e:
+
+                if self._ensureBucket(bucket):
+                    # The bucket was not present but it has now been created - we should be able to put item now
+
+                    self._s3.upload_file(
+                        abspath,
+                        bucket,
+                        key,
+                        ExtraArgs={
+                            "StorageClass": storage_class.value,
+                            "ContentType": (content_type or mimetypes.guess_type(key)[0] or 'application/octet-stream'),
+                            **extra_args
+                        },
+                        Callback=callback.get_bytes_transfer(key, source.size)
+                    )
+
+                else:
+                    raise
+
+        callback.written(key)
 
     def _put(
         self,
@@ -540,76 +767,104 @@ class Amazon(RemoteManager):
         **kwargs
         ):
 
-        # Setup metadata about the objects being put
-        amazon_storage_class = self.AmazonStorageClass.convert(storage_class or self.storage_class)
-        extra_args = {}
+        bucket, key = self._pathComponents(destination)
 
-        if isinstance(source, Directory):
+        if bucket is None:
+            if isinstance(source, File):
+                raise exceptions.OperationNotPermitted(
+                    f'Attempting to overwrite... s3 [{destination}]. With a... file [{source}]'
+                )
 
-            directories = [source]
+            for artefact in source.iterls():
+                if isinstance(artefact, Directory):
+                    self._ensureBucket(artefact.basename)
 
-            while directories:
-                directory = directories.pop(0)
+                    # Put the contents of the directory into the bucket
+                    self._put(
+                        artefact,
+                        '/' + artefact.basename,
+                        callback=callback,
+                        worker_config=worker_config,
+                        content_type=content_type,
+                        metadata=metadata,
+                        storage_class=storage_class
+                    )
 
-                artefact = None
-                for artefact in directory.iterls():
-                    if isinstance(artefact, File):
-
-                        file_destination = self.join(
-                            destination,
-                            source.relpath(artefact),
-                            separator='/'
-                        )
-
-                        if metadata is not None:
-                            extra_args['Metadata'] = self._freezeMetadata(metadata, artefact)
-
-                        worker_config.submit(
-                            self._localise_put_file,
-                            artefact,
-                            file_destination,
-                            extra_args=extra_args,
-                            callback=callback,
-                            content_type=content_type,
-                            storage_class=amazon_storage_class
-                        )
-
-                    else:
-                        directories.append(artefact)
-
-                if artefact is None:
-                    # The directory was empty and therefore nothing was uploaded.
-
-                    file_destination = self._managerPath(
-                            self.join(
-                            destination,
-                            source.relpath(directory),
-                            separator='/'
-                        )
-                    ) + '/'
-
-                    worker_config.submit(
-                        self._s3.put_object,
-                        Body=b'',
-                        Bucket=self._bucketName,
-                        Key=file_destination,
-                        # StorageClass=amazon_storage_class.value  # This is a dictionary file so I don't know if its needed
+                else:
+                    raise exceptions.OperationNotPermitted(
+                        f'S3 bucket level cannot store files - {destination} is invalid for source {source}'
                     )
 
         else:
 
-            if metadata is not None:
-                extra_args['Metadata'] = self._freezeMetadata(metadata, source)
+            # Setup metadata about the objects being put
+            amazon_storage_class = AmazonStorageClass.convert(storage_class or self.storage_class)
+            extra_args = {}
 
-            worker_config.submit(
-                self._localise_put_file,
-                source,
-                destination,
-                extra_args=extra_args,
-                callback=callback,
-                content_type=content_type,
-                storage_class=amazon_storage_class
-            )
+            if isinstance(source, Directory):
+
+                directories = [source]
+
+                while directories:
+                    directory = directories.pop(0)
+
+                    artefact = None
+                    for artefact in directory.iterls():
+                        if isinstance(artefact, File):
+
+                            file_destination = self.join(
+                                key,
+                                source.relpath(artefact, separator='/'),
+                                separator='/'
+                            )
+
+                            if metadata is not None:
+                                extra_args['Metadata'] = self._freezeMetadata(metadata, artefact)
+
+                            worker_config.submit(
+                                self._localise_put_file,
+                                artefact,
+                                bucket,
+                                file_destination,
+                                extra_args=extra_args,
+                                callback=callback,
+                                content_type=content_type,
+                                storage_class=amazon_storage_class
+                            )
+
+                        else:
+                            directories.append(artefact)
+
+                    if artefact is None:
+                        # The directory was empty and therefore nothing was uploaded.
+
+                        s3Bucket, s3DirectoryFilepath = self._pathComponents(
+                            self.join(destination, source.relpath(directory, separator='/'), separator='/')
+                        )
+
+                        worker_config.submit(
+                            self._s3.put_object,
+                            Body=b'',
+                            Bucket=s3Bucket,
+                            Key=s3DirectoryFilepath + '/',
+                            # StorageClass=amazon_storage_class.value  # This is a dictionary file so I don't know if its needed
+                        )
+
+            else:
+
+                if metadata is not None:
+                    extra_args['Metadata'] = self._freezeMetadata(metadata, source)
+
+                worker_config.submit(
+                    self._localise_put_file,
+                    source,
+                    bucket,
+                    key,
+                    extra_args=extra_args,
+                    callback=callback,
+                    content_type=content_type,
+                    storage_class=amazon_storage_class
+                )
 
         return PartialArtefact(self, destination)
 
@@ -624,103 +879,117 @@ class Amazon(RemoteManager):
         storage_class: Optional[StorageClass],
         **kwargs
         ):
-
         callback.writing(1)
-        amazon_storage_class = self.AmazonStorageClass.convert(storage_class or self.storage_class)
 
-        self._s3.upload_fileobj(
-            io.BytesIO(fileBytes),
-            self._bucketName,
-            self._managerPath(destination),
-            ExtraArgs={
-                "StorageClass": amazon_storage_class.value,
-                "ContentType": (content_type or mimetypes.guess_type(destination)[0] or 'application/octet-stream'),
-                "Metadata": ({str(k): str(v) for k, v in metadata.items()} if metadata else {})
-            },
-            Callback=callback.get_bytes_transfer(destination, len(fileBytes))
-        )
-        callback.written(destination)
+        bucket, key = self._pathComponents(destination)
 
-        return PartialArtefact(self, destination)
+        if bucket is None:
+            raise exceptions.OperationNotPermitted('Cannot overwrite s3... with bytes')
 
-    def _list_objects(self, bucket: str, key: str, delimiter: str = "") -> Generator[Dir, None, None]:
+        elif not key:
+            raise exceptions.OperationNotPermitted('Cannot write bytes to overwrite s3 bucket [{destination}]')
 
-        if key:
-            key += '/'
+        else:
 
-        marker = ""
-        while True:
-            response = self._s3.list_objects(
-                Bucket=bucket,
-                Prefix=key,
-                Marker=marker,
-                Delimiter=delimiter,
-                MaxKeys=self._s3_max_keys
+            amazon_storage_class = AmazonStorageClass.convert(storage_class or self.storage_class)
+
+            self._s3.upload_fileobj(
+                io.BytesIO(fileBytes),
+                bucket,
+                key,
+                ExtraArgs={
+                    "StorageClass": amazon_storage_class.value,
+                    "ContentType": (content_type or mimetypes.guess_type(destination)[0] or 'application/octet-stream'),
+                    "Metadata": ({str(k): str(v) for k, v in metadata.items()} if metadata else {})
+                },
+                Callback=callback.get_bytes_transfer(destination, len(fileBytes))
+            )
+            callback.written(destination)
+
+            return PartialArtefact(self, destination)
+
+    def _ls(
+        self,
+        directory: str,
+        recursive: bool = False,
+        *,
+        include_metadata: bool = False,
+        worker_config: WorkerPoolConfig
+        ) -> Generator[ArtefactType, None, None]:
+
+        bucket, key = self._pathComponents(directory)
+
+        if not recursive:
+            for dir_stat in self._list_objects(bucket, key, '/', include_metadata=include_metadata, include_directory_placeholder=False):
+                yield from dir_stat.directories
+                yield from dir_stat.files
+            return
+
+        else:
+            # Crack this nut with my sledge
+
+            # Get a subsection of the worker_pool to parallelise the fetching of artefacts
+            worker_config = worker_config.detach()
+
+            # Submit the initial request to list the top level directory
+            worker_config.submit(
+                lambda *args,**kwargs: next(self._list_objects(*args, **kwargs)),
+                bucket,
+                key,
+                '/',
+                include_metadata=include_metadata,
+                paginate=True,
+                include_directory_placeholder=False
             )
 
-            page = Dir()
+            # Begin the loop of work of tasks fetching deeper and deeper layers of the filesystem
+            while worker_config.futures:
 
-            for metadata in response.get('Contents', []):
-                page.files.append(
-                    FileStat(
-                        key=metadata['Key'],
-                        lastModified=metadata['LastModified'],
-                        storageClass=metadata['StorageClass'],
-                        size=metadata['Size']
-                    )
-                )
+                # Dequeue tasks we are going to wait to complete, reset the source for the next level of results
+                enqueued, worker_config.futures = worker_config.futures, []
 
-            for metadata in response.get('CommonPrefixes', []):
-                page.directories.append(
-                    DirectoryStat(
-                        prefix=metadata['Prefix']
-                    )
-                )
+                # For the completed work
+                for future in concurrent.futures.as_completed(enqueued):
+                    try:
+                        dir_stat: DirStat = future.result()
+                    except StopIteration:
+                        continue
 
-            yield page
+                    # Iterate over the response and enqueue the next layer of recursion
+                    for directoryKey, directoryObj in zip(dir_stat.directory_keys, dir_stat.directories):
 
-            if not response['IsTruncated']:
-                break
+                        worker_config.submit(
+                            lambda *args,**kwargs: next(self._list_objects(*args, **kwargs)),
+                            bucket,
+                            directoryKey,
+                            '/',
+                            include_metadata=include_metadata,
+                            paginate=True,
+                            include_directory_placeholder=False
+                        )
+                        yield directoryObj
 
-            if 'NextMarker' in response:
-                marker = response['NextMarker']
+                    # Yield the currently collected information
+                    yield from dir_stat.files
 
-            else:
-                marker = response['Contents'][-1]['Key']
+                    if dir_stat.next_marker:
+                        worker_config.submit(
+                            lambda *args,**kwargs: next(self._list_objects(*args, **kwargs)),
+                            bucket,
+                            dir_stat.path,
+                            '/',
+                            include_metadata=include_metadata,
+                            pagination=True,
+                            marker=dir_stat.next_marker,
+                            include_directory_placeholder=False
+                        )
 
-    def _fileStatToFile(self, stat: FileStat) -> File:
-        return File(
-            self,
-            '/' + stat.key,
-            modifiedTime=stat.lastModified,
-            size=stat.size,
-            storage_class=self.AmazonStorageClass(stat.storageClass)
-        )
-
-    def _ls(self, directory: str, recursive: bool = False, *, delimiter: str = '/'):
-
-        for results in self._list_objects(self._bucketName, self._managerPath(directory), delimiter=delimiter):
-
-            for metadata in results.files:
-
-                if metadata.key.endswith('/'):
-                    continue
-
-                # NOTE - metadata is not added as we don't know it all yet - Better to have it added by head object
-                yield self._fileStatToFile(metadata)
-
-            for metadata in results.directories:
-                path = '/' + metadata.prefix[:-1]
-                yield Directory(self, path)
-                if recursive:
-                    yield from self._ls(path, recursive=recursive)
-
-    def _singleCP(
+    def _copy_object(
             self,
             *,
             Key: str,
             callback: AbstractCallback,
-            delete: Optional[Tuple[Self, str]] = None,
+            delete: Optional[Tuple[str, str]] = None,
             **kwargs
         ):
         self._s3.copy_object(Key=Key, **kwargs)
@@ -728,7 +997,7 @@ class Amazon(RemoteManager):
 
         if delete is not None:
             sourceBucket, key = delete
-            sourceBucket._rm(key, callback=callback)
+            self._s3.delete_object(Bucket=sourceBucket, Key=key)
 
     def _cp(
         self,
@@ -744,72 +1013,115 @@ class Amazon(RemoteManager):
         **kwargs
     ) -> ArtefactType:
 
-        # Convert the paths to s3 paths
-        # sourceBucket: "Amazon" = source._manager
-        sourceBucket = self.manager(source)
-        sourcePath = self._managerPath(source.path)
+        # Get the source manager - this should be s3 anyway
+        sourceManager = self.manager(source)
+        sourceBucket, sourceKey = sourceManager._pathComponents(source.path)
 
-        destinationPath = self._managerPath(destination)
-        amazon_storage_class = self.AmazonStorageClass.convert(storage_class or self.storage_class)
+        # Parse the destination location
+        destinationBucket, destinationKey = self._pathComponents(destination)
 
-        copy_args = {}
+        if (sourceBucket is None and destinationBucket is None):
+            operation = 'move' if move else 'copy'
+            raise exceptions.OperationNotPermitted(f'Operations to {operation} all of s3 onto itself is not permitted')
 
-        if isinstance(source, Directory):
+        elif sourceBucket is None:
+            # Backing up all buckets into a directory of s3
+            for bucket in sourceManager._s3.list_buckets()['Buckets']:
+                self._cp(
+                    Directory(sourceManager, '/' + bucket['Name']),
+                    '/'.join((destination, bucket['Name'])),
+                    move=False,
+                    callback=callback,
+                    metadata=metadata,
+                    content_type=content_type,
+                    storage_class=storage_class,
+                    worker_config=worker_config,
+                )
 
-            for results in sourceBucket._list_objects(sourceBucket.root, sourcePath):
+        elif destinationBucket is None:
+            # Bringing an artefact up a level
+            if isinstance(source, File):
+                raise exceptions.OperationNotPermitted(r'Cannot coppy {source} onto S3')
 
-                callback.writing(len(results))
+            else:
+                for artefact in source.iterls():
+                    if isinstance(artefact, Directory):
+                        self._cp(
+                            artefact,
+                            '/' + artefact.basename,
+                            move=False,
+                            callback=callback,
+                            metadata=metadata,
+                            content_type=content_type,
+                            storage_class=storage_class,
+                            worker_config=worker_config,
+                        )
 
-                for fileMetadata in results.files:
-
-                    if metadata is not None:
-                        copy_args['Metadata'] = self._freezeMetadata(metadata, self._fileStatToFile(fileMetadata))
-
-                    # Copy the object from the source object to the relative location in the destination location
-                    relpath = self.relpath(fileMetadata.key, sourcePath, separator='/')
-                    if fileMetadata.key[-1] == '/':
-                        # Resolve the relpath method removing trailing separators
-                        relpath += '/'
-
-                    subDestination = self.join(destinationPath, relpath, separator='/')
-
-                    worker_config.submit(
-                        self._singleCP,
-                        CopySource={
-                            "Bucket": sourceBucket.root,
-                            "Key": fileMetadata.key
-                        },
-                        Bucket=self._bucketName,
-                        # The Relative path to the source joined onto the destination path
-                        Key=subDestination,
-                        ContentType=(content_type or mimetypes.guess_type(destination)[0] or 'application/octet-stream'),
-                        StorageClass=amazon_storage_class.value,
-                        callback=callback,
-                        delete=(sourceBucket, fileMetadata.key) if move else None,
-                        **copy_args
-                    )
+                    else:
+                        raise exceptions.OperationNotPermitted(
+                            f'S3 does not support storing files at the bucket level - {artefact} cannot exist at s3://{artefact.basename}'
+                        )
 
         else:
 
-            if metadata is not None:
-                copy_args['Metadata'] = self._freezeMetadata(metadata, source)
+            # Setup defaults
+            amazon_storage_class = AmazonStorageClass.convert(storage_class or self.storage_class)
+            copy_args = {}
 
-            # Copy the object from the source object to the relative location in the destination location
-            worker_config.submit(
-                self._singleCP,
-                CopySource={
-                    "Bucket": sourceBucket.root,
-                    "Key": sourcePath
-                },
-                Bucket=self._bucketName,
-                # The Relative path to the source joined onto the destination path
-                Key=destinationPath,
-                ContentType=(content_type or mimetypes.guess_type(destination)[0] or 'application/octet-stream'),
-                StorageClass=amazon_storage_class.value,
-                callback=callback,
-                delete=(sourceBucket, sourcePath) if move else None,
-                **copy_args
-            )
+            if isinstance(source, Directory):
+
+                for result in sourceManager._list_objects(sourceBucket, sourceKey):
+                    callback.writing(len(result))
+
+                    for sourceSubKey, sourceSubFile in zip(result.keys, result.files):
+
+                        if metadata is not None:
+                            copy_args['Metadata'] = self._freezeMetadata(metadata, sourceSubFile)
+
+                        # Copy the object from the source object to the relative location in the destination location
+                        relpath = self.relpath(sourceSubKey, sourceKey, separator='/')
+                        if sourceSubKey[-1] == '/':
+                            relpath += '/'
+
+                        # Join the relative path to the destination location
+                        subDestinationKey = self.join(destinationKey, relpath, separator='/')
+
+                        worker_config.submit(
+                            self._copy_object,
+                            CopySource={
+                                "Bucket": sourceBucket,
+                                "Key": sourceSubKey
+                            },
+                            Bucket=destinationBucket,
+                            Key=subDestinationKey,
+                            ContentType=(content_type or mimetypes.guess_type(destination)[0] or 'application/octet-stream'),
+                            StorageClass=amazon_storage_class.value,
+                            callback=callback,
+                            delete=(sourceBucket, sourceSubKey) if move else None,
+                            **copy_args
+                        )
+
+            else:
+
+                if metadata is not None:
+                    copy_args['Metadata'] = self._freezeMetadata(metadata, source)
+
+                # Copy the object from the source object to the relative location in the destination location
+                worker_config.submit(
+                    self._copy_object,
+                    CopySource={
+                        "Bucket": sourceBucket,
+                        "Key": sourceKey
+                    },
+                    Bucket=destinationBucket,
+                    # The Relative path to the source joined onto the destination path
+                    Key=destinationKey,
+                    ContentType=(content_type or mimetypes.guess_type(destination)[0] or 'application/octet-stream'),
+                    StorageClass=amazon_storage_class.value,
+                    callback=callback,
+                    delete=(sourceBucket, sourceKey) if move else None,
+                    **copy_args
+                )
 
         return PartialArtefact(self, destination)
 
@@ -817,70 +1129,67 @@ class Amazon(RemoteManager):
         self,
         source: ArtefactType,
         destination: str,
-        *,
-        callback: AbstractCallback,
         **kwargs
         ):
-
-
-
-
 
         # Copy the source objects to the destination
         copied_artefact = self._cp(
             source,
             destination,
-            callback=callback,
             move=True,
             **kwargs
         )
 
-        # # Delete the source objects now it has been entirely copied
-        # source._manager._rm(source.path, callback=callback)
-
         return copied_artefact
 
     def _rm(self, *artefacts: str, callback: AbstractCallback, **kwargs):
-
-
         callback.deleting(len(artefacts))
 
-        # Fetch all the paths to the items that need to be deleted
-        toDelete = []
         for artefact in artefacts:
-            key = self._managerPath(artefact)
 
-            toDelete.append(key)
-            for results in self._list_objects(self._bucketName, key):
-                if not results.files:
-                    continue
+            bucket, key = self._pathComponents(artefact)
 
-                for file in results.files:
-                    toDelete.append(file.key)
-                callback.deleting(len(results))
+            if bucket is None:
+                raise exceptions.OperationNotPermitted("Attempt to made to delete... s3. Operation is not allowed")
 
-        while toDelete:
+            if not key or key[-1] == '/':
+                # The afteract is a directory
 
-            batch, toDelete = toDelete[:1000], toDelete[1000:]
+                for stat in self._list_objects(bucket, key):
 
-            response = self._s3.delete_objects(
-                Bucket=self._bucketName,
-                Delete={
-                    "Objects": [{"Key": key} for key in batch],
-                    "Quiet": True
-                }
-            )
+                    callback.deleting(len(stat.keys))
 
-            if 'Errors' in response:
-                errors = []
-                for errored in response['Errors']:
-                    msg = f"{errored['Code']}: {errored['Message']} - failed to delete {errored['Key']}"
-                    log.error(msg)
-                    errors.append(msg)
+                    response = self._s3.delete_objects(
+                        Bucket=bucket,
+                        Delete={
+                            "Objects": [{"Key": key} for key in stat.keys],
+                            "Quiet": True
+                        }
+                    )
 
-                raise RuntimeWarning(f'Failed to delete items in s3: {errors}')
+                    if 'Errors' in response:
+                        errors = []
+                        for errored in response['Errors']:
+                            msg = f"{errored['Code']}: {errored['Message']} - failed to delete {errored['Key']}"
+                            log.error(msg)
+                            errors.append(msg)
 
-            callback.deleted(len(batch))
+                        raise RuntimeWarning(f'Failed to delete items in s3: {errors}')
+
+                    callback.deleted(len(stat.keys))
+
+                if not key:
+                    # The bucket is also to be deleted
+                    self._s3.delete_bucket(Bucket=bucket)
+
+            else:
+                # We are deleting a key directly
+                self._s3.delete_object(
+                    Bucket=bucket,
+                    Key=key
+                )
+
+                callback.deleted(artefact)
 
     @classmethod
     def _signatureFromURL(cls, url: urllib.parse.ParseResult):
@@ -889,32 +1198,55 @@ class Amazon(RemoteManager):
         queryData = urllib.parse.parse_qs(url.query)
 
         signature = {
-            "bucket": url.netloc,
-            "aws_access_key_id": queryData.get("aws_access_key_id", [None])[0],
-            "aws_secret_access_key": queryData.get("aws_secret_access_key", [None])[0],
-            "aws_session_token": queryData.get("aws_session_token", [None])[0],
-            "region_name": queryData.get("region_name", [None])[0],
-            "profile_name": queryData.get("profile", [None])[0]
+            k:v
+            for k, v in {
+                "aws_access_key_id": queryData.get("aws_access_key_id", [None])[0],
+                "aws_secret_access_key": queryData.get("aws_secret_access_key", [None])[0],
+                "aws_session_token": queryData.get("aws_session_token", [None])[0],
+                "default_region": queryData.get("default_region", [None])[0],
+                "profile_name": queryData.get("profile", [None])[0],
+                "storage_class": queryData.get("storage_class", [None])[0]
+            }.items()
+            if v is not None
         }
 
-        return signature, (url.path or '/')
+
+        return signature, (url.netloc + url.path or '/')
+
+    @property
+    def protocol(self):
+        return 's3'
 
     @property
     def root(self):
-        return self._bucketName
+        return '/' + self._path
 
-    def toConfig(self):
+    @property
+    def storage_class(self) -> AmazonStorageClass:
+        return self._storageClass
+    @storage_class.setter
+    def storage_class(self, value: Union[StorageClass, str]):
+        self._storageClass = AmazonStorageClass.convert(value)
+
+    @property
+    def s3_max_keys(self) -> int:
+        return self._s3_max_keys
+    @s3_max_keys.setter
+    def s3_max_keys(self, value: int):
+        self._s3_max_keys = value
+
+    @property
+    def config(self):
         return self._config
 
     class CommandLineConfig:
 
-        def __init__(self, manager):
+        def __init__(self, manager: Type["Amazon"]):
             self._manager = manager
 
         @staticmethod
         def arguments() -> typing.List[typing.Tuple]:
             return [
-                (('-b', '--bucket'), {'help': '[REQUIRED] The bucket name'}),
                 (('-k', '--access-key'), {'help': 'AWS access key id'}),
                 (('-s', '--secret-key'), {'help': 'AWS secret access key'}),
                 (('-t', '--token'), {'help': 'AWS session token'}),
@@ -932,17 +1264,4 @@ class Amazon(RemoteManager):
                 profile_name=kwargs['profile']
             )
 
-            if not kwargs.get('bucket'):
-                s3 = session.client('s3')
-                response = s3.list_buckets()
-
-                # Output the bucket names
-                print('Bucket (-b, --bucket) is required - Existing buckets:')
-                print()
-                print('Name'.ljust(80)+' Creation Date')
-                for bucket in response['Buckets']:
-                    print(f"{bucket['Name'].ljust(80)} {bucket['CreationDate'].isoformat()}")
-
-                exit(1)
-
-            return self._manager(bucket=kwargs['bucket'], aws_session=session)
+            return self._manager(aws_session=session)

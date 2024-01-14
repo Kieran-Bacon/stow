@@ -11,7 +11,9 @@ import mimetypes
 import datetime
 import concurrent.futures
 import dataclasses
+import collections
 import functools
+import pkg_resources
 
 from .abstract_methods import AbstractManager
 from ..worker_config import WorkerPoolConfig
@@ -20,18 +22,25 @@ from ..types import StrOrPathLike, TimestampLike, TimestampAble, HashingAlgorith
 from ..storage_classes import StorageClass
 from ..artefacts import Artefact, File, Directory, PartialArtefact, ArtefactType, ArtefactOrPathLike, Metadata, FrozenMetadata, Callable
 from ..callbacks import AbstractCallback, DefaultCallback
-from .. import _utils as utils
+from .. import utils as utils
 from .. import exceptions
 
 import logging
 log = logging.getLogger(__name__)
 
+@dataclasses.dataclass
+class ParsedURL:
+    manager: "Manager"
+    relpath: str
+
+    def __iter__(self) -> Tuple["Manager", str]:
+        return (self.manager, self.relpath)
 
 class ManagerReloader:
     """ Class to manage the reloading of a reduced Manager """
-    def __new__(cls, config):
+    def __new__(cls, protocol: str, config):
         # This will create a new manager if it doesn't exist of fetch the one globally created
-        return utils.connect(**config)
+        return Manager.connect(protocol, **config)
 
 class Manager(AbstractManager):
     """ Manager Abstract base class - expressed the interface of a Manager which governs a storage
@@ -42,11 +51,147 @@ class Manager(AbstractManager):
     SEPARATOR = os.sep
     SEPARATORS = ['\\', '/']
     ISOLATED = False
-    OVERWRITEABLE = False
+    SAFE_FILE_OVERWRITE = False
+    SAFE_DIRECTORY_OVERWRITE = False
 
     _READONLYMODES = ["r", "rb"]
     _MULTI_SEP_REGEX = re.compile(r"(\\{2,})|(\/{2,})")
     _RELPATH_REGEX = re.compile(r"^([a-zA-Z0-9]+:)?([/\\\w\.!-_*'() ]*)$")
+
+    # Parsed URL tuple definition
+
+    __MANAGERS = {}
+    __INITIALISED_MANAGERS = {}  # TODO replace with weaklink dict
+
+    @classmethod
+    def _clearManagerCache(cls):
+        cls.__MANAGERS = {}
+        cls.__INITIALISED_MANAGERS = {}
+
+    @classmethod
+    def find(cls, manager: str) -> Type[AbstractManager]:
+        """ Fetch the `Manager` class hosted on the 'stow_managers' entrypoint with
+        the given name `manager` entry name.
+
+        Args:
+            manager: The name of the `Manager` class to be returned
+
+        Returns:
+            Manager: The `Manager` class for the manager name provided
+
+        Raises:
+            ValueError: In the event that a manager with the provided name couldn't be found
+        """
+
+        # Get the manager class for the manager type given - load the manager type if not already loaded
+        lmanager = manager.lower()
+
+        if lmanager in cls.__MANAGERS:
+            mClass = cls.__MANAGERS[lmanager]
+
+        else:
+            foundManagerNames = []
+
+            for entry_point in pkg_resources.iter_entry_points('stow_managers'):
+
+                foundManagerNames.append(entry_point.name)
+
+                if entry_point.name == lmanager:
+                    mClass = cls.__MANAGERS[lmanager] = entry_point.load()
+                    break
+
+            else:
+                raise ValueError(
+                    f"Couldn't find a manager called '{manager}'"
+                    f" - found {len(foundManagerNames)} managers: {foundManagerNames}"
+                )
+
+        return mClass
+
+    @staticmethod
+    def _managerIdentifierCalculator(manager_key: str, arguments: dict) -> int:
+        identifier = hash((
+            manager_key, "-".join([f"{k}-{v}" for k,v in sorted(arguments.items(), key=lambda x: x[0])])
+        ))
+        return identifier
+
+    @classmethod
+    def connect(cls, manager: str, **kwargs) -> Self:
+        """ Find and connect to a `Manager` using its name (entrypoint name) and return an instance of that `Manager`
+        initialised with the kwargs provided. A path can be provided as the location on the manager for a sub manager to be
+        created which will be returned instead.
+
+        Args:
+            manager: The name of the manager class
+            **kwargs: Keyworded arguments to be passed to the Manager init
+
+        Returns:
+            Manager: A storage manager or sub manager which can be used to put and get artefacts
+
+        Note:
+            References to `Manager` created by this method are stored to avoid multiple definitions of managers on similar
+            locations.
+
+            The stateless interface uses this method as the backend for its functions and as such you can fetch any active
+            session by using this function rather than initalising a `Manager` directly
+        """
+
+        identifier = cls._managerIdentifierCalculator(manager, kwargs)
+        if identifier in cls.__INITIALISED_MANAGERS:
+            return cls.__INITIALISED_MANAGERS[identifier]
+
+        # Find the class for the manager and initialise it with the arguments
+        managerObj = cls.find(manager)(**kwargs)
+
+        # Get the config for the manager given the defaults
+        config = managerObj.config
+
+        # Record against the identifier the mananger object for
+        cls.__INITIALISED_MANAGERS[identifier] = managerObj
+        cls.__INITIALISED_MANAGERS[cls._managerIdentifierCalculator(manager, config)] = managerObj
+
+        return managerObj
+
+    @classmethod
+    @functools.lru_cache
+    def parseURL(cls, stowURL: str, default_manager = None) -> ParsedURL:
+        """ Parse the passed stow URL and return a ParsedURL a named tuple of manager and relpath
+
+        Example:
+            manager, relpath = stow.parseURL("s3://example-bucket/path/to/file)
+
+            result = stow.parseURL("s3://example-bucket/path/to/file)
+            result.manager
+            result.relpath
+
+        Args:
+            stowURL: The path to be parsed and manager identified
+
+        Returns:
+            typing.NamedTuple: Holding the manager and relative path of
+        """
+
+        # Parse the url provided
+        parsedURL = urllib.parse.urlparse(stowURL)
+
+        # Handle protocol managers vs local file system
+        if parsedURL.scheme and parsedURL.netloc:
+            manager = cls.find(parsedURL.scheme)
+            scheme = parsedURL.scheme
+
+        elif default_manager is not None:
+            return ParsedURL(default_manager, stowURL)
+
+        else:
+            manager = cls.find("FS")
+            scheme = "FS"
+
+        # Get the signature for the manager from the url
+        signature, relpath = manager._signatureFromURL(parsedURL)
+
+        # Has to use connect otherwise it will just create lots and lots of new managers
+        return ParsedURL(cls.connect(scheme, **signature), relpath)
+
 
     def __contains__(self, artefact: ArtefactOrPathLike) -> bool:
         return self.exists(artefact)
@@ -72,7 +217,7 @@ class Manager(AbstractManager):
         return artefact
 
     def __reduce__(self):
-        return (ManagerReloader, (self.toConfig(),))
+        return (ManagerReloader, (self.protocol, self.config,))
 
     def _ensurePath(self, artefact: ArtefactOrPathLike) -> str:
         """ Collapse artefact into path - Convert an artefact into a path or return. This returns
@@ -159,17 +304,15 @@ class Manager(AbstractManager):
             default_manager = None if external else self
 
             if artefact is None:
-                if external :
-                    manager = utils.connect("FS")
+                if external:
+                    manager = self.connect("FS")
                 else:
                     manager = self
                 path = manager._cwd()
 
-            elif isinstance(artefact, os.PathLike):
-                (manager, path) = utils.parseURL(artefact.__fspath__(), default_manager=default_manager)
-
-            elif isinstance(artefact, str):
-                (manager, path) = utils.parseURL(artefact, default_manager=default_manager)
+            elif isinstance(artefact, (os.PathLike, str)):
+                parsedUrl = self.parseURL(os.fspath(artefact), default_manager=default_manager)
+                manager, path = parsedUrl.manager, parsedUrl.relpath
 
             else:
                 t = type(artefact)
@@ -186,7 +329,7 @@ class Manager(AbstractManager):
                     if require:
                         raise
 
-            return manager, obj, path # type: ignore
+            return manager, obj, path
 
     def _get_content_type(self, path: str) -> str:
         """ Get the content type for the path given """
@@ -558,7 +701,7 @@ class Manager(AbstractManager):
         manager, artefact, _ = self._splitArtefactForm(artefact, require=True, external=False)
         return manager._set_artefact_time(artefact, modified_datetime, accessed_datetime)
 
-    def exists(self, artefact: ArtefactOrPathLike) -> bool:
+    def exists(self, *artefacts: ArtefactOrPathLike) -> bool:
         """ Return true if the given artefact is a member of the manager, or the path is correct for the manager and it
         leads to a File or Directory.
 
@@ -570,8 +713,11 @@ class Manager(AbstractManager):
         Returns:
             bool: True if artefact exists else False
         """
-        manager, _, path = self._splitArtefactForm(artefact, load=False, require=False, external=False)
-        return manager._exists(path)
+        for artefact in artefacts:
+            manager, _, path = self._splitArtefactForm(artefact, load=False, require=False, external=False)
+            if not manager._exists(path):
+                return False
+        return True
 
     def lexists(self, artefact: ArtefactOrPathLike) -> bool:
         """ Return true if the given artefact is a member of the manager, or the path is correct for the manager and it
@@ -613,9 +759,13 @@ class Manager(AbstractManager):
         joined = ""  # Constructed path
 
         for segment in paths:
+
             if isinstance(segment, Artefact):
                 # Convert artefacts to paths
                 segment = segment.path
+
+            if not segment:
+                continue
 
             # Identify and record the last full
             presult = urllib.parse.urlparse(segment)
@@ -670,7 +820,7 @@ class Manager(AbstractManager):
         return os.path.normcase(path)
 
     @staticmethod
-    def normpath(path: str) -> str:
+    def normpath(path: StrOrPathLike) -> str:
         """ Normalize a pathname by collapsing redundant separators and up-level references so that A//B, A/B/, A/./B
         and A/foo/../B all become A/B.
 
@@ -681,7 +831,7 @@ class Manager(AbstractManager):
             str: The path transformed
         """
         # Check that the url is for a remote manager
-        url = urllib.parse.urlparse(path)
+        url = urllib.parse.urlparse(os.fspath(path))
         if url.scheme and url.netloc:
             # URL with protocol
             return urllib.parse.ParseResult(
@@ -708,7 +858,7 @@ class Manager(AbstractManager):
         """
         return os.path.realpath(path)
 
-    def relpath(self, path: StrOrPathLike, start: str = os.curdir, separator: str = os.sep) -> str:
+    def relpath(self, path: StrOrPathLike, start: StrOrPathLike = os.curdir, separator: str = os.sep) -> str:
         """ Return a relative filepath to path either from the current directory or from an optional start directory
 
         Args:
@@ -856,8 +1006,8 @@ class Manager(AbstractManager):
             if destination is not None:
 
                 if os.path.exists(destination):
-                    localManager: Manager = utils.connect(manager="FS")
-                    localManager.rm(destination, recursive=overwrite, callback=callback)
+                    localManager: Manager = self.connect(manager="FS")
+                    localManager.rm(destination, recursive=overwrite)
 
                 else:
                     # Ensure the directory that this object exists with
@@ -874,7 +1024,7 @@ class Manager(AbstractManager):
                 )
 
                 # Load the downloaded artefact from the local location and return
-                gottenArtefact = PartialArtefact(utils.connect(manager="FS"), destination)
+                gottenArtefact = PartialArtefact(self.connect(manager="FS"), destination)
 
             else:
                 if not isinstance(obj, File):
@@ -885,6 +1035,23 @@ class Manager(AbstractManager):
 
         finally:
             worker_config.conclude()
+
+    def _overwrite(self, artefact: Optional[ArtefactType], overwrite: bool, callback: AbstractCallback):
+
+        if artefact is None:
+            return
+
+        if isinstance(artefact, File):
+            if self.SAFE_FILE_OVERWRITE:
+                return
+        else:
+            if not overwrite and not artefact.isEmpty():
+                raise exceptions.OperationNotPermitted('Cannot overwrite %s as it is not empty - pass overwrite=True')
+
+            if self.SAFE_DIRECTORY_OVERWRITE:
+                return
+
+        return self.rm(artefact, recursive=overwrite, callback=callback, ignore_missing=True)
 
     @overload
     def put(
@@ -975,8 +1142,7 @@ class Manager(AbstractManager):
             # Note - we are not deleting the destination until after we have validated the source
             if isinstance(source, (bytes, bytearray, memoryview)):
 
-                if not destinationManager.OVERWRITEABLE and destinationObj is not None:
-                    self.rm(destinationObj, recursive=overwrite, callback=callback, ignore_missing=True)
+                self._overwrite(destinationObj, overwrite=overwrite, callback=callback)
 
                 putArtefact = destinationManager._putBytes(
                     source,
@@ -994,8 +1160,7 @@ class Manager(AbstractManager):
                 # Validate source before deleting destination
                 _, sourceObj, _ = self._splitArtefactForm(source)
 
-                if not destinationManager.OVERWRITEABLE and destinationObj is not None:
-                    self.rm(destinationObj, recursive=overwrite, callback=callback, ignore_missing=True)
+                self._overwrite(destinationObj, overwrite=overwrite, callback=callback)
 
                 putArtefact = destinationManager._put(
                     sourceObj,
@@ -1052,10 +1217,7 @@ class Manager(AbstractManager):
             )
 
             # Prevent the overwriting of a directory without permission
-            if destinationObj is not None:
-                if isinstance(destinationObj, Directory) and not overwrite:
-                    raise exceptions.OperationNotPermitted("Cannot replace directory without passing overwrite True")
-                destinationManager._rm(destinationObj, callback=callback)
+            self._overwrite(destinationObj, overwrite=overwrite, callback=callback)
 
             # Check if the source and destination are from the same manager class
             # TODO it may not be possible to copy from one manager of the same type to another manager of the same type
@@ -1113,16 +1275,13 @@ class Manager(AbstractManager):
 
         try:
             # Load the source object that is to be copied
-            sourceManager, sourceObj, sourcePath = self._splitArtefactForm(source, external=False)
+            sourceManager, sourceObj, _ = self._splitArtefactForm(source, external=False)
             destinationManager, destinationObj, destinationPath = self._splitArtefactForm(
                 destination, require=False, external=False
             )
 
             # Prevent the overwriting of a directory without permission
-            if destinationObj is not None:
-                if isinstance(destinationObj, Directory) and not overwrite:
-                    raise exceptions.OperationNotPermitted("Cannot replace directory without passing overwrite True")
-                destinationManager._rm(destinationObj, callback=callback)
+            self._overwrite(destinationObj, overwrite=overwrite, callback=callback)
 
             # Check if the source and destination are from the same manager class
             if type(sourceManager) == type(destinationManager) and not sourceManager.ISOLATED:
@@ -1153,7 +1312,7 @@ class Manager(AbstractManager):
                     worker_config=worker_config,
                     content_type=content_type,
                 )
-                sourceManager._rm(sourceObj, callback=callback)
+                sourceManager._rm(sourceObj.path, callback=callback, worker_config=worker_config)
 
             return movedArtefact
 
@@ -1225,7 +1384,6 @@ class Manager(AbstractManager):
         if isinstance(destinationObj, str):
             # The destination doesn't exist - sync the entire source
 
-            log.warning("Syncing: Destination=%s doesn't exist therefore putting entire source=%s", destinationObj, sourceObj)
             sync_method(
                 sourceObj,
                 destinationObj,
@@ -1273,7 +1431,6 @@ class Manager(AbstractManager):
 
                 # Syncing a source directory to a destination directory
                 destinationMap = {artefact.basename: artefact for artefact in destinationManager.ls(destinationObj)}
-                callback.reviewing(len(destinationMap))
 
                 # Recursively fill in destination at this recursion level
                 for artefact in sourceManager.iterls(sourceObj):
@@ -1294,8 +1451,6 @@ class Manager(AbstractManager):
                             sync_arguments=sync_arguments
                         )
 
-                        callback.reviewed(1)
-
                     else:
                         callback.reviewing(1)
 
@@ -1310,13 +1465,15 @@ class Manager(AbstractManager):
 
                 # Any remaining destionation objects were not targets of sync - delete if argument passed
                 if delete:
+                    callback.reviewing(len(destinationMap))
+
                     destinationManager.rm(
-                        destinationMap.values(),
+                        list(destinationMap.values()),
                         recursive=sync_arguments['overwrite'],
                         worker_config=worker_config
                     )
 
-                callback.reviewed(len(destinationMap))
+                    callback.reviewed(len(destinationMap))
 
         callback.reviewed(1)
         worker_config.conclude()
@@ -1362,6 +1519,20 @@ class Manager(AbstractManager):
         # Fetch the destination object
         destinationManager, destinationObj, destinationPath = self._splitArtefactForm(destination, require=False)
 
+        if destinationObj is None:
+            log.warning("Syncing: Destination=%s doesn't exist therefore putting entire source=%s", destinationPath, sourceObj)
+            return destinationManager.put(
+                source,
+                destinationPath,
+                overwrite=overwrite,
+                callback=callback,
+                metadata=metadata,
+                modified_time=modified_time,
+                accessed_time=accessed_time,
+                storage_class=storage_class,
+                worker_config=worker_config
+            )
+
         # Setup the worker_pool config
         worker_config = worker_config or WorkerPoolConfig(shutdown=True)
 
@@ -1395,7 +1566,6 @@ class Manager(AbstractManager):
                 worker_config=worker_config.extend()
             )
         except:
-            print('Its done!')
             worker_config.conclude(cancel=True)
             raise
 
@@ -1407,7 +1577,9 @@ class Manager(AbstractManager):
         artefact: Union[Directory, str, None] = None,
         recursive: bool = False,
         *,
-        ignore_missing: bool = False
+        ignore_missing: bool = False,
+        include_metadata: bool = False,
+        worker_config: Optional[WorkerPoolConfig] = None,
         ) -> typing.Generator[ArtefactType, None, None]:
         """ List contents of the directory path/artefact given.
 
@@ -1432,17 +1604,23 @@ class Manager(AbstractManager):
             raise
 
         # Yield the contents of the directory
-        yield from manager._ls(artPath, recursive=recursive)
-        # for artefact in self._ls(artPath, recursive=recursive):
-        #     yield artefact
-
+        worker_config = worker_config or WorkerPoolConfig(shutdown=True)
+        yield from manager._ls(
+            artPath,
+            recursive=recursive,
+            include_metadata=include_metadata,
+            worker_config=worker_config,
+        )
+        worker_config.conclude()
 
     def ls(
         self,
         art: Union[Directory, str, None] = None,
         recursive: bool = False,
         *,
-        ignore_missing: bool = False
+        ignore_missing: bool = False,
+        include_metadata: bool = False,
+        worker_config: Optional[WorkerPoolConfig] = None,
         ) -> typing.Set[Union[File, Directory]]:
         """ List contents of the directory path/artefact given.
 
@@ -1454,7 +1632,7 @@ class Manager(AbstractManager):
         Returns:
             {Artefact}: The artefact objects which are within the directory
         """
-        return set(self.iterls(art, recursive, ignore_missing=ignore_missing))
+        return set(self.iterls(art, recursive, ignore_missing=ignore_missing, include_metadata=include_metadata, worker_config=worker_config))
 
     def mkdir(self, path: str, ignore_exists: bool = True, overwrite: bool = False) -> Directory:
         """ Make a directory at the location of the path provided. By default - do nothing in the event that the
@@ -1486,7 +1664,7 @@ class Manager(AbstractManager):
 
         with tempfile.TemporaryDirectory() as directory:
             return self.put(
-                Directory(utils.connect('FS'), directory),
+                Directory(self.connect('FS'), directory),
                 # self._splitArtefactForm(directory)[1],
                 path,
                 overwrite=overwrite
@@ -1531,7 +1709,10 @@ class Manager(AbstractManager):
             if isinstance(artefact, Directory):
                 raise ValueError(f'Cannot touch directory: {artefact}')
             log.debug("artefact=%s already exists - updating artefact times mt=%s at=%s", path, modified_time, accessed_time, extra={'method': 'touch'})
-            manager._set_artefact_time(artefact, modified_time=modified_time,accessed_time=accessed_time)
+            try:
+                manager._set_artefact_time(artefact, modified_time=modified_time,accessed_time=accessed_time)
+            except NotImplementedError:
+                log.warning('%s does not support modifying artefact [%s] times', manager, artefact)
             return artefact
 
         else:
