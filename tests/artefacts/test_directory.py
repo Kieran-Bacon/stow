@@ -57,7 +57,7 @@ class Test_Directories(unittest.TestCase):
             modifiedTime = file.modifiedTime
 
             time.sleep(0.1)
-            file.content = b"file content"
+            file.content(b"file content")
 
             modifiedFile = stow.artefact(filepath)
 

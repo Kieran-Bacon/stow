@@ -848,31 +848,31 @@ class Test_Stateless(unittest.TestCase):
             # File one should not be copied by the second file
             stow.touch(stow.join(directory, "dir1", "file1.txt"))
             file = stow.touch(stow.join(directory, "dir2", "file1.txt"))
-            file.content = b"content"
+            file.content(b"content")
 
             # File two should be replaced the second
             file = stow.touch(stow.join(directory, "dir1", "file2.txt"))
             stow.touch(stow.join(directory, "dir2", "file2.txt"))
             time.sleep(.001)
-            file.content = b"file2"
+            file.content(b"file2")
 
             # File should stay
             file = stow.touch(stow.join(directory, "dir2", "file3.txt"))
-            file.content = b"Original"
+            file.content(b"Original")
 
             # File should be copied in
             file = stow.touch(stow.join(directory, "dir1", "file4.txt"))
-            file.content = b"copied"
+            file.content(b"copied")
 
             stow.sync(
                 stow.join(directory, "dir1"),
                 stow.join(directory, "dir2")
             )
 
-            self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file1.txt")).content, b"content")
-            self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file2.txt")).content, b"file2")
-            self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file3.txt")).content, b"Original")
-            self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file4.txt")).content, b"copied")
+            self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file1.txt")).content(), b"content")
+            self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file2.txt")).content(), b"file2")
+            self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file3.txt")).content(), b"Original")
+            self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file4.txt")).content(), b"copied")
 
     def test_sync_with_delete(self):
 
@@ -881,17 +881,17 @@ class Test_Stateless(unittest.TestCase):
             # File one should not be copied by the second file
             stow.touch(stow.join(directory, "dir1", "file1.txt"))
             file = stow.touch(stow.join(directory, "dir2", "file1.txt"))
-            file.content = b"content"
+            file.content(b"content")
 
             # File two should be replaced the second
             file = stow.touch(stow.join(directory, "dir1", "file2.txt"))
             stow.touch(stow.join(directory, "dir2", "file2.txt"))
             time.sleep(.001)
-            file.content = b"file2"
+            file.content(b"file2")
 
             # File should stay
             file = stow.touch(stow.join(directory, "dir2", "file3.txt"))
-            file.content = b"Original"
+            file.content(b"Original")
 
 
             stow.sync(
@@ -900,8 +900,8 @@ class Test_Stateless(unittest.TestCase):
                 delete=True
             )
 
-            self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file1.txt")).content, b"content")
-            self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file2.txt")).content, b"file2")
+            self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file1.txt")).content(), b"content")
+            self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file2.txt")).content(), b"file2")
             with self.assertRaises(stow.exceptions.ArtefactNotFound):
                 stow.artefact(stow.join(directory, "dir2", "file3.txt"))
 

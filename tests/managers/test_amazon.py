@@ -626,16 +626,16 @@ class Test_Amazon(unittest.TestCase):
             stow.sync(directory, 's3://bucket_name')
 
             # Compare the modified times to confirm that the files have been written
-            self.assertEqual(stow.artefact('s3://bucket_name/file-1.txt', type=stow.File).content, remote_content)
-            self.assertEqual(stow.artefact('s3://bucket_name/file-2-updated.txt', type=stow.File).content, local_content)
-            self.assertEqual(stow.artefact('s3://bucket_name/file-3-new.txt', type=stow.File).content, local_content)
-            self.assertEqual(stow.artefact("s3://bucket_name/directory-untouched/file-1.txt", type=stow.File).content, remote_content)
-            self.assertEqual(stow.artefact("s3://bucket_name/directory-untouched/file-2.txt", type=stow.File).content, remote_content)
-            self.assertEqual(stow.artefact('s3://bucket_name/directory-new/file-1-new.txt', type=stow.File).content, local_content)
-            self.assertEqual(stow.artefact('s3://bucket_name/directory-new/file-2-new.txt', type=stow.File).content, local_content)
-            self.assertEqual(stow.artefact("s3://bucket_name/directory/nested/file-1.txt", type=stow.File).content, remote_content)
-            self.assertEqual(stow.artefact("s3://bucket_name/directory/nested/file-2-updated.txt", type=stow.File).content, local_content)
-            self.assertEqual(stow.artefact("s3://bucket_name/directory/nested/file-3-new.txt", type=stow.File).content, local_content)
+            self.assertEqual(stow.artefact('s3://bucket_name/file-1.txt', type=stow.File).content(), remote_content)
+            self.assertEqual(stow.artefact('s3://bucket_name/file-2-updated.txt', type=stow.File).content(), local_content)
+            self.assertEqual(stow.artefact('s3://bucket_name/file-3-new.txt', type=stow.File).content(), local_content)
+            self.assertEqual(stow.artefact("s3://bucket_name/directory-untouched/file-1.txt", type=stow.File).content(), remote_content)
+            self.assertEqual(stow.artefact("s3://bucket_name/directory-untouched/file-2.txt", type=stow.File).content(), remote_content)
+            self.assertEqual(stow.artefact('s3://bucket_name/directory-new/file-1-new.txt', type=stow.File).content(), local_content)
+            self.assertEqual(stow.artefact('s3://bucket_name/directory-new/file-2-new.txt', type=stow.File).content(), local_content)
+            self.assertEqual(stow.artefact("s3://bucket_name/directory/nested/file-1.txt", type=stow.File).content(), remote_content)
+            self.assertEqual(stow.artefact("s3://bucket_name/directory/nested/file-2-updated.txt", type=stow.File).content(), local_content)
+            self.assertEqual(stow.artefact("s3://bucket_name/directory/nested/file-3-new.txt", type=stow.File).content(), local_content)
 
     def test_config(self):
 

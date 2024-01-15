@@ -258,7 +258,7 @@ class AbstractManager:
         pass
 
     @abstractmethod
-    def _overwrite(self, artefact: Optional[ArtefactType], overwrite: bool, callback: AbstractCallback):
+    def _overwrite(self, manager: Self, artefact: Optional[ArtefactType], overwrite: bool, callback: AbstractCallback):
         """ Signals that the provided argument is about to be overwritten - take any actions necessary to permit that to
         happen or raise error if not acceptable.
 

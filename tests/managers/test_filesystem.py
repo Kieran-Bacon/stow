@@ -153,9 +153,9 @@ class Test_Filesystem(unittest.TestCase):
 
             file = self.manager.touch("/file1.txt")
             contentbytes = b"here is some content"
-            file.content = contentbytes
+            file.content(contentbytes)
 
-            self.assertEqual(file.content, contentbytes)
+            self.assertEqual(file.content(), contentbytes)
 
             # Get the file
             filepath = os.path.join(directory, "some_dir", "another dir", "file.1.txt")
@@ -173,7 +173,7 @@ class Test_Filesystem(unittest.TestCase):
 
             file = self.manager.touch("/file1.txt")
             contentbytes = b"here is some content"
-            file.content = contentbytes
+            file.content(contentbytes)
 
             with pytest.raises(stow.exceptions.OperationNotPermitted):
                 self.manager.get("/file1.txt", os.path.join(directory, "some_dir"))
@@ -316,20 +316,20 @@ class Test_Filesystem(unittest.TestCase):
     def test_getBytes(self):
 
         file = self.manager.touch("/A/a.txt")
-        file.content = b"content"
+        file.content(b"content")
 
         self.assertEqual(self.manager.get("/A/a.txt"), b"content")
 
     def test_cp(self):
 
         file = self.manager.touch("/A/a.txt")
-        file.content = b"content"
+        file.content(b"content")
 
         self.manager.cp(file, "/A/b.txt")
 
         file2 = self.manager["/A/b.txt"]
 
-        self.assertEqual(file2.content, b"content")
+        self.assertEqual(file2.content(), b"content")
 
     def test_ls(self):
         """ Create a hierarchy of files and show that listing the
@@ -625,17 +625,17 @@ class Test_Filesystem(unittest.TestCase):
         )
 
         self.assertEqual(len(self.manager['/directory/subdirectory']), 3)
-        self.assertEqual(self.manager['/directory/subdirectory/newfile.txt'].content.decode(), "Newly added content with a file")
-        self.assertEqual(self.manager['/directory/subdirectory/file1.txt'].content.decode(), "Content")
-        self.assertEqual(self.manager['/directory/subdirectory/file2.txt'].content.decode(), "EDITTED")
+        self.assertEqual(self.manager['/directory/subdirectory/newfile.txt'].content().decode(), "Newly added content with a file")
+        self.assertEqual(self.manager['/directory/subdirectory/file1.txt'].content().decode(), "Content")
+        self.assertEqual(self.manager['/directory/subdirectory/file2.txt'].content().decode(), "EDITTED")
 
         self.assertEqual(len(self.manager['/directory/anotherdirectory']), 0)
         self.assertEqual(len(self.manager['/directory/new-empty-directory']), 0)
 
         self.assertEqual(len(self.manager['/directory/test-directory']), 1)
-        self.assertEqual(self.manager['/directory/test-directory/file4.txt'].content.decode(), "Some stuff")
+        self.assertEqual(self.manager['/directory/test-directory/file4.txt'].content().decode(), "Some stuff")
 
-        self.assertEqual(self.manager['/directory/file5.txt'].content.decode(), "Running out of content to write")
+        self.assertEqual(self.manager['/directory/file5.txt'].content().decode(), "Running out of content to write")
 
 
         # Assert that you can localise a non existent directory and make it so
@@ -654,7 +654,7 @@ class Test_Filesystem(unittest.TestCase):
 
         self.manager.put(bytes(content, "utf8"), "/file1.txt")
 
-        self.assertEqual(self.manager["/file1.txt"].content.decode(), content)
+        self.assertEqual(self.manager["/file1.txt"].content().decode(), content)
 
     def test_put_bytes_overwrite(self):
         """ Put bytes overwriting a file that previously existed there
@@ -749,8 +749,8 @@ class Test_Filesystem(unittest.TestCase):
                 }
             )
 
-            self.assertEqual(self.manager["/sync_folder/file1.txt"].content.decode(), "This file has been updated at destination")
-            self.assertEqual(self.manager["/sync_folder/file2.txt"].content.decode(), "This file has been updated at source")
+            self.assertEqual(self.manager["/sync_folder/file1.txt"].content().decode(), "This file has been updated at destination")
+            self.assertEqual(self.manager["/sync_folder/file2.txt"].content().decode(), "This file has been updated at source")
 
     def test_serialisation_is_equal(self):
         """ If a manager (directly initialised is created) can we recreated it """

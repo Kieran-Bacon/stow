@@ -458,12 +458,14 @@ class FS(LocalManager):
         # Save the source to the destination
         # NOTE save calls the get method of the source manager - which is the most efficient method of dowloading
         # the artefact to the local fs which is is trying todo.
+
         source.save(
             destinationAbspath,
             callback=callback,
             modified_time=modified_time,
             accessed_time=accessed_time,
             worker_config=worker_config,
+            force=True
         )
 
         # Create a partial artefact for the newly downloaded file

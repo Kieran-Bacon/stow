@@ -94,16 +94,16 @@ class Test_Files(BasicSetup, unittest.TestCase):
 
         file = self.manager['/file1']
 
-        self.assertEqual(file.content.decode(), self.filetext)
+        self.assertEqual(file.content().decode(), self.filetext)
 
         newContent = "this is new content for the file"
 
         with self.assertRaises(ValueError):
-            file.content = newContent
+            file.content(newContent)
 
-        file.content = bytes(newContent, encoding="utf-8")
+        file.content(bytes(newContent, encoding="utf-8"))
 
-        self.assertEqual(file.content.decode(), newContent)
+        self.assertEqual(file.content().decode(), newContent)
 
     def test_size(self):
 

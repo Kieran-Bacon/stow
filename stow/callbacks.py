@@ -1,3 +1,4 @@
+import os
 import abc
 import typing
 from typing import Union, Optional, Tuple, Any
@@ -100,7 +101,7 @@ class ProgressCallback(AbstractCallback):
         if isinstance(pathOrCount, int):
             pbar.update(pathOrCount)
         else:
-            pbar.desc = pbar.desc.split(' ')[0] + " " + pathOrCount
+            pbar.desc = pbar.desc.split(' ')[0] + " " + os.path.basename(pathOrCount)
             pbar.update()
 
 
@@ -130,6 +131,7 @@ class ProgressCallback(AbstractCallback):
             self._writingProgressBar.total += count
 
     def written(self, pathOrCount: Union[str, int]):
+        self.reviewed(pathOrCount)
         if self._writingProgressBar:
             self._updatePbar(self._writingProgressBar, pathOrCount)
 
@@ -140,6 +142,7 @@ class ProgressCallback(AbstractCallback):
             self._deletingProgressBar.total += count
 
     def deleted(self, pathOrCount: Union[str, int]):
+        self.reviewed(pathOrCount)
         if self._deletingProgressBar:
             self._updatePbar(self._deletingProgressBar, pathOrCount)
 
@@ -152,23 +155,21 @@ class ProgressCallback(AbstractCallback):
         else:
             raise RuntimeError('File size exceeds all of human data to this point - so probs a problem')
 
-
-
     def get_bytes_transfer(self, path, total_bytes_transfer):
         log.debug('Initialising transfer for path=%s', path)
 
         divisor, total, unit = self.sizeof_fmt(total_bytes_transfer)
-        divisor = 1
+        # divisor = 1
         total = total_bytes_transfer
-        unit = 'bytes'
+        # unit = 'bytes'
 
         position = self._getNextPositionOffset()
 
         pbar = tqdm.tqdm(
             desc=f'{path} transfered',
-            total=total_bytes_transfer,
-            # unit=unit,
-            unit_scale=divisor,
+            total=total,
+            unit=unit,
+            # unit_scale=divisor,
             leave=False,
             position=position
         )
@@ -190,6 +191,11 @@ class ProgressCallback(AbstractCallback):
         #         update.__defaults__ = (True,)
 
         return transfer
+
+    def close(self):
+        if self._reviewingProgressBar is not None: self._reviewingProgressBar.close()
+        if self._writingProgressBar is not None: self._writingProgressBar.close()
+        if self._deletingProgressBar is not None: self._deletingProgressBar.close()
 
 def composeCallback(callbacks: typing.Iterable[AbstractCallback]):
     """ Compile an iterable of callback methods together into a single Callback class object """

@@ -268,19 +268,21 @@ class File(Artefact):
     def extension(self, ext: str):
         self.basename = ".".join([self.name, ext])
 
-    @property
-    def content(self) -> bytes:
+    def content(self, content: Optional[bytes] = None) -> bytes:
         """ file content as bytes """
-        with self.open("rb") as handle:
-            return handle.read()
 
-    @content.setter
-    def content(self, cont: bytes):
-        if not isinstance(cont, bytes):
-            raise ValueError("Cannot set the content of the file to non bytes type - {} given".format(type(cont)))
+        if content is not None:
+            if not isinstance(content, bytes):
+                raise ValueError("Cannot set the content of the file to non bytes type - {} given".format(type(content)))
 
-        with self.open("wb") as handle:
-            handle.write(cont)
+            with self.open("wb") as handle:
+                handle.write(content)
+
+            return content
+
+        else:
+            with self.open("rb") as handle:
+                return handle.read()
 
     def set_artefact_time(
         self,

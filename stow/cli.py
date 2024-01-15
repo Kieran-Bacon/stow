@@ -77,9 +77,13 @@ def cli(ctx: click.Context, debug: bool, manager: str, **kwargs):
 
     """
 
-    logging.basicConfig(level=logging.DEBUG if debug else logging.INFO)
-    for logger in ['stow.callbacks']:
-        logging.getLogger(logger).propagate = False
+    if debug:
+        stow_logger = logging.getLogger('stow')
+        stow_handler = logging.StreamHandler()
+        stow_handler.setFormatter(logging.Formatter("%(name)s::%(levelname)s::%(message)s"))
+        stow_handler.setLevel(logging.DEBUG)
+        stow_logger.setLevel(logging.DEBUG)
+        stow_logger.addHandler(stow_handler)
 
     if manager == 'auto':
         managerObj = Manager()

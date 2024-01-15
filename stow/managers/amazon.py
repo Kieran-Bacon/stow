@@ -658,8 +658,6 @@ class Amazon(RemoteManager):
                             # Ensure the directory for that object
                             os.makedirs(os.path.dirname(destinationPath), exist_ok=True)
 
-                            callback.writing(1)
-
                             worker_config.submit(
                                 self._download_file,
                                 s3File,
@@ -705,6 +703,14 @@ class Amazon(RemoteManager):
         # Return the bytes stored in the buffer
         return bytes_buffer.getvalue()
 
+    def _put_object(self, callback: AbstractCallback, **kwargs):
+
+        self._s3.put_object(
+            **kwargs
+        )
+
+        callback.written(1)
+
     def _localise_put_file(
         self,
         source: File,
@@ -715,8 +721,6 @@ class Amazon(RemoteManager):
         content_type: Optional[str],
         storage_class: AmazonStorageClass
         ):
-
-        callback.writing(1)
 
         with source.localise() as abspath:
             try:
@@ -796,6 +800,7 @@ class Amazon(RemoteManager):
                     )
 
         else:
+            callback.writing(1)
 
             # Setup metadata about the objects being put
             amazon_storage_class = AmazonStorageClass.convert(storage_class or self.storage_class)
@@ -810,6 +815,8 @@ class Amazon(RemoteManager):
 
                     artefact = None
                     for artefact in directory.iterls():
+                        callback.writing(1)
+
                         if isinstance(artefact, File):
 
                             file_destination = self.join(
@@ -843,10 +850,11 @@ class Amazon(RemoteManager):
                         )
 
                         worker_config.submit(
-                            self._s3.put_object,
+                            self._put_object,
                             Body=b'',
                             Bucket=s3Bucket,
                             Key=s3DirectoryFilepath + '/',
+                            callback=callback
                             # StorageClass=amazon_storage_class.value  # This is a dictionary file so I don't know if its needed
                         )
 
@@ -1152,44 +1160,45 @@ class Amazon(RemoteManager):
             if bucket is None:
                 raise exceptions.OperationNotPermitted("Attempt to made to delete... s3. Operation is not allowed")
 
-            if not key or key[-1] == '/':
-                # The afteract is a directory
-
-                for stat in self._list_objects(bucket, key):
-
-                    callback.deleting(len(stat.keys))
-
-                    response = self._s3.delete_objects(
-                        Bucket=bucket,
-                        Delete={
-                            "Objects": [{"Key": key} for key in stat.keys],
-                            "Quiet": True
-                        }
-                    )
-
-                    if 'Errors' in response:
-                        errors = []
-                        for errored in response['Errors']:
-                            msg = f"{errored['Code']}: {errored['Message']} - failed to delete {errored['Key']}"
-                            log.error(msg)
-                            errors.append(msg)
-
-                        raise RuntimeWarning(f'Failed to delete items in s3: {errors}')
-
-                    callback.deleted(len(stat.keys))
-
-                if not key:
-                    # The bucket is also to be deleted
-                    self._s3.delete_bucket(Bucket=bucket)
+            if not key:
+                # The bucket is also to be deleted
+                self._s3.delete_bucket(Bucket=bucket)
 
             else:
-                # We are deleting a key directly
-                self._s3.delete_object(
-                    Bucket=bucket,
-                    Key=key
-                )
 
-                callback.deleted(artefact)
+                try:
+                    # We are deleting a key directly
+                    self._s3.head_object(Bucket=bucket, Key=key)
+                    self._s3.delete_object(
+                        Bucket=bucket,
+                        Key=key
+                    )
+                    callback.deleted(artefact)
+                except:
+
+                    # The afteract is a directory
+                    for stat in self._list_objects(bucket, key):
+
+                        callback.deleting(len(stat.keys))
+
+                        response = self._s3.delete_objects(
+                            Bucket=bucket,
+                            Delete={
+                                "Objects": [{"Key": key} for key in stat.keys],
+                                "Quiet": True
+                            }
+                        )
+
+                        if 'Errors' in response:
+                            errors = []
+                            for errored in response['Errors']:
+                                msg = f"{errored['Code']}: {errored['Message']} - failed to delete {errored['Key']}"
+                                log.error(msg)
+                                errors.append(msg)
+
+                            raise RuntimeWarning(f'Failed to delete items in s3: {errors}')
+
+                        callback.deleted(len(stat.keys))
 
     @classmethod
     def _signatureFromURL(cls, url: urllib.parse.ParseResult):

@@ -1016,19 +1016,20 @@ class Manager(AbstractManager):
 
             # Ensure the destination - Remove or raise issue for a local artefact at the location where the get is called
             if destination is not None:
+                localManager: Manager = self.connect(manager="FS")
+                destinationAbspath = os.path.join(os.getcwd(), destination)
 
-                if os.path.exists(destination):
-                    localManager: Manager = self.connect(manager="FS")
-                    localManager.rm(destination, recursive=overwrite)
+                if os.path.exists(destinationAbspath):
+                    localManager.rm(destinationAbspath, recursive=overwrite)
 
                 else:
                     # Ensure the directory that this object exists with
-                    os.makedirs(self.dirname(destination), exist_ok=True)
+                    os.makedirs(self.dirname(destinationAbspath), exist_ok=True)
 
                 # Get the object using the underlying manager implementation
                 manager._get(
                     obj,
-                    destination,
+                    destinationAbspath,
                     callback=callback,
                     modified_time=utils.timestampToFloatOrNone(modified_time),
                     accessed_time=utils.timestampToFloatOrNone(accessed_time),
@@ -1048,22 +1049,35 @@ class Manager(AbstractManager):
         finally:
             worker_config.conclude()
 
-    def _overwrite(self, artefact: Optional[ArtefactType], overwrite: bool, callback: AbstractCallback):
+    def _overwrite(
+            self,
+            manager: "Manager",
+            artefact: Optional[ArtefactType],
+            overwrite: bool,
+            callback: AbstractCallback,
+            worker_config: WorkerPoolConfig
+        ):
 
         if artefact is None:
             return
 
         if isinstance(artefact, File):
-            if self.SAFE_FILE_OVERWRITE:
+            if manager.SAFE_FILE_OVERWRITE:
                 return
         else:
             if not overwrite and not artefact.isEmpty():
                 raise exceptions.OperationNotPermitted('Cannot overwrite %s as it is not empty - pass overwrite=True')
 
-            if self.SAFE_DIRECTORY_OVERWRITE:
+            if manager.SAFE_DIRECTORY_OVERWRITE:
                 return
 
-        return self.rm(artefact, recursive=overwrite, callback=callback, ignore_missing=True)
+        return self.rm(
+            artefact,
+            recursive=overwrite,
+            callback=callback,
+            ignore_missing=True,
+            worker_config=worker_config
+        )
 
     @overload
     def put(
@@ -1154,7 +1168,13 @@ class Manager(AbstractManager):
             # Note - we are not deleting the destination until after we have validated the source
             if isinstance(source, (bytes, bytearray, memoryview)):
 
-                self._overwrite(destinationObj, overwrite=overwrite, callback=callback)
+                self._overwrite(
+                    destinationManager,
+                    destinationObj,
+                    overwrite=overwrite,
+                    callback=callback,
+                    worker_config=worker_config
+                )
 
                 putArtefact = destinationManager._putBytes(
                     source,
@@ -1172,7 +1192,13 @@ class Manager(AbstractManager):
                 # Validate source before deleting destination
                 _, sourceObj, _ = self._splitArtefactForm(source)
 
-                self._overwrite(destinationObj, overwrite=overwrite, callback=callback)
+                self._overwrite(
+                    destinationManager,
+                    destinationObj,
+                    overwrite=overwrite,
+                    callback=callback,
+                    worker_config=worker_config
+                )
 
                 putArtefact = destinationManager._put(
                     sourceObj,
@@ -1229,7 +1255,13 @@ class Manager(AbstractManager):
             )
 
             # Prevent the overwriting of a directory without permission
-            self._overwrite(destinationObj, overwrite=overwrite, callback=callback)
+            self._overwrite(
+                destinationManager,
+                destinationObj,
+                overwrite=overwrite,
+                callback=callback,
+                worker_config=worker_config
+            )
 
             # Check if the source and destination are from the same manager class
             # TODO it may not be possible to copy from one manager of the same type to another manager of the same type
@@ -1293,7 +1325,13 @@ class Manager(AbstractManager):
             )
 
             # Prevent the overwriting of a directory without permission
-            self._overwrite(destinationObj, overwrite=overwrite, callback=callback)
+            self._overwrite(
+                destinationManager,
+                destinationObj,
+                overwrite=overwrite,
+                callback=callback,
+                worker_config=worker_config
+            )
 
             # Check if the source and destination are from the same manager class
             if type(sourceManager) == type(destinationManager) and not sourceManager.ISOLATED:
@@ -1399,17 +1437,17 @@ class Manager(AbstractManager):
             sync_method(
                 sourceObj,
                 destinationObj,
-                worker_config=worker_config,
                 **sync_arguments
             )
 
         elif isinstance(destinationObj, File):
             if isinstance(sourceObj, Directory):
                 # The source is a directory - we simply replace the file
+                callback.deleting(1)
+                destinationManager._rm(destinationObj.path, callback=callback, worker_config=worker_config)
                 sync_method(
                     sourceObj,
-                    destinationObj,
-                    worker_config=worker_config,
+                    destinationObj.path,
                     **sync_arguments
                 )
 
@@ -1418,24 +1456,36 @@ class Manager(AbstractManager):
                 (artefact_comparator is None or not artefact_comparator(sourceObj, destinationObj))
                 ):
 
+                if not destinationManager.SAFE_FILE_OVERWRITE:
+                    callback.deleting(1)
+                    destinationManager._rm(destinationObj.path, callback=callback, worker_config=worker_config)
+
                 sync_method(
                     sourceObj,
-                    destinationObj,
-                    worker_config=worker_config,
+                    destinationObj.path,
                     **sync_arguments
                 )
 
             else:
+                callback.reviewed(1)
                 log.debug('%s already synced', destinationObj)
 
         else:
             # Desintation object is a dictionary
             if isinstance(sourceObj, File):
                 # We are trying to sync a file to a directory - this is a put
+
+                if not overwrite:
+                    raise exceptions.OperationNotPermitted(
+                        f'During sync operation - cannot overwrite directory [{destinationObj}] with file [{sourceObj}] as overwrite has not been set to true')
+
+                if not destinationManager.SAFE_DIRECTORY_OVERWRITE:
+                    callback.deleting(1)
+                    destinationManager._rm(destinationObj.path, callback=callback, worker_config=worker_config)
+
                 sync_method(
                     sourceObj,
-                    destinationObj,
-                    worker_config=worker_config,
+                    destinationObj.path,
                     **sync_arguments
                 )
 
@@ -1469,25 +1519,23 @@ class Manager(AbstractManager):
                         sync_method(
                             artefact,
                             destinationManager.join(destinationObj.path, artefact.basename),
-                            worker_config=worker_config,
                             **sync_arguments
                         )
-
-                        callback.reviewed(1)
 
                 # Any remaining destionation objects were not targets of sync - delete if argument passed
                 if delete:
                     callback.reviewing(len(destinationMap))
 
-                    destinationManager.rm(
-                        list(destinationMap.values()),
-                        recursive=sync_arguments['overwrite'],
+                    delete_targets = [artefact.path for artefact in destinationMap.values()]
+
+                    destinationManager._rm(
+                        *delete_targets,
+                        callback=callback,
                         worker_config=worker_config
                     )
 
-                    callback.reviewed(len(destinationMap))
+                callback.reviewed(1)
 
-        callback.reviewed(1)
         worker_config.conclude()
 
         return PartialArtefact(destinationManager, destinationObj if isinstance(destinationObj, str) else destinationObj.path)
@@ -1501,6 +1549,7 @@ class Manager(AbstractManager):
         check_modified_times: bool = True,
         artefact_comparator: Optional[typing.Callable[[File, File], bool]] = None,
 
+        content_type: Optional[str] = None,
         storage_class: Optional[StorageClass] = None,
         metadata: Optional[Metadata] = None,
         modified_time: Optional[datetime.datetime] = None,
@@ -1523,7 +1572,8 @@ class Manager(AbstractManager):
             ArtefactNotFound: In the event that the source directory doesn't exist
         """
 
-        # TODO have a way to update the timestamps of the origin source
+        if not check_modified_times and artefact_comparator is None:
+            log.warning(f'You are running a sync command with no condition checking at all between {source} and {destination}')
 
         # Fetch the source object
         sourceManager, sourceObj, _ = self._splitArtefactForm(source, require=True, external=False)
@@ -1547,19 +1597,23 @@ class Manager(AbstractManager):
 
         # Setup the worker_pool config
         worker_config = worker_config or WorkerPoolConfig(shutdown=True)
+        extended_config = worker_config.extend()
 
         if type(sourceManager) == type(destinationManager) and not sourceManager.ISOLATED:
-            sync_method = destinationManager.cp
+            sync_method = destinationManager._cp
+
         else:
-            sync_method = destinationManager.put
+            sync_method = destinationManager._put
 
         sync_arguments = {
             "metadata": metadata,
-            "modified_time": modified_time,
-            "accessed_time": accessed_time,
+            "modified_time": utils.timestampToFloatOrNone(modified_time),
+            "accessed_time": utils.timestampToFloatOrNone(accessed_time),
             "storage_class": storage_class,
             "overwrite": overwrite,
-            "callback": callback
+            "callback": callback,
+            "content_type": content_type,
+            "worker_config": extended_config
         }
 
         try:
@@ -1575,7 +1629,7 @@ class Manager(AbstractManager):
                 overwrite=overwrite,
                 sync_method=sync_method,
                 sync_arguments=sync_arguments,
-                worker_config=worker_config.extend()
+                worker_config=extended_config
             )
         except:
             worker_config.conclude(cancel=True)
