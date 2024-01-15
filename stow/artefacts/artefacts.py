@@ -54,6 +54,7 @@ class Artefact:
 
     def __eq__(self, other: "Artefact"):
         return (
+            isinstance(other, self.__class__) and
             self._manager is other._manager and
             type(self) == type(other) and
             self.path == other.path
