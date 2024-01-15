@@ -10,6 +10,7 @@ import tempfile
 import binascii
 import hashlib
 import zlib
+import time
 
 import unittest
 from click.testing import CliRunner
@@ -31,6 +32,7 @@ class Test_Amazon(unittest.TestCase):
     def setUp(self):
 
         self.s3 = boto3.client('s3')
+        self.bucket_name = "bucket_name"
         self.s3.create_bucket(
             Bucket="bucket_name",
             CreateBucketConfiguration={"LocationConstraint":"eu-west-2"}
@@ -580,6 +582,60 @@ class Test_Amazon(unittest.TestCase):
             manager.rm('/directory')
 
         manager.rm('/directory', recursive=True)
+
+    def test_sync_files_upload(self):
+        # General sync
+        # Test that files and directories are put when no colision
+        # test that files are updated correctly when there is a collision
+
+        remote_content = b''
+        local_content = b'content from local'
+
+        def touch(path: str):
+            with open(path,'wb') as handle:
+                handle.write(local_content)
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            # Create initial file that shouldn't be uploaded
+            touch(os.path.join(directory, 'file-1.txt'))
+
+            time.sleep(1)
+
+            # Create files in s3 as the sync target
+            remote_files = [
+                stow.touch("s3://bucket_name/file-1.txt"),
+                stow.touch("s3://bucket_name/file-2-updated.txt"),
+                stow.touch("s3://bucket_name/directory-untouched/file-1.txt"),
+                stow.touch("s3://bucket_name/directory-untouched/file-2.txt"),
+                stow.touch("s3://bucket_name/directory/nested/file-1.txt"),
+                stow.touch("s3://bucket_name/directory/nested/file-2-updated.txt"),
+            ]
+
+            # Create the local files that will be synced
+            touch(os.path.join(directory, 'file-2-updated.txt'))
+            touch(os.path.join(directory, 'file-3-new.txt'))
+            os.mkdir(os.path.join(directory, 'directory-new'))
+            touch(os.path.join(directory, 'directory-new', 'file-1-new.txt'))
+            touch(os.path.join(directory, 'directory-new', 'file-2-new.txt'))
+            os.makedirs(os.path.join(directory, 'directory', 'nested'))
+            touch(os.path.join(directory, 'directory', 'nested', 'file-2-updated.txt'))
+            touch(os.path.join(directory, 'directory', 'nested', 'file-3-new.txt'))
+
+            # Perform the sync
+            stow.sync(directory, 's3://bucket_name')
+
+            # Compare the modified times to confirm that the files have been written
+            self.assertEqual(stow.artefact('s3://bucket_name/file-1.txt', type=stow.File).content, remote_content)
+            self.assertEqual(stow.artefact('s3://bucket_name/file-2-updated.txt', type=stow.File).content, local_content)
+            self.assertEqual(stow.artefact('s3://bucket_name/file-3-new.txt', type=stow.File).content, local_content)
+            self.assertEqual(stow.artefact("s3://bucket_name/directory-untouched/file-1.txt", type=stow.File).content, remote_content)
+            self.assertEqual(stow.artefact("s3://bucket_name/directory-untouched/file-2.txt", type=stow.File).content, remote_content)
+            self.assertEqual(stow.artefact('s3://bucket_name/directory-new/file-1-new.txt', type=stow.File).content, local_content)
+            self.assertEqual(stow.artefact('s3://bucket_name/directory-new/file-2-new.txt', type=stow.File).content, local_content)
+            self.assertEqual(stow.artefact("s3://bucket_name/directory/nested/file-1.txt", type=stow.File).content, remote_content)
+            self.assertEqual(stow.artefact("s3://bucket_name/directory/nested/file-2-updated.txt", type=stow.File).content, local_content)
+            self.assertEqual(stow.artefact("s3://bucket_name/directory/nested/file-3-new.txt", type=stow.File).content, local_content)
 
     def test_config(self):
 

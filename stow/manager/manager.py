@@ -2,7 +2,7 @@ import os
 import re
 import io
 import typing
-from typing import (Any, Literal, Union, Optional, Dict, Iterable, Tuple, List, Type, overload)
+from typing import (Any, Literal, Union, Optional, Dict, Iterable, Tuple, List, Type, TypeVar, Generic, overload)
 from typing_extensions import Self
 import urllib
 import urllib.parse
@@ -28,12 +28,16 @@ from .. import exceptions
 import logging
 log = logging.getLogger(__name__)
 
-@dataclasses.dataclass
-class ParsedURL:
-    manager: "Manager"
-    relpath: str
 
-    def __iter__(self) -> Tuple["Manager", str]:
+_M = TypeVar('_M')
+
+class ParsedURL(Generic[_M]):
+
+    def __init__(self, manager: _M, relpath: str):
+        self.manager = manager
+        self.relpath = relpath
+
+    def __iter__(self) -> Tuple[_M, str]:
         return (self.manager, self.relpath)
 
 class ManagerReloader:
@@ -69,7 +73,7 @@ class Manager(AbstractManager):
         cls.__INITIALISED_MANAGERS = {}
 
     @classmethod
-    def find(cls, manager: str) -> Type[AbstractManager]:
+    def find(cls, manager: str) -> Type[Self]:
         """ Fetch the `Manager` class hosted on the 'stow_managers' entrypoint with
         the given name `manager` entry name.
 
@@ -175,7 +179,7 @@ class Manager(AbstractManager):
         parsedURL = urllib.parse.urlparse(stowURL)
 
         # Handle protocol managers vs local file system
-        if parsedURL.scheme and parsedURL.netloc:
+        if len(parsedURL.scheme) > 1:
             manager = cls.find(parsedURL.scheme)
             scheme = parsedURL.scheme
 
@@ -623,11 +627,16 @@ class Manager(AbstractManager):
         Raises:
             ArtefactNotFound: If there is no artefact at the location
         """
-        # TODO clean up
-        # try:
-        return self._splitArtefactForm(artefact, require=True, external=False)[1].modifiedTime.timestamp()
-        # except AttributeError:
-        #         raise exceptions.ArtefactMetadataUndefined(f"Artefact {artefact} does not have a modified time recorded")
+        try:
+            return self._splitArtefactForm(
+                artefact,
+                require=True,
+                external=False
+            )[1].modifiedTime.timestamp()  # type: ignore
+        except AttributeError:
+                raise exceptions.ArtefactMetadataUndefined(
+                    f"Artefact {artefact} does not have a modified time recorded"
+                )
 
     def _setmtime(self, *args, **kwargs):
         raise NotImplementedError(
@@ -763,6 +772,9 @@ class Manager(AbstractManager):
             if isinstance(segment, Artefact):
                 # Convert artefacts to paths
                 segment = segment.path
+
+            elif isinstance(segment, os.PathLike):
+                segment = os.fspath(segment)
 
             if not segment:
                 continue
@@ -1363,9 +1375,9 @@ class Manager(AbstractManager):
 
     def _sync(
         self,
-        sourceManager: Self,
+        sourceManager: "Manager",
         sourceObj: ArtefactType,
-        destinationManager: Self,
+        destinationManager: "Manager",
         destinationObj: Union[ArtefactType, str],
 
         delete: bool,

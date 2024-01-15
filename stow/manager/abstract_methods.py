@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 import urllib.parse
-from typing import Union, Optional, Dict, Generator, Tuple
+from typing import (
+    Union, Optional, Dict, Generator, Tuple, Any
+)
 from typing_extensions import Self
 import contextlib
 
@@ -290,7 +292,7 @@ class AbstractManager:
 
     @classmethod
     @abstractmethod
-    def _signatureFromURL(cls, url: urllib.parse.ParseResult) -> Tuple[Self, str]:
+    def _signatureFromURL(cls, url: urllib.parse.ParseResult) -> Tuple[Dict[str, Any], str]:
         """ Create the signature that can be passed to the init of the manager to create a new instance using the
         information passed via the url ParseResult object that will have been created via the stateless interface
 
