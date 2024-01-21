@@ -1,4 +1,6 @@
 import unittest
+import boto3
+from moto import mock_s3
 
 import os
 import tempfile
@@ -7,6 +9,7 @@ import datetime
 import time
 
 import stow
+import stow.managers
 from stow.managers.filesystem import FS
 from stow.managers.amazon import Amazon
 
@@ -67,7 +70,7 @@ class Test_Stateless(unittest.TestCase):
         stow.isfile(os.path.abspath(__file__))
 
         with self.assertRaises(TypeError):
-            stow.isfile(("other://file.txt",))
+            stow.isfile(("other://file.txt",)) # type: ignore
 
     def test_artefact(self):
 
@@ -81,7 +84,7 @@ class Test_Stateless(unittest.TestCase):
 
             stats = os.stat(filepath)
 
-            artefact = stow.artefact(filepath)
+            artefact = stow.artefact(filepath, type=stow.File)
 
             self.assertIsInstance(artefact, stow.File)
             self.assertEqual(artefact.size, len(text))
@@ -94,17 +97,27 @@ class Test_Stateless(unittest.TestCase):
                 delta=datetime.timedelta(milliseconds=5)
             )
 
+    def driveLessAssertEqual(self, strVal1, strVal2):
+        self.assertEqual(os.path.splitdrive(strVal1)[1], os.path.splitdrive(strVal2)[1])
+
+
     def test_abspath(self):
 
-        self.assertEqual(os.path.abspath("."), stow.abspath("."))
-        self.assertEqual(os.path.abspath("filename"), stow.abspath("filename"))
-        self.assertEqual(os.path.abspath(".."), stow.abspath(".."))
+        odrive, opath = os.path.splitdrive(os.path.abspath('.'))
+        sdrive, spath = os.path.splitdrive(stow.abspath('.'))
 
-        self.assertEqual(stow.abspath("/hello/there"), os.path.abspath("/hello/there"))
-        self.assertEqual(stow.abspath("hello/there"), os.path.abspath("hello/there"))
+        self.assertEqual(odrive.lower(), sdrive.lower())
+        self.assertEqual(opath, spath)
+
+        self.driveLessAssertEqual(os.path.abspath("."), stow.abspath("."))
+        self.driveLessAssertEqual(os.path.abspath("filename"), stow.abspath("filename"))
+        self.driveLessAssertEqual(os.path.abspath(".."), stow.abspath(".."))
+
+        self.driveLessAssertEqual(stow.abspath("/hello/there"), os.path.abspath("/hello/there"))
+        self.driveLessAssertEqual(stow.abspath("hello/there"), os.path.abspath("hello/there"))
 
         testfile = stow.artefact(__file__)
-        self.assertEqual(stow.abspath(testfile), os.path.abspath(__file__))
+        self.driveLessAssertEqual(stow.abspath(testfile), os.path.abspath(__file__))
 
     def test_commonpath(self):
 
@@ -130,6 +143,20 @@ class Test_Stateless(unittest.TestCase):
         artefacts = [os.path.join(testDirectory, filename) for filename in os.listdir(testDirectory)]
 
         self.assertEqual(stow.commonpath(artefacts), testDirectory)
+
+    def test_digest(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            fp = os.path.join(directory, '1.txt')
+
+            with open(fp, 'w') as handle:
+                handle.write('hello')
+
+            self.assertEqual(stow.digest(fp), '5d41402abc4b2a76b9719d911017c592')
+
+            with self.assertRaises(TypeError):
+                stow.digest(directory)
 
     def test_dirname_with_path(self):
 
@@ -163,6 +190,22 @@ class Test_Stateless(unittest.TestCase):
 
         self.assertEqual(stow.isabs(os.path.join("/hello", "there")), True)
         self.assertEqual(stow.isabs(os.path.join("hello", "there")), False)
+
+    def test_name(self):
+
+        file = '/path/to/file.txt'
+        self.assertEqual(stow.name(file), 'file')
+
+        file = '/path/to/file'
+        self.assertEqual(stow.name(file), 'file')
+
+    def test_extensions(self):
+
+        file = '/path/to/file.txt'
+        self.assertEqual(stow.extension(file), 'txt')
+
+        file = '/path/to/file'
+        self.assertEqual(stow.extension(file), '')
 
     def test_normcase(self):
 
@@ -301,19 +344,6 @@ class Test_Stateless(unittest.TestCase):
 
         self.assertEqual(stow.splitext("hello.txt"), ("hello", ".txt"))
         self.assertEqual(stow.splitext("hello.txt"), os.path.splitext("hello.txt"))
-
-
-    def test_md5(self):
-
-        with tempfile.TemporaryDirectory() as directory:
-
-            filepath = os.path.join(directory, "file.txt")
-
-            with open(filepath, "w") as handle:
-                handle.write("Some content please")
-
-            self.assertEqual(stow.md5(filepath), "bc31cd1b77d35ece4bc1495e10231a28")
-            self.assertEqual(stow.md5(stow.artefact(filepath)), "bc31cd1b77d35ece4bc1495e10231a28")
 
     def test_isfile(self):
 
@@ -489,10 +519,14 @@ class Test_Stateless(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             filepath = stow.join(directory, "file.txt")
-
             file = stow.touch(filepath)
-
             stats = os.stat(filepath)
+
+
+            dt = datetime.datetime(2020,10,10,10,10,10, tzinfo=datetime.timezone.utc)
+            updated = stow.touch(file, dt)
+
+            self.assertEqual(updated.modifiedTime, dt)
 
     def test_mkdir(self):
 
@@ -502,6 +536,16 @@ class Test_Stateless(unittest.TestCase):
             file = stow.mkdir(directorypath)
 
             stats = os.stat(directorypath)
+
+    def test_mkdir_exceptions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fp = stow.join(directory, '1.txt')
+            stow.touch(fp)
+
+            with self.assertRaises(stow.exceptions.OperationNotPermitted):
+                stow.mkdir(fp)
+
+
 
     def test_localise(self):
 
@@ -528,6 +572,8 @@ class Test_Stateless(unittest.TestCase):
 
 
     def test_join(self):
+
+        self.assertEqual(stow.join(), '')
 
         for s in [
             ("hello//there", "buddy/"),
@@ -642,6 +688,9 @@ class Test_Stateless(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as source, tempfile.TemporaryDirectory() as destination:
 
+            with self.assertRaises(stow.exceptions.ArtefactTypeError):
+                stow.get(source)
+
             sourceFile = os.path.join(source, "file1.txt")
 
             open(sourceFile, "w").close()
@@ -701,6 +750,33 @@ class Test_Stateless(unittest.TestCase):
             # This will replace the second file
             stow.cp(dir1_file, dir2_file)
 
+            self.assertTrue(stow.exists(dir1_file, dir2_file))
+
+            with self.assertRaises(stow.exceptions.OperationNotPermitted):
+                stow.cp(dir1, dir2)
+
+            stow.cp(dir1, dir2, overwrite=True)
+
+    @mock_s3
+    def test_cp_between_managers(self):
+
+        s3 = boto3.client('s3')
+        s3.create_bucket(
+            Bucket="bucket_name",
+            CreateBucketConfiguration={"LocationConstraint":"eu-west-2"}
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            file = stow.join(directory, 'file1.txt')
+            with open(file, 'w') as handle:
+                handle.write('content')
+
+            stow.cp(file, 's3://bucket_name/file1.txt')
+
+            self.assertEqual(stow.get('s3://bucket_name/file1.txt'), b'content')
+
+
     def test_mv(self):
 
         with tempfile.TemporaryDirectory() as directory:
@@ -740,6 +816,31 @@ class Test_Stateless(unittest.TestCase):
             # This will replace the second file
             stow.mv(dir1_file, dir2_file)
 
+            with self.assertRaises(stow.exceptions.OperationNotPermitted):
+                stow.mv(dir1, dir2)
+
+            stow.mv(dir1, dir2, overwrite=True)
+
+
+    @mock_s3
+    def test_mv_between_managers(self):
+
+        s3 = boto3.client('s3')
+        s3.create_bucket(
+            Bucket="bucket_name",
+            CreateBucketConfiguration={"LocationConstraint":"eu-west-2"}
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            file = stow.join(directory, 'file1.txt')
+            with open(file, 'w') as handle:
+                handle.write('content')
+
+            stow.mv(file, 's3://bucket_name/file1.txt')
+
+            self.assertEqual(stow.get('s3://bucket_name/file1.txt'), b'content')
+
     def test_sync(self):
 
         with tempfile.TemporaryDirectory() as directory:
@@ -747,31 +848,62 @@ class Test_Stateless(unittest.TestCase):
             # File one should not be copied by the second file
             stow.touch(stow.join(directory, "dir1", "file1.txt"))
             file = stow.touch(stow.join(directory, "dir2", "file1.txt"))
-            file.content = b"content"
+            file.content(b"content")
 
             # File two should be replaced the second
             file = stow.touch(stow.join(directory, "dir1", "file2.txt"))
             stow.touch(stow.join(directory, "dir2", "file2.txt"))
-            time.sleep(1)
-            file.content = b"file2"
+            time.sleep(.001)
+            file.content(b"file2")
 
             # File should stay
             file = stow.touch(stow.join(directory, "dir2", "file3.txt"))
-            file.content = b"Original"
+            file.content(b"Original")
 
             # File should be copied in
             file = stow.touch(stow.join(directory, "dir1", "file4.txt"))
-            file.content = b"copied"
+            file.content(b"copied")
 
             stow.sync(
                 stow.join(directory, "dir1"),
                 stow.join(directory, "dir2")
             )
 
-            self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file1.txt")).content, b"content")
-            self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file2.txt")).content, b"file2")
-            self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file3.txt")).content, b"Original")
-            self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file4.txt")).content, b"copied")
+            self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file1.txt")).content(), b"content")
+            self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file2.txt")).content(), b"file2")
+            self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file3.txt")).content(), b"Original")
+            self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file4.txt")).content(), b"copied")
+
+    def test_sync_with_delete(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            # File one should not be copied by the second file
+            stow.touch(stow.join(directory, "dir1", "file1.txt"))
+            file = stow.touch(stow.join(directory, "dir2", "file1.txt"))
+            file.content(b"content")
+
+            # File two should be replaced the second
+            file = stow.touch(stow.join(directory, "dir1", "file2.txt"))
+            stow.touch(stow.join(directory, "dir2", "file2.txt"))
+            time.sleep(.001)
+            file.content(b"file2")
+
+            # File should stay
+            file = stow.touch(stow.join(directory, "dir2", "file3.txt"))
+            file.content(b"Original")
+
+
+            stow.sync(
+                stow.join(directory, "dir1"),
+                stow.join(directory, "dir2"),
+                delete=True
+            )
+
+            self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file1.txt")).content(), b"content")
+            self.assertEqual(stow.artefact(stow.join(directory, "dir2", "file2.txt")).content(), b"file2")
+            with self.assertRaises(stow.exceptions.ArtefactNotFound):
+                stow.artefact(stow.join(directory, "dir2", "file3.txt"))
 
     def test_sync_to_non_existent_location(self):
 
@@ -786,7 +918,34 @@ class Test_Stateless(unittest.TestCase):
 
             self.assertTrue(stow.exists(stow.join(directory, 'dir2', 'hello.txt')))
 
+    def test_sync_overwrite(self):
 
+        with tempfile.TemporaryDirectory() as directory:
+
+            stow.mkdir(stow.join(directory, 'dir1', 'there'))
+            stow.touch(stow.join(directory, 'dir2', 'there'))
+
+
+            stow.sync(
+                stow.join(directory, 'dir1'),
+                stow.join(directory, 'dir2')
+            )
+
+            stow.touch(stow.join(directory, 'dir1', 'hello'))
+            stow.mkdir(stow.join(directory, 'dir2', 'hello'))
+            stow.mkdir(stow.join(directory, 'dir2', 'hello', 'file1.txt'))
+
+            with self.assertRaises(stow.exceptions.OperationNotPermitted):
+                stow.sync(
+                    stow.join(directory, 'dir1'),
+                    stow.join(directory, 'dir2')
+                )
+
+            stow.sync(
+                stow.join(directory, 'dir1'),
+                stow.join(directory, 'dir2'),
+                overwrite=True
+            )
 
     def test_rm(self):
 
@@ -807,12 +966,32 @@ class Test_Stateless(unittest.TestCase):
             self.assertFalse(stow.exists(filepath1))
             self.assertFalse(stow.exists(file))
 
+    def test_ls_exceptions(self):
 
+        with tempfile.TemporaryDirectory() as directory:
+            fp = stow.join(directory, '1.txt')
+            fp2 = stow.join(directory, '2.txt')
+            obj = stow.touch(fp)
 
+            with self.assertRaises(TypeError):
+                stow.ls(obj)
 
+            with self.assertRaises(stow.exceptions.ArtefactNotFound):
+                stow.ls(fp2)
 
+            stow.ls(fp2, ignore_missing=True)
 
+    def test_set_artefact_timestamps(self):
 
+        with tempfile.TemporaryDirectory() as directory:
+            fp = stow.join(directory, '1.txt')
+
+            file = stow.touch(fp)
+            md = file.modifiedTime
+            time.sleep(0.001)
+
+            stow.set_artefact_time(file, None, None)
+            self.assertTrue(file.modifiedTime > md)
 
 
 

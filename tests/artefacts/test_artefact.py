@@ -41,7 +41,7 @@ class Test_Artefacts(unittest.TestCase):
 
     def test_path(self):
 
-        file = self.manager['/file1']
+        file = self.manager.artefact('/file1', type=stow.File)
         self.assertEqual(file.path, f"{os.sep}file1")
 
         file.path = '/directory1/file1'
@@ -66,12 +66,11 @@ class Test_Artefacts(unittest.TestCase):
             {f"{os.sep}another_directory", f"{os.sep}another_directory{os.sep}directory2", f'{os.sep}another_directory{os.sep}directory2{os.sep}file1'}
         )
 
-    def test_directory(self):
 
-        file = self.manager['/file1']
+        file = self.manager['/another_directory/directory2/file1']
 
         self.assertIsInstance(file.directory, stow.Directory)
-        self.assertEqual(file.directory.path, os.sep)
+        self.assertEqual(file.directory.path, f'{os.sep}another_directory{os.sep}directory2')
 
     def test_basename(self):
 
@@ -130,14 +129,3 @@ class Test_Artefacts(unittest.TestCase):
             {art.path for art in self.manager.ls(recursive=True)},
             {f"{os.sep}directory1", f"{os.sep}file1-changed.txt", f'{os.sep}with_level'}
         )
-
-    def test_manager(self):
-
-        file = self.manager['/file1']
-        directory = self.manager['/directory1']
-
-        self.assertEqual(file.manager, self.manager)
-        self.assertEqual(directory.manager, self.manager)
-
-        with pytest.raises(AttributeError):
-            file.manager = None

@@ -1,18 +1,17 @@
-__version__ = "1.2.1"
+__version__ = "1.3.0"
 
 import os
 
-from .artefacts import Artefact, File, Directory, HashingAlgorithm
+from .types import TimestampAble, TimestampLike, StrOrPathLike
+from .artefacts import Artefact, File, Directory, ArtefactType, ArtefactOrPathLike
+from .types import HashingAlgorithm
 from .manager import Manager
+from .storage_classes import StorageClass
+from .worker_config import WorkerPoolConfig
 from . import callbacks
 from . import exceptions
 
 # Expose the util functions
-from .utils import (
-    find,
-    connect,
-    parseURL
-)
 
 env = os.environ
 getcwd = os.getcwd
@@ -20,6 +19,9 @@ getcwd = os.getcwd
 # Create the stateless manager
 Manager = Manager()
 
+find = Manager.find
+connect = Manager.connect
+parseURL = Manager.parseURL
 manager = Manager.manager
 artefact = Manager.artefact
 abspath = Manager.abspath
@@ -43,7 +45,6 @@ samestat = Manager.samestat
 split = Manager.split
 splitdrive = Manager.splitdrive
 splitext = Manager.splitext
-md5 = Manager.md5
 isfile = Manager.isfile
 isdir = Manager.isdir
 islink = Manager.islink
@@ -53,6 +54,7 @@ getmtime = Manager.getmtime
 setmtime = Manager.setmtime
 getatime = Manager.getatime
 setatime = Manager.setatime
+set_artefact_time = Manager.set_artefact_time
 exists = Manager.exists
 lexists = Manager.lexists
 touch = Manager.touch

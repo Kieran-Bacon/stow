@@ -13,7 +13,9 @@ class Test_Directories(unittest.TestCase):
 
     def setUp(self):
 
-        self.directory = tempfile.mkdtemp()
+        self.directory = os.path.splitdrive(tempfile.mkdtemp())
+        self.directory = self.directory[0].lower() + self.directory[1]
+
         os.mkdir(os.path.join(self.directory, 'dir1'))
 
         self.subdirectory = os.path.join(self.directory, "dir1")
@@ -55,7 +57,7 @@ class Test_Directories(unittest.TestCase):
             modifiedTime = file.modifiedTime
 
             time.sleep(0.1)
-            file.content = b"file content"
+            file.content(b"file content")
 
             modifiedFile = stow.artefact(filepath)
 
@@ -92,7 +94,8 @@ class Test_Directories(unittest.TestCase):
 
         directory = self.manager.ls().pop()
 
-        self.assertIsInstance(directory, stow.Directory)
+        if isinstance(directory, stow.File):
+            raise ValueError('Incorrect type')
 
         directory.rm('/file1')
 

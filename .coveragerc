@@ -3,14 +3,16 @@ branch = True
 
 [report]
 # Regexes for lines to exclude from consideration
-exclude_lines =
+exclude_also =
     pragma: no cover
-    pass
+    AbstractContextManager
+    # pass
     def __repr__
     raise NotImplementedError
     if os.name == 'nt':
     @abc.abstractmethod
     @abstractmethod
+    \.\.\.
 
 ignore_errors = True
 

@@ -5,9 +5,21 @@ import typing
 import tempfile
 import contextlib
 import datetime
+import hashlib
 
+from .. import utils as utils
 from ..artefacts import Artefact
+from .abstract_methods import AbstractManager
 from .manager import Manager, Localiser
+# from .. import _utils as utils
+
+def md5(path):
+    hash_md5 = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hash_md5.update(chunk)
+
+    return hash_md5.hexdigest()
 
 class LocalLocaliser(Localiser):
 
@@ -25,14 +37,14 @@ class LocalLocaliser(Localiser):
 
 class RemoteLocaliser(Localiser):
 
+    _local_path: str
+    _checksum: typing.Union[typing.Dict[str, typing.Dict[str, str]], str, None]
+
     def __init__(self, manager: Manager, artefact: typing.Optional[Artefact], path: str):
 
         self._manager = manager
         self._artefact = artefact
         self._path = path
-
-        self._local_path = None
-        self._checksum = None
 
     @staticmethod
     def _compare(dict1, dict2, key):
@@ -40,7 +52,7 @@ class RemoteLocaliser(Localiser):
         keys1, keys2 = set(dict1[key].keys()), set(dict2[key].keys())
         return keys1.difference(keys2), keys1.intersection(keys2), keys2.difference(keys1)
 
-    def _parseHierarchy(self, path, _toplevel=None):
+    def _parseHierarchy(self, path) -> typing.Dict[str, typing.Dict[str, str]]:
 
         # Store separately the directories and files of the path
         directories = {}
@@ -53,10 +65,10 @@ class RemoteLocaliser(Localiser):
             abspath = os.path.join(path, item)
 
             if os.path.isdir(abspath):
-                directories[abspath] = self._parseHierarchy(abspath, _toplevel=path)
+                directories[abspath] = self._parseHierarchy(abspath)
 
             else:
-                files[abspath] = self._manager.md5(abspath)
+                files[abspath] = md5(abspath)
 
         return {"directories": directories, "files": files}
 
@@ -107,7 +119,7 @@ class RemoteLocaliser(Localiser):
 
             else:
                 # Generate a checksum for the file
-                self._checksum = self._manager.md5(local_path)
+                self._checksum = md5(local_path)
 
         else:
             # No checksum for no object
@@ -131,7 +143,7 @@ class RemoteLocaliser(Localiser):
                     for abspath in put: self._manager.put(abspath, contexualise(abspath))
                     for abspath in delete: self._manager.rm(contexualise(abspath), recursive=True)
 
-                elif self._manager.md5(self._local_path) != self._checksum:
+                elif md5(self._local_path) != self._checksum:
                     # The file has been changed - upload the file's contents
                     self._manager.put(self._local_path, self._path)
 
@@ -139,7 +151,12 @@ class RemoteLocaliser(Localiser):
                 # New item - put the artefact into the manager
                 self._manager.put(self._local_path, self._path)
 
-class LocalManager(Manager, abc.ABC):
+        elif self._artefact is not None:
+            # The original item was deleted
+            self._manager.rm(self._artefact, recursive=True)
+
+
+class LocalManager(Manager, AbstractManager):
     """ Abstract Base Class for managers that will be working with local artefacts.
     """
 
@@ -151,54 +168,29 @@ class LocalManager(Manager, abc.ABC):
         """
         return os.getcwd()
 
-    def _setArtefactTimes(self, path: str, modified_time: float, accessed_time: float) -> None:
-        return os.utime(path, (accessed_time, modified_time))
-
-    def _setmtime(
+    def _set_artefact_time(
         self,
         artefact: Artefact,
-        _datetime: typing.Union[float, datetime.datetime]
-        ) -> datetime.datetime:
+        modified_time: typing.Optional[typing.Union[float, datetime.datetime]] = None,
+        accessed_time: typing.Optional[typing.Union[float, datetime.datetime]] = None
+        ) -> typing.Tuple[datetime.datetime, datetime.datetime]:
 
-        if isinstance(_datetime, float):
-            timestamp = _datetime
-            _datetime = datetime.datetime.fromtimestamp(_datetime)
-        else:
-            timestamp = _datetime.timestamp()
-
-        self._setArtefactTimes(
+        modified_time, accessed_time = utils.utime(
             artefact.abspath,
-            timestamp,
-            artefact.accessedTime.timestamp()
+            modified_time=modified_time,
+            accessed_time=accessed_time
         )
 
-        return _datetime
+        artefact._modifiedTime = modified_time
+        artefact._accessedTime = accessed_time
 
-    def _setatime(
-        self,
-        artefact: Artefact,
-        _datetime: typing.Union[float, datetime.datetime]
-        ):
-
-        if isinstance(_datetime, float):
-            timestamp = _datetime
-            _datetime = datetime.datetime.fromtimestamp(_datetime)
-        else:
-            timestamp = _datetime.timestamp()
-
-        self._setArtefactTimes(
-            artefact.abspath,
-            artefact.modifiedTime.timestamp(),
-            timestamp
-        )
-
-        return _datetime
+        return modified_time, accessed_time
 
     def localise(self, artefact: typing.Union[Artefact, str]) -> Localiser:
-        _, _, path = self._splitManagerArtefactForm(artefact, load=False)
+        _, _, path = self._splitArtefactForm(artefact, load=False, require=False, external=False)
         return LocalLocaliser(self._abspath(path))
 
-class RemoteManager(Manager, abc.ABC):
+class RemoteManager(Manager, AbstractManager):
     """ Abstract Base Class for managers that will be working with remote artefacts so efficiency with fetching and
     pushing files is important for time and bandwidth
     """
@@ -212,5 +204,5 @@ class RemoteManager(Manager, abc.ABC):
         return '/'
 
     def localise(self, artefact: typing.Union[Artefact, str]) -> Localiser:
-        _, obj, path = self._splitManagerArtefactForm(artefact, require=False)
+        _, obj, path = self._splitArtefactForm(artefact, require=False, external=False)
         return RemoteLocaliser(self, obj, path)

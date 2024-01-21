@@ -1,5 +1,7 @@
 """ Test the amazon underlying manager """
 
+# pyright: reportTypedDictNotRequiredAccess=false
+
 from multiprocessing.sharedctypes import Value
 import os
 import io
@@ -8,8 +10,10 @@ import tempfile
 import binascii
 import hashlib
 import zlib
+import time
 
 import unittest
+from click.testing import CliRunner
 import pytest
 from moto import mock_s3
 from moto.core import set_initial_no_auth_action_count
@@ -17,9 +21,10 @@ from moto.core import set_initial_no_auth_action_count
 import boto3
 from botocore.exceptions import ClientError
 
-import stow.testing
+
 import stow.exceptions
-from stow.managers.amazon import Amazon
+from stow.cli import cli, cat
+from stow.managers.amazon import Amazon, etagComparator
 
 @mock_s3
 class Test_Amazon(unittest.TestCase):
@@ -27,6 +32,7 @@ class Test_Amazon(unittest.TestCase):
     def setUp(self):
 
         self.s3 = boto3.client('s3')
+        self.bucket_name = "bucket_name"
         self.s3.create_bucket(
             Bucket="bucket_name",
             CreateBucketConfiguration={"LocationConstraint":"eu-west-2"}
@@ -35,10 +41,7 @@ class Test_Amazon(unittest.TestCase):
     def test_root(self):
 
         manager = Amazon('bucket_name')
-        self.assertEqual('bucket_name', manager.root)
-
-        file = stow.touch("s3://bucket_name/file.txt")
-        self.assertEqual('bucket_name', file.manager.root)
+        self.assertEqual('/bucket_name', manager.root)
 
     def test_get_root_directory(self):
 
@@ -157,7 +160,7 @@ class Test_Amazon(unittest.TestCase):
         with pytest.raises(stow.exceptions.ArtefactNoLongerExists):
             manager._metadata('/file-2.txt')
 
-    @set_initial_no_auth_action_count(5)
+    @set_initial_no_auth_action_count(3)
     def test_metadata_forbidden(self):
         manager = Amazon('bucket_name')
         manager.touch('/file.txt')
@@ -264,7 +267,8 @@ class Test_Amazon(unittest.TestCase):
                 Body=b"This is the content of the file",
             )
 
-        manager = Amazon('bucket_name', max_keys=25)
+        manager = Amazon('bucket_name')
+        manager.s3_max_keys = 25
 
         self.assertEqual(
             {f"/file-{i}.txt" for i in range(50)},
@@ -316,24 +320,6 @@ class Test_Amazon(unittest.TestCase):
             Fileobj=bytes_buffer
         )
         self.assertEqual(b"Content", bytes_buffer.getvalue())
-
-    def test_upload_file_callback(self):
-
-        with tempfile.TemporaryDirectory() as directory:
-
-            local_path = os.path.abspath(os.path.splitdrive(os.path.join(directory, 'file.txt'))[1])
-
-            with open(local_path, "w", encoding="utf-8") as handle:
-                handle.write('Content')
-
-            manager = Amazon("bucket_name")
-            artefact = manager.put(local_path, '/file.txt', callback=stow.testing.mock.TestCallback)
-
-        data = stow.testing.mock.TestCallback.artefacts[local_path]
-
-        self.assertEqual(data['artefact'].path, local_path)
-        self.assertFalse(data['is_downloading'])
-        self.assertEqual(data['bytes_transferred'], 7)
 
     def test_upload_directory(self):
 
@@ -408,7 +394,7 @@ class Test_Amazon(unittest.TestCase):
 
         self.assertEqual(
             {a.path for a in stow.ls('s3://bucket_name')},
-            {'/source', '/file.txt'}
+            {'/bucket_name/source', '/bucket_name/file.txt'}
         )
 
 
@@ -517,7 +503,7 @@ class Test_Amazon(unittest.TestCase):
 
         manager = Amazon('bucket_name')
 
-        manager.mv('/source', '/destination')
+        manager.mv('/source', '/destination', worker_config=stow.WorkerPoolConfig(max_workers=0))
 
         expected_artefacts = {
             "/destination": stow.Directory,
@@ -597,18 +583,70 @@ class Test_Amazon(unittest.TestCase):
 
         manager.rm('/directory', recursive=True)
 
-    def test_toConfig(self):
+    def test_sync_files_upload(self):
+        # General sync
+        # Test that files and directories are put when no colision
+        # test that files are updated correctly when there is a collision
 
-        manager = Amazon('bucket_name')
+        remote_content = b''
+        local_content = b'content from local'
+
+        def touch(path: str):
+            with open(path,'wb') as handle:
+                handle.write(local_content)
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            # Create initial file that shouldn't be uploaded
+            touch(os.path.join(directory, 'file-1.txt'))
+
+            time.sleep(1)
+
+            # Create files in s3 as the sync target
+            remote_files = [
+                stow.touch("s3://bucket_name/file-1.txt"),
+                stow.touch("s3://bucket_name/file-2-updated.txt"),
+                stow.touch("s3://bucket_name/directory-untouched/file-1.txt"),
+                stow.touch("s3://bucket_name/directory-untouched/file-2.txt"),
+                stow.touch("s3://bucket_name/directory/nested/file-1.txt"),
+                stow.touch("s3://bucket_name/directory/nested/file-2-updated.txt"),
+            ]
+
+            # Create the local files that will be synced
+            touch(os.path.join(directory, 'file-2-updated.txt'))
+            touch(os.path.join(directory, 'file-3-new.txt'))
+            os.mkdir(os.path.join(directory, 'directory-new'))
+            touch(os.path.join(directory, 'directory-new', 'file-1-new.txt'))
+            touch(os.path.join(directory, 'directory-new', 'file-2-new.txt'))
+            os.makedirs(os.path.join(directory, 'directory', 'nested'))
+            touch(os.path.join(directory, 'directory', 'nested', 'file-2-updated.txt'))
+            touch(os.path.join(directory, 'directory', 'nested', 'file-3-new.txt'))
+
+            # Perform the sync
+            stow.sync(directory, 's3://bucket_name')
+
+            # Compare the modified times to confirm that the files have been written
+            self.assertEqual(stow.artefact('s3://bucket_name/file-1.txt', type=stow.File).content(), remote_content)
+            self.assertEqual(stow.artefact('s3://bucket_name/file-2-updated.txt', type=stow.File).content(), local_content)
+            self.assertEqual(stow.artefact('s3://bucket_name/file-3-new.txt', type=stow.File).content(), local_content)
+            self.assertEqual(stow.artefact("s3://bucket_name/directory-untouched/file-1.txt", type=stow.File).content(), remote_content)
+            self.assertEqual(stow.artefact("s3://bucket_name/directory-untouched/file-2.txt", type=stow.File).content(), remote_content)
+            self.assertEqual(stow.artefact('s3://bucket_name/directory-new/file-1-new.txt', type=stow.File).content(), local_content)
+            self.assertEqual(stow.artefact('s3://bucket_name/directory-new/file-2-new.txt', type=stow.File).content(), local_content)
+            self.assertEqual(stow.artefact("s3://bucket_name/directory/nested/file-1.txt", type=stow.File).content(), remote_content)
+            self.assertEqual(stow.artefact("s3://bucket_name/directory/nested/file-2-updated.txt", type=stow.File).content(), local_content)
+            self.assertEqual(stow.artefact("s3://bucket_name/directory/nested/file-3-new.txt", type=stow.File).content(), local_content)
+
+    def test_config(self):
+
+        sess = boto3.Session()
+
         self.assertDictEqual({
-            "manager": 'AWS',
-            'bucket': 'bucket_name',
+            'path': 'bucket_name',
             'aws_access_key': 'foobar_key',
             'aws_secret_key': 'foobar_secret',
-            'aws_session_token': None,
-            'region_name': 'eu-west-2',
-            'profile_name': 'default',
-            }, manager.toConfig())
+            'default_region': sess.region_name,
+            }, Amazon('bucket_name').config)
 
     def test_digest_md5(self):
 
@@ -621,7 +659,7 @@ class Test_Amazon(unittest.TestCase):
         manager = Amazon('bucket_name')
 
         with pytest.raises(NotImplementedError):
-            manager['/file-1.txt'].digest(stow.HashingAlgorithm.MD5)
+            manager.artefact('/file-1.txt', type=stow.File).digest(stow.HashingAlgorithm.MD5)
 
         with pytest.raises(NotImplementedError):
             manager.digest('/file-1.txt', stow.HashingAlgorithm.MD5)
@@ -637,7 +675,7 @@ class Test_Amazon(unittest.TestCase):
 
         manager = Amazon('bucket_name')
 
-        art_checksum = manager['/file-1.txt'].digest(stow.HashingAlgorithm.SHA1)
+        art_checksum = manager.artefact('/file-1.txt', type=stow.File).digest(stow.HashingAlgorithm.SHA1)
         man_checksum = manager.digest('/file-1.txt', stow.HashingAlgorithm.SHA1)
         sha1_checksum = hashlib.sha1(b'Content').hexdigest()
 
@@ -656,26 +694,7 @@ class Test_Amazon(unittest.TestCase):
 
         manager = Amazon('bucket_name')
 
-        art_checksum = manager['/file-1.txt'].digest(stow.HashingAlgorithm.SHA256)
-        man_checksum = manager.digest('/file-1.txt', stow.HashingAlgorithm.SHA256)
-        sha1_checksum = hashlib.sha256(b'Content').hexdigest()
-
-
-        self.assertEqual(art_checksum, man_checksum)
-        self.assertEqual(sha1_checksum, man_checksum)
-
-    def test_digest_sha256(self):
-
-        self.s3.put_object(
-            Bucket="bucket_name",
-            Key="file-1.txt",
-            Body=b"Content",
-            ChecksumAlgorithm="SHA256"
-        )
-
-        manager = Amazon('bucket_name')
-
-        art_checksum = manager['/file-1.txt'].digest(stow.HashingAlgorithm.SHA256)
+        art_checksum = manager.artefact('/file-1.txt', type=stow.File).digest(stow.HashingAlgorithm.SHA256)
         man_checksum = manager.digest('/file-1.txt', stow.HashingAlgorithm.SHA256)
         sha256_checksum = hashlib.sha256(b'Content').hexdigest()
 
@@ -693,7 +712,7 @@ class Test_Amazon(unittest.TestCase):
 
         manager = Amazon('bucket_name')
 
-        art_checksum = manager['/file-1.txt'].digest(stow.HashingAlgorithm.CRC32)
+        art_checksum = manager.artefact('/file-1.txt', type=stow.File).digest(stow.HashingAlgorithm.CRC32)
         man_checksum = manager.digest('/file-1.txt', stow.HashingAlgorithm.CRC32)
         crc32_checksum = hex(binascii.crc32(b'Content') & 0xFFFFFFFF)[2:]
 
@@ -712,7 +731,7 @@ class Test_Amazon(unittest.TestCase):
 
         manager = Amazon('bucket_name')
 
-        art_checksum = manager['/file-1.txt'].digest(stow.HashingAlgorithm.CRC32C)
+        art_checksum = manager.artefact('/file-1.txt', type=stow.File).digest(stow.HashingAlgorithm.CRC32C)
         man_checksum = manager.digest('/file-1.txt', stow.HashingAlgorithm.CRC32C)
         # crc32c_checksun = hex(zlib.crc32(b'Content') & 0xffffffff)[2:]
         from crc32c import crc32c
@@ -748,6 +767,77 @@ class Test_Amazon(unittest.TestCase):
         manager = Amazon('bucket_name')
         manager2 = Amazon('bucket_name_2')
 
-        manager.mv('/file-2.txt', 's3://bucket_name_2/file-2.txt')
+        manager2.mv(manager.artefact('/file-2.txt'), '/file-2.txt')
         self.assertFalse(manager.exists('/file-1.txt'))
-        self.assertTrue(manager2.exists('s3://bucket_name_2/file-1.txt'))
+        self.assertFalse(manager.exists('/file-2.txt'))
+        self.assertTrue(manager2.exists('/file-1.txt'))
+        self.assertTrue(manager2.exists('/file-2.txt'))
+
+    def test_cli(self):
+
+        self.s3.create_bucket(
+            Bucket="bucket_name_2",
+            CreateBucketConfiguration={"LocationConstraint":"eu-west-2"}
+        )
+
+        self.s3.put_object(
+            Bucket="bucket_name",
+            Key="file-1.txt",
+            Body=b"Content",
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ['exists', 's3://bucket_name/file-1.txt'])
+        assert result.exit_code == 0
+
+        result = runner.invoke(cli, ['-m', 's3', 'exists', 'file-1.txt'])
+        assert result.exit_code == 0
+        assert not result.return_value
+
+    def test_etagComparator(self):
+
+        large_file_contents = b'content' + b'as'*8 * 1024 * 1024
+
+        self.s3.put_object(
+            Bucket="bucket_name",
+            Key="file-1.txt",
+            Body=b"content",
+        )
+
+        self.s3.put_object(
+            Bucket="bucket_name",
+            Key="large-file.txt",
+            Body=large_file_contents,
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            with open(stow.join(directory, 'file-1.txt'), 'wb') as handle:
+                handle.write(b'content')
+
+            with open(stow.join(directory, 'file-2.txt'), 'wb') as handle:
+                handle.write(b'content')
+
+            with open(stow.join(directory, 'file-3.txt'), 'w') as handle:
+                handle.write('content different')
+
+            with open(stow.join(directory, 'file-5.txt'), 'w') as handle:
+                pass
+
+            self.assertTrue(
+                etagComparator(*[
+                    stow.artefact(x, type=stow.File)
+                    for x in [stow.join(directory, 'file-1.txt'), stow.join(directory, 'file-2.txt'), 's3://bucket_name/file-1.txt']
+                ])
+            )
+
+            self.assertFalse(
+                etagComparator(*[stow.artefact(x, type=stow.File) for x in [stow.join(directory, 'file-1.txt'), stow.join(directory, 'file-3.txt'), stow.join(directory, 'file-5.txt')]])
+            )
+
+            with open(stow.join(directory, 'file-4.txt'), 'wb') as handle:
+                handle.write(large_file_contents)
+
+            self.assertTrue(
+                etagComparator(*[stow.artefact(x, type=stow.File) for x in [stow.join(directory, 'file-4.txt'), stow.join(directory, 'file-4.txt')]])
+            )

@@ -6,6 +6,10 @@ class ArtefactNotMember(Exception):
     """ An artefact is not a member of a `Manager` or `Directory` """
     pass
 
+class ArtefactMetadataUndefined(AttributeError):
+    """ Expected an artefact of another type """
+    pass
+
 class ArtefactTypeError(TypeError):
     """ Expected an artefact of another type """
     pass

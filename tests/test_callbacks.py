@@ -35,7 +35,7 @@ class Test_ProgressCallback(unittest.TestCase):
         s3 = Amazon('bucket_name')
 
         with tempfile.TemporaryDirectory() as directory:
-            s3.get('/', stow.join(directory, 'download'), callback=stow.callbacks.ProgressCallback)
+            s3.get('/', stow.join(directory, 'download'), callback=stow.callbacks.ProgressCallback())
 
     def test_amazon_put(self):
 
@@ -47,7 +47,19 @@ class Test_ProgressCallback(unittest.TestCase):
                 handle.write('A file with some bytes')
 
             s3 = Amazon('bucket_name')
-            s3.put(directory, '/directory', callback=stow.callbacks.ProgressCallback)
+            s3.put(directory, '/directory', callback=stow.callbacks.ProgressCallback())
 
+    def test_combined_callback(self):
 
+        s3 = Amazon('bucket_name')
 
+        combinedCallback = stow.callbacks.composeCallback([stow.callbacks.ProgressCallback()])
+
+        with tempfile.TemporaryDirectory() as directory:
+            for i in range(10):
+                with open(stow.join(directory, f'{i}.txt'), 'w') as handle:
+                    handle.write('A file with some bytes')
+
+            s3.put(directory, '/directory', callback=combinedCallback)
+
+            s3.rm('/directory', recursive=True, callback=combinedCallback)
