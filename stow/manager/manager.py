@@ -1443,7 +1443,6 @@ class Manager(AbstractManager):
         elif isinstance(destinationObj, File):
             if isinstance(sourceObj, Directory):
                 # The source is a directory - we simply replace the file
-                callback.deleting(1)
                 destinationManager._rm(destinationObj.path, callback=callback, worker_config=worker_config)
                 sync_method(
                     sourceObj,
@@ -1457,7 +1456,6 @@ class Manager(AbstractManager):
                 ):
 
                 if not destinationManager.SAFE_FILE_OVERWRITE:
-                    callback.deleting(1)
                     destinationManager._rm(destinationObj.path, callback=callback, worker_config=worker_config)
 
                 sync_method(
@@ -1467,7 +1465,6 @@ class Manager(AbstractManager):
                 )
 
             else:
-                callback.reviewed(1)
                 log.debug('%s already synced', destinationObj)
 
         else:
@@ -1480,7 +1477,6 @@ class Manager(AbstractManager):
                         f'During sync operation - cannot overwrite directory [{destinationObj}] with file [{sourceObj}] as overwrite has not been set to true')
 
                 if not destinationManager.SAFE_DIRECTORY_OVERWRITE:
-                    callback.deleting(1)
                     destinationManager._rm(destinationObj.path, callback=callback, worker_config=worker_config)
 
                 sync_method(
@@ -1496,6 +1492,7 @@ class Manager(AbstractManager):
 
                 # Recursively fill in destination at this recursion level
                 for artefact in sourceManager.iterls(sourceObj):
+
                     if artefact.basename in destinationMap:
 
                         self._sync(
@@ -1522,6 +1519,8 @@ class Manager(AbstractManager):
                             **sync_arguments
                         )
 
+                        callback.reviewed(artefact.path)
+
                 # Any remaining destionation objects were not targets of sync - delete if argument passed
                 if delete:
                     callback.reviewing(len(destinationMap))
@@ -1534,10 +1533,10 @@ class Manager(AbstractManager):
                         worker_config=worker_config
                     )
 
-                callback.reviewed(1)
+                    callback.reviewed(len(destinationMap))
 
+        callback.reviewed(sourceObj.path)
         worker_config.conclude()
-
         return PartialArtefact(destinationManager, destinationObj if isinstance(destinationObj, str) else destinationObj.path)
 
     def sync(
@@ -1755,7 +1754,7 @@ class Manager(AbstractManager):
 
     def touch(
         self,
-        relpath: str,
+        relpath: ArtefactOrPathLike,
         modified_time: Optional[TimestampLike] = None,
         accessed_time: Optional[TimestampLike] = None,
         *,

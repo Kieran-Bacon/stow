@@ -1,6 +1,25 @@
 # Changelog
 
-## [1.3.0] -
+## [1.3.1] - 2024-01-21
+
+### Added
+
+- Added `--count` to the cli ls command to return the number of items at the listed location rather than the items themselves.
+
+### Changed
+
+- Extended the progress callback to handle progress inside the jupyter notebook environment with the flag `notebook=True`.
+- Changed how filepaths are displayed in the progress callback, governed by `description_length`
+
+### Fixed
+
+- Too many calls to delete from `FS`
+- Fixed the boto3 libary using threads which when running inside a thread pool executor was causing issues.
+- Improved callback calls in `S3`
+- `WorkerPoolConfig` no longer prevents more than 100 unfinished tasks at once in the executor.
+
+
+## [1.3.0] - 2024-01-15
 
 ### Added
 
@@ -20,6 +39,9 @@
 - Added additional tests and annotate lines to avoid in coverage
 - Added profile_name and session token url query params to the signature parser for `Amazon` manager
 - Have the `fs._putBytes` method update the time of the file in the same operation to reduce the number method invocations.
+- Change `File.content` from property into a function that returns content or sets content if passed
+- Changed manager interfaces to take path for the default path of the managers - though not required
+- `S3` now supports the creation and deletion of buckets
 
 ### Fixed
 

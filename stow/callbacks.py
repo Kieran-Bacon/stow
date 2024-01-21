@@ -4,6 +4,7 @@ import typing
 from typing import Union, Optional, Tuple, Any
 
 import tqdm
+import tqdm.notebook
 import queue
 
 import logging
@@ -74,21 +75,26 @@ class DefaultCallback(NoneImplementedCallback): # pragma: no cover
 import weakref
 class ProgressCallback(AbstractCallback):
 
-    def __init__(self):
+    def __init__(self, notebook: bool = False, description_length: int = 50):
 
+        self._description_length = description_length
+        self._notebook = notebook
+        self._tqdm = tqdm.notebook.tqdm if notebook else tqdm.tqdm
         self._reviewingProgressBar = None
         self._writingProgressBar = None
         self._deletingProgressBar = None
 
         self._positionPool = queue.Queue()
         self._positionOffset = -1
-        self._transferBars = []
+        self._transferBars = {}
 
 
     def _getNextPositionOffset(self) -> int:
 
         try:
             position = self._positionPool.get_nowait()
+            if position in self._transferBars:
+                self._transferBars.pop(position).leave = False
         except queue.Empty:
             self._positionOffset += 1
             position = self._positionOffset
@@ -96,55 +102,75 @@ class ProgressCallback(AbstractCallback):
         # print(position)
         return position
 
-    @staticmethod
-    def _updatePbar(pbar: tqdm.tqdm, pathOrCount: Union[str, int]):
+    def _pathToDisplayText(self, path: str) -> str:
+
+        if len(path) < self._description_length:
+            return path
+
+        # Split the path into its components
+        directory, basename = os.path.split(path)
+
+        if len(basename) > self._description_length:
+            return '.../' + basename[:self._description_length - 3] + '...'
+
+        else:
+            return '...' + directory[-(self._description_length - 3 - len(basename)):] + '/' + basename
+
+    def _updatePbar(self, pbar: tqdm.tqdm, pathOrCount: Union[str, int]):
         if isinstance(pathOrCount, int):
             pbar.update(pathOrCount)
         else:
-            pbar.desc = pbar.desc.split(' ')[0] + " " + os.path.basename(pathOrCount)
+            pbar.desc = pbar.desc.split(' ')[0] + " " + self._pathToDisplayText(pathOrCount)
             pbar.update()
+        pbar.display()
 
 
     def _pbar(self, desc, total):
-        return tqdm.tqdm(
+        return self._tqdm(
             desc=desc,
             total=total,
             unit=' Artefacts',
             leave=True,
+            # position=sum(x is not None for x in (self._reviewingProgressBar, self._writingProgressBar, self._deletingProgressBar))
             position=self._getNextPositionOffset()
         )
 
     def reviewing(self, count: int):
-        if self._reviewingProgressBar is None:
-            self._reviewingProgressBar = self._pbar('Reviewing', count)
-        else:
-            self._reviewingProgressBar.total += count
+        if count:
+            if self._reviewingProgressBar is None:
+                self._reviewingProgressBar = self._pbar('Reviewing', count)
+            else:
+                self._reviewingProgressBar.total += count
 
     def reviewed(self, pathOrCount: Union[str, int]):
         if self._reviewingProgressBar:
             self._updatePbar(self._reviewingProgressBar, pathOrCount)
+            self._reviewingProgressBar.display()
 
     def writing(self, count: int):
-        if self._writingProgressBar is None:
-            self._writingProgressBar = self._pbar('Writing', count)
-        else:
-            self._writingProgressBar.total += count
+        if count:
+            if self._writingProgressBar is None:
+                self._writingProgressBar = self._pbar('Writing', count)
+            else:
+                self._writingProgressBar.total += count
 
     def written(self, pathOrCount: Union[str, int]):
-        self.reviewed(pathOrCount)
         if self._writingProgressBar:
             self._updatePbar(self._writingProgressBar, pathOrCount)
+            self._writingProgressBar.display()
 
     def deleting(self, count: int):
-        if self._deletingProgressBar is None:
-            self._deletingProgressBar = self._pbar('Deleting', count)
-        else:
-            self._deletingProgressBar.total += count
+        if count:
+            if self._deletingProgressBar is None:
+                self._deletingProgressBar = self._pbar('Deleting', count)
+            else:
+                self._deletingProgressBar.total += count
 
     def deleted(self, pathOrCount: Union[str, int]):
-        self.reviewed(pathOrCount)
         if self._deletingProgressBar:
             self._updatePbar(self._deletingProgressBar, pathOrCount)
+            self._deletingProgressBar.display()
+
 
     @staticmethod
     def sizeof_fmt(num, suffix="B") -> Tuple[float, int, str]:
@@ -158,37 +184,32 @@ class ProgressCallback(AbstractCallback):
     def get_bytes_transfer(self, path, total_bytes_transfer):
         log.debug('Initialising transfer for path=%s', path)
 
-        divisor, total, unit = self.sizeof_fmt(total_bytes_transfer)
-        # divisor = 1
+        if self._notebook:
+            return lambda *args, **kwargs: None
+
+        # divisor, total, unit = self.sizeof_fmt(total_bytes_transfer)
+        divisor = 1
         total = total_bytes_transfer
-        # unit = 'bytes'
+        unit = 'bytes'
 
         position = self._getNextPositionOffset()
 
-        pbar = tqdm.tqdm(
-            desc=f'{path} transfered',
+        pbar = self._tqdm(
+            desc=f'Transfering {self._pathToDisplayText(path)}',
             total=total,
             unit=unit,
             # unit_scale=divisor,
-            leave=False,
+            leave=True,
             position=position
         )
-        self._transferBars.append(pbar)
 
         transfer = pbar.update
 
         def onRelease():
             self._positionPool.put(position)
+            self._transferBars[position] = pbar
 
         weakref.finalize(transfer, onRelease)
-
-        # def update(bytes_, released = False):
-        #     if released:
-        #         return
-        #     pbar.update(max(pbar.total - pbar.n, bytes_/divisor))
-        #     if pbar.n >= pbar.total:
-        #         self._positionPool.put(abs(pbar.pos))
-        #         update.__defaults__ = (True,)
 
         return transfer
 

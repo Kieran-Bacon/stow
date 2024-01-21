@@ -335,6 +335,7 @@ class FS(LocalManager):
         modified_time: Optional[float] = None,
         accessed_time: Optional[float] = None
         ):
+        callback.writing(1)
 
         # Ensure the desintation
         os.makedirs(destination, exist_ok=True)
@@ -343,11 +344,11 @@ class FS(LocalManager):
         with os.scandir(source) as scandir_it:
             for entry in scandir_it:
 
+
                 subdestination = os.path.join(destination, entry.name)
                 entryStat = entry.stat()
 
                 if entry.is_dir():
-                    callback.writing(1)
                     self._copytree(
                         entry.path,
                         subdestination,
@@ -357,8 +358,8 @@ class FS(LocalManager):
                         accessed_time
                     )
                 else:
-                    callback.writing(1)
 
+                    callback.writing(1)
                     sourceStat = entry.stat()
                     self._copyfile(
                         entry.path,
@@ -373,6 +374,8 @@ class FS(LocalManager):
                         modified_time,
                         accessed_time
                     )
+
+                    callback.written(1)
 
         # Copy the directory stats to the new location
         self._copystats(
@@ -591,8 +594,7 @@ class FS(LocalManager):
 
             else:
                 os.remove(path)
-
-            callback.deleted(path)
+                callback.deleted(path)
 
     def _cwd(self) -> str:
         _, path = os.path.splitdrive(os.getcwd())

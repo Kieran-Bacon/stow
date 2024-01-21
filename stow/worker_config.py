@@ -74,12 +74,12 @@ class WorkerPoolConfig:
 
         future = self.executor.submit(*args, **kwargs)
 
-        self.executing.append(future)
+        # self.executing.append(future)
         self.futures.append(future)
 
-        while len(self.executing) > 100:
-            self.executing = [future for future in self.executing if not future.done()]
-            time.sleep(0.01)
+        # while len(self.executing) > 100:
+        #     self.executing = [future for future in self.executing if not future.done()]
+        #     time.sleep(0.01)
 
     def extend(self, join: bool = False, shutdown: bool = False) -> "WorkerPoolConfig":
         config = WorkerPoolConfig(self._executor, join=join, shutdown=shutdown)
@@ -107,7 +107,8 @@ class WorkerPoolConfig:
 
         finally:
             if self._executor is not None and (self.will_shutdown or cancel):
-                logger.debug(f'Shutting down worker pool executor and {"cancelling" if cancel else "waitiing for"} remaining tasks')
+                operation = "cancelling" if cancel else "waiting for"
+                logger.debug(f'Shutting down worker pool executor and {operation} remaining tasks')
                 if exception:
                     logger.warning('Shutting down command due to exception %s', exception)
                 self._executor.shutdown(wait=cancel, cancel_futures=cancel)
