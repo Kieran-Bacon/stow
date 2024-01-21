@@ -217,8 +217,9 @@ def get(manager: Manager, source: str, destination: str, overwrite: bool):
 @click.argument('artefact', default=None, required=False)
 @click.option('--recursive', default=False, is_flag=True, help='List artefacts recursively')
 @click.option('-t', '--type', default=None, type=click.Choice(('File', 'Directory')), help='Filter artefacts to type given')
+@click.option('--count', default=False, is_flag=True, help='Return the count of artefacts not the artefact paths')
 @click.pass_obj
-def ls(manager: Manager, artefact: str, recursive: bool, type: Optional[str]):
+def ls(manager: Manager, artefact: str, recursive: bool, type: Optional[str], count: bool = False):
     """ List artefacts in a directory """
 
     if type is not None:
@@ -226,14 +227,19 @@ def ls(manager: Manager, artefact: str, recursive: bool, type: Optional[str]):
     else:
         type_ = None
 
-    print()
-    print('Name'.ljust(70)+'|Type'.ljust(10)+' |Creation Date')
-    print('='*114)
-    for subArtefacts in manager.iterls(artefact, recursive=recursive, ignore_missing=True):
-        if type_ is not None and not isinstance(subArtefacts, type_):
-            continue
-        print(f"{subArtefacts.path.ljust(70)} {subArtefacts.__class__.__name__.ljust(10)} {subArtefacts.modifiedTime}")
-    print()
+    if count:
+        artefactObj = manager.artefact(artefact, type=Directory)
+        print(f"{artefactObj.path} - Count: {len(manager.ls(artefactObj, recursive=recursive, ignore_missing=True))}")
+
+    else:
+        print()
+        print('Name'.ljust(70)+'|Type'.ljust(10)+' |Creation Date')
+        print('='*114)
+        for subArtefacts in manager.iterls(artefact, recursive=recursive, ignore_missing=True):
+            if type_ is not None and not isinstance(subArtefacts, type_):
+                continue
+            print(f"{subArtefacts.path.ljust(70)} {subArtefacts.__class__.__name__.ljust(10)} {subArtefacts.modifiedTime}")
+        print()
 
 
 @cli.command()

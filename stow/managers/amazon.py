@@ -18,6 +18,7 @@ import concurrent
 import concurrent.futures
 
 import boto3
+from boto3.s3.transfer import TransferConfig
 import botocore.config
 import boto3.exceptions
 from botocore.exceptions import ClientError, UnauthorizedSSOTokenError
@@ -296,11 +297,9 @@ class Amazon(RemoteManager):
 
         bucket, path = self._pathComponents(managerPath)
 
-        # NOTE abspath doesn't return
-
         return urllib.parse.ParseResult(
                 's3',
-                bucket,
+                bucket or '',
                 path,
                 '',# urllib.parse.urlencode(self._config),
                 '',
@@ -604,7 +603,12 @@ class Amazon(RemoteManager):
         ):
 
         transfer = callback.get_bytes_transfer(s3File.path, s3File.size)
-        self._s3.download_file(*self._pathComponents(s3File), destination, Callback=transfer)
+        self._s3.download_file(
+            *self._pathComponents(s3File),
+            destination,
+            Callback=transfer,
+            Config=TransferConfig(use_threads=False)
+        )
         utils.utime(destination, modified_time=modified_time, accessed_time=accessed_time)
         callback.written(destination)
 
@@ -618,6 +622,8 @@ class Amazon(RemoteManager):
         modified_time: Optional[float],
         accessed_time: Optional[float]
         ):
+
+        callback.writing(1)
 
         bucket, key = self._pathComponents(source)
 
@@ -669,11 +675,11 @@ class Amazon(RemoteManager):
 
                         else:
                             os.makedirs(destinationPath, exist_ok=True)
+                            callback.written(destinationPath)
+
+                callback.written(source.path)
 
             else:
-
-                callback.writing(1)
-
                 worker_config.submit(
                     self._download_file,
                     source,
@@ -682,6 +688,8 @@ class Amazon(RemoteManager):
                     accessed_time=accessed_time or source.accessedTime.timestamp(),
                     callback=callback,
                 )
+
+        return PartialArtefact(self, destination)
 
     def _getBytes(self, source: File, callback: AbstractCallback) -> bytes:
 
@@ -733,7 +741,8 @@ class Amazon(RemoteManager):
                         "ContentType": (content_type or mimetypes.guess_type(key)[0] or 'application/octet-stream'),
                         **extra_args
                     },
-                    Callback=callback.get_bytes_transfer(key, source.size)
+                    Callback=callback.get_bytes_transfer(key, source.size),
+                    Config=TransferConfig(use_threads=False)
                 )
 
             except boto3.exceptions.S3UploadFailedError as e:
@@ -771,6 +780,10 @@ class Amazon(RemoteManager):
         **kwargs
         ):
 
+        # Mark that we are writting this source
+        callback.writing(1)
+
+        # Parse the destination string into the full bucket path
         bucket, key = self._pathComponents(destination)
 
         if bucket is None:
@@ -800,7 +813,6 @@ class Amazon(RemoteManager):
                     )
 
         else:
-            callback.writing(1)
 
             # Setup metadata about the objects being put
             amazon_storage_class = AmazonStorageClass.convert(storage_class or self.storage_class)
@@ -850,13 +862,15 @@ class Amazon(RemoteManager):
                         )
 
                         worker_config.submit(
-                            self._put_object,
+                            self._s3.put_object,
                             Body=b'',
                             Bucket=s3Bucket,
                             Key=s3DirectoryFilepath + '/',
-                            callback=callback
+                            # callback=callback,
                             # StorageClass=amazon_storage_class.value  # This is a dictionary file so I don't know if its needed
                         )
+
+                    callback.written(directory.path)
 
             else:
 
@@ -910,7 +924,8 @@ class Amazon(RemoteManager):
                     "ContentType": (content_type or mimetypes.guess_type(destination)[0] or 'application/octet-stream'),
                     "Metadata": ({str(k): str(v) for k, v in metadata.items()} if metadata else {})
                 },
-                Callback=callback.get_bytes_transfer(destination, len(fileBytes))
+                Callback=callback.get_bytes_transfer(destination, len(fileBytes)),
+                Config=TransferConfig(use_threads=False)
             )
             callback.written(destination)
 
@@ -1021,6 +1036,9 @@ class Amazon(RemoteManager):
         **kwargs
     ) -> ArtefactType:
 
+        # Record that the source is being written into the target
+        callback.writing(1)
+
         # Get the source manager - this should be s3 anyway
         sourceManager = self.manager(source)
         sourceBucket, sourceKey = sourceManager._pathComponents(source.path)
@@ -1034,6 +1052,7 @@ class Amazon(RemoteManager):
 
         elif sourceBucket is None:
             # Backing up all buckets into a directory of s3
+
             for bucket in sourceManager._s3.list_buckets()['Buckets']:
                 self._cp(
                     Directory(sourceManager, '/' + bucket['Name']),
@@ -1047,7 +1066,8 @@ class Amazon(RemoteManager):
                 )
 
         elif destinationBucket is None:
-            # Bringing an artefact up a level
+            # Convert a directory into a buckets
+
             if isinstance(source, File):
                 raise exceptions.OperationNotPermitted(r'Cannot coppy {source} onto S3')
 
@@ -1109,6 +1129,9 @@ class Amazon(RemoteManager):
                             **copy_args
                         )
 
+                # Now that this directory was written - signal that it has been written.
+                callback.written(source.path)
+
             else:
 
                 if metadata is not None:
@@ -1156,7 +1179,6 @@ class Amazon(RemoteManager):
         for artefact in artefacts:
 
             bucket, key = self._pathComponents(artefact)
-
             if bucket is None:
                 raise exceptions.OperationNotPermitted("Attempt to made to delete... s3. Operation is not allowed")
 
@@ -1173,7 +1195,7 @@ class Amazon(RemoteManager):
                         Bucket=bucket,
                         Key=key
                     )
-                    callback.deleted(artefact)
+
                 except:
 
                     # The afteract is a directory
@@ -1199,6 +1221,8 @@ class Amazon(RemoteManager):
                             raise RuntimeWarning(f'Failed to delete items in s3: {errors}')
 
                         callback.deleted(len(stat.keys))
+
+            callback.deleted(artefact)
 
     @classmethod
     def _signatureFromURL(cls, url: urllib.parse.ParseResult):
