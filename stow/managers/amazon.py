@@ -27,7 +27,7 @@ from .. import utils as utils
 from ..worker_config import WorkerPoolConfig
 from ..types import HashingAlgorithm
 from ..artefacts import Artefact, PartialArtefact, File, Directory, ArtefactType, Metadata, ArtefactOrPathLike, ArtefactOrStr
-from ..manager import RemoteManager
+from ..manager import RemoteManager, AbstractCommandLineConfig
 from ..storage_classes import StorageClass, StorageClassInterface
 from ..callbacks import AbstractCallback
 from .. import exceptions
@@ -111,7 +111,7 @@ class AmazonStorageClass(StorageClassInterface):
     OUTPOSTS = 'OUTPOSTS'
 
     @classmethod
-    def toGeneric(cls, value) -> StorageClass:
+    def toGeneric(cls, value: Self) -> StorageClass:
         value = cls(value)
         if value is cls.STANDARD:
             return StorageClass.STANDARD
@@ -1272,7 +1272,7 @@ class Amazon(RemoteManager):
     def config(self):
         return self._config
 
-    class CommandLineConfig:
+    class CommandLineConfig(AbstractCommandLineConfig):
 
         def __init__(self, manager: Type["Amazon"]):
             self._manager = manager

@@ -23,8 +23,45 @@ from botocore.exceptions import ClientError
 
 
 import stow.exceptions
+from stow.storage_classes import StorageClass
 from stow.cli import cli, cat
-from stow.managers.amazon import Amazon, etagComparator
+from stow.managers.amazon import Amazon, etagComparator, AmazonStorageClass
+from stow.managers.google import GoogleStorageClass
+
+class Test_AmazonStorageClass(unittest.TestCase):
+
+    def test_toGeneric(self):
+
+        self.assertEqual(AmazonStorageClass.toGeneric(AmazonStorageClass.STANDARD),StorageClass.STANDARD)
+        self.assertEqual(AmazonStorageClass.toGeneric(AmazonStorageClass.REDUCED_REDUNDANCY),StorageClass.REDUCED_REDUNDANCY)
+        self.assertEqual(AmazonStorageClass.toGeneric(AmazonStorageClass.STANDARD_IA),StorageClass.INFREQUENT_ACCESS)
+        self.assertEqual(AmazonStorageClass.toGeneric(AmazonStorageClass.ONEZONE_IA),StorageClass.INFREQUENT_ACCESS)
+        self.assertEqual(AmazonStorageClass.toGeneric(AmazonStorageClass.INTELLIGENT_TIERING),StorageClass.INTELLIGENT_TIERING)
+        self.assertEqual(AmazonStorageClass.toGeneric(AmazonStorageClass.GLACIER),StorageClass.ARCHIVE)
+        self.assertEqual(AmazonStorageClass.toGeneric(AmazonStorageClass.DEEP_ARCHIVE),StorageClass.ARCHIVE)
+        self.assertEqual(AmazonStorageClass.toGeneric(AmazonStorageClass.OUTPOSTS),StorageClass.HIGH_PERFORMANCE)
+
+    def test_fromGeneric(self):
+
+        self.assertEqual(AmazonStorageClass.fromGeneric(StorageClass.REDUCED_REDUNDANCY), AmazonStorageClass.REDUCED_REDUNDANCY)
+        self.assertEqual(AmazonStorageClass.fromGeneric(StorageClass.STANDARD), AmazonStorageClass.STANDARD)
+        self.assertEqual(AmazonStorageClass.fromGeneric(StorageClass.INFREQUENT_ACCESS), AmazonStorageClass.STANDARD_IA)
+
+
+        with self.assertRaises(NotImplementedError):
+            AmazonStorageClass.fromGeneric(StorageClass.ARCHIVE)
+
+        with self.assertRaises(NotImplementedError):
+            AmazonStorageClass.fromGeneric(StorageClass.INTELLIGENT_TIERING)
+
+        with self.assertRaises(NotImplementedError):
+            AmazonStorageClass.fromGeneric(StorageClass.HIGH_PERFORMANCE)
+
+    def test_convert(self):
+
+        self.assertEqual(AmazonStorageClass.STANDARD, AmazonStorageClass.convert(GoogleStorageClass.STANDARD))
+
+
 
 @mock_s3
 class Test_Amazon(unittest.TestCase):

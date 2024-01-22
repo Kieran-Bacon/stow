@@ -30,14 +30,16 @@ for entry_point in pkg_resources.iter_entry_points('stow_managers'):
         continue
 
     managerConfigs[entry_point.name] = config
-    managerOptions.append(
-        optgroup.group(
-            f'{entryManager.__name__} configuration',
-            help=f'Options for the {entryManager.__name__} manager'
+    arguments = config.arguments()
+    if arguments:
+        managerOptions.append(
+            optgroup.group(
+                f'{entryManager.__name__} configuration',
+                help=f'Options for the {entryManager.__name__} manager'
+            )
         )
-    )
-    for args, kwargs in config.arguments():
-        managerOptions.append(optgroup.option(*args, **kwargs))
+        for args, kwargs in arguments:
+            managerOptions.append(optgroup.option(*args, **kwargs))
 
 cli_decorators = [
     click.option(

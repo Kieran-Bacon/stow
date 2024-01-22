@@ -97,6 +97,10 @@ class Test_Stateless(unittest.TestCase):
                 delta=datetime.timedelta(milliseconds=5)
             )
 
+    def test_artefact_k8s(self):
+
+        stow.artefact('k8s://development-esp')
+
     def driveLessAssertEqual(self, strVal1, strVal2):
         self.assertEqual(os.path.splitdrive(strVal1)[1], os.path.splitdrive(strVal2)[1])
 

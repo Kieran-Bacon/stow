@@ -1,13 +1,14 @@
 from kubernetes import client, config, stream
 
 import datetime
-from typing import Generator, Union, Tuple, Optional, Dict, Any, List
-
+from typing import Generator, Union, Tuple, Optional, Dict, Any, List, Type, overload
+from typing_extensions import ParamSpec
 import urllib.parse
 import dataclasses
 import tempfile
 import tarfile
 import logging
+import yaml
 
 from stow.artefacts.artefacts import Artefact
 from stow.callbacks import AbstractCallback
@@ -16,11 +17,11 @@ from stow.types import HashingAlgorithm
 from stow.worker_config import WorkerPoolConfig
 from ..types import StrOrPathLike
 from ..artefacts import File, Directory, ArtefactType
-from ..manager.base_managers import RemoteManager
+from ..manager import RemoteManager, AbstractCommandLineConfig
 
 logger = logging.getLogger(__name__)
 
-config.load_kube_config()
+
 
 @dataclasses.dataclass
 class Stat:
@@ -70,12 +71,51 @@ def parseStatLine(line: str, namespace: str, pod: str) -> Stat:
 
 
 class Kubernetes(RemoteManager):
+    """ Connect to the kubernetes """
 
     SEPARATOR = '/'
 
-    def __init__(self, path: str = ''):
-        self.client = client.CoreV1Api()
+    @overload
+    def __init__(self, path: str = ...):
+        pass
+    @overload
+    def __init__(self, path: str = ..., *, context: str):
+        pass
+    @overload
+    def __init__(self, path: str = ..., *, context: str, kube_config_path: str):
+        pass
+    @overload
+    def __init__(self, path: str = ..., *, context: str, kube_config: Dict[str, str]):
+        pass
+    def __init__(self, path: str = '', *, context: Optional[str] = None, kube_config_path: Optional[str] = None, kube_config: Optional[Dict[str, str]] = None):
+
+        self._config = {
+            k: v
+            for k, v in {
+                'context': context,
+                'kube_config_path': kube_config_path,
+                'kube_config': kube_config
+            }.items()
+            if v is not None
+        }
+
+        # Read in user config if provided and stamp on kube_config variables
+        if kube_config_path is not None:
+            with open(kube_config_path) as handle:
+                kube_config = yaml.safe_load(handle)
+
+        # Select the correct environment
+        if kube_config:
+            self.client = config.new_client_from_config_dict(kube_config, context=context)
+
+        else:
+
+            config.load_kube_config(context=context)
+            self.client = client.CoreV1Api()
+
+
         self._path = self._managerPath(path)
+
 
     @property
     def root(self) -> str:
@@ -360,7 +400,7 @@ class Kubernetes(RemoteManager):
         ) -> ArtefactType:
         return super()._mv(source, destination, callback, worker_config, metadata, modified_time, accessed_time, storage_class, content_type)
 
-    def _ls(self, artefact: str, recursive: bool = False) -> Generator[ArtefactType, None, None]:
+    def _ls(self, artefact: str, recursive: bool = False, **kwargs) -> Generator[ArtefactType, None, None]:
 
         # Break the artefact path down into its components
         namespace, pod, path = self._pathComponents(artefact)
@@ -395,9 +435,36 @@ class Kubernetes(RemoteManager):
 
     @classmethod
     def _signatureFromURL(cls, url: urllib.parse.ParseResult):
-        ...
 
-    def toConfig(self) -> dict:
-        ...
+        # Extract the query data passed into
+        queryData = urllib.parse.parse_qs(url.query)
 
+        signature = {
+            "context": queryData.get("context", [None])[0],
+            "kube_config_path": queryData.get("kube_config_path", [None])[0],
+        }
+
+        return signature, (url.netloc + url.path or '/')
+
+    @property
+    def config(self) -> dict:
+        return self._config
+
+    class CommandLineConfig(AbstractCommandLineConfig):
+
+        def __init__(self, manager: Type["Kubernetes"]):
+            self._manager = manager
+
+        @staticmethod
+        def arguments() -> List[Tuple[Tuple[str, str], Dict[str, Any]]]:
+            return [
+                (('-k', '--kube_config_path',), {'help': 'Provide path to kube config to load for credentials'}),
+                (('-c', '--context',), {'help': 'Select the kubernetes context'}),
+            ]
+
+        def initialise(self, kwargs: Dict[str, str]):
+            return self._manager(
+                context=kwargs.get('context'),
+                kube_config_path=kwargs.get('kube_config_path'),
+            )
 

@@ -7,7 +7,20 @@ import google.auth
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload
 
-from ..managers import RemoteManager
+from ..manager import RemoteManager
+from ..storage_classes import StorageClassInterface, StorageClass
+
+class GoogleStorageClass(StorageClassInterface):
+
+    STANDARD = 'STANDARD'
+
+    @classmethod
+    def fromGeneric(cls, generic: StorageClass):
+        return cls.STANDARD
+
+    @classmethod
+    def toGeneric(cls, gClass: "GoogleStorageClass"):
+        return StorageClass.STANDARD
 
 class Drive(RemoteManager):
 

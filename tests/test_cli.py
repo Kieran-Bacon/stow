@@ -199,6 +199,11 @@ class Test_CLI(unittest.TestCase):
 
             self.assertEqual(len(result.output.splitlines()), 5, msg=result.output)
 
+    def test_ls_k8s(self):
+
+        result = self.runner.invoke(cli, ['ls', 'k8s://development-esp'])
+        assert result.exit_code == 0
+
     def test_mv(self):
 
         with tempfile.TemporaryDirectory() as source:
