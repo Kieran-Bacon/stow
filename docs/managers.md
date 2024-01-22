@@ -154,3 +154,17 @@ privateKeyFilePath | no | Filepath to private key (key.pem) to use for authentic
 autoAddMissingHost | no | Choose whether to allow connections to unknown hosts
 timeout | no | Time in seconds to before connection timeouts
 sshConfig | no |  An additional ssh configuration file to query when connecting
+
+## Google Drive
+
+### Credentials
+
+To setup the default credentials for google drive check out [this](https://cloud.google.com/docs/authentication/external/set-up-adc).
+
+A simple approach would be to setup a service account and generate a service account key to use to authenticate. That can be seen here.
+
+If the project drive API hasn't been used before it must be enabled, to do so you can go to
+
+```
+https://console.developers.google.com/apis/api/drive.googleapis.com/overview?project={project_code}
+```
