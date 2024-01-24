@@ -234,10 +234,12 @@ def ls(manager: Manager, artefact: str, recursive: bool, type: Optional[str], co
         print(f"{artefactObj.path} - Count: {len(manager.ls(artefactObj, recursive=recursive, ignore_missing=True))}")
 
     else:
+        source = manager.artefact(artefact, type=Directory)
+
         print()
         print('Name'.ljust(70)+'|Type'.ljust(10)+' |Creation Date')
         print('='*114)
-        for subArtefacts in manager.iterls(artefact, recursive=recursive, ignore_missing=True):
+        for subArtefacts in manager.iterls(source, recursive=recursive, ignore_missing=True):
             if type_ is not None and not isinstance(subArtefacts, type_):
                 continue
             print(f"{subArtefacts.path.ljust(70)} {subArtefacts.__class__.__name__.ljust(10)} {subArtefacts.modifiedTime}")

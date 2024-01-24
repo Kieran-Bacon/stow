@@ -689,8 +689,6 @@ class Amazon(RemoteManager):
                     callback=callback,
                 )
 
-        return PartialArtefact(self, destination)
-
     def _getBytes(self, source: File, callback: AbstractCallback) -> bytes:
 
         bucket, key = self._pathComponents(source)

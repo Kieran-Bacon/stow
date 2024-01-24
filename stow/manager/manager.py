@@ -1037,7 +1037,7 @@ class Manager(AbstractManager):
                 )
 
                 # Load the downloaded artefact from the local location and return
-                gottenArtefact = PartialArtefact(self.connect(manager="FS"), destination)
+                gottenArtefact = PartialArtefact(self.connect(manager="FS"), destinationAbspath)
 
             else:
                 if not isinstance(obj, File):
