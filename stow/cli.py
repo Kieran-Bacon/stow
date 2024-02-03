@@ -1,7 +1,6 @@
 import click
 from click_option_group import optgroup
 
-import dataclasses
 import logging
 import pkg_resources
 from typing import Tuple, Optional, List
@@ -9,7 +8,7 @@ from typing import Tuple, Optional, List
 from .manager import Manager
 from .artefacts import File, Directory
 from .types import HashingAlgorithm
-from .callbacks import AbstractCallback, DefaultCallback, ProgressCallback
+from .callbacks import DefaultCallback, ProgressCallback
 
 log = logging.getLogger(__name__)
 
@@ -52,11 +51,6 @@ cli_decorators = [
     click.option('--debug/--no-debug', default=False),
     click.pass_context
 ]
-
-@dataclasses.dataclass
-class StowContext:
-    manager: Manager
-    callback: AbstractCallback
 
 def dynamicDecorators(cli_decorators):
     def wraps(func):
