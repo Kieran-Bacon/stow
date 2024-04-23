@@ -17,6 +17,40 @@ from stow.managers import FS
 def mpManagerLSFunc(manager):
     return {x.name for x in manager.ls()}
 
+@unittest.skipIf(os.name != 'nt', 'Not windows os')
+class Test_WindowsFilesystemQwerks(unittest.TestCase):
+
+    def test_windows_file_length_issue(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            short_file_name = 'a'*(258 - len(directory))
+            long_file_name = 'b'*(260 - len(directory))
+
+            short_abspath = os.path.join(directory, short_file_name)
+            with open(short_abspath, 'w') as handle:
+                handle.write('hello')
+
+            long_abspath = os.path.join(directory, long_file_name)
+            with self.assertRaises(FileNotFoundError):
+                with open(long_abspath, 'w') as handle:
+                    handle.write('hello')
+
+            with stow.open(long_abspath, 'w') as handle:
+                handle.write('hello')
+
+            with self.assertRaises(FileNotFoundError):
+                with open(long_abspath) as handle:
+                    pass
+
+            with stow.open(long_abspath) as handle:
+                self.assertEqual(handle.read(), 'hello')
+
+            with self.assertRaises(FileNotFoundError):
+                os.remove(long_abspath)
+
+            stow.rm(long_abspath)
+
 class Test_Filesystem(unittest.TestCase):
 
     def setUp(self):
