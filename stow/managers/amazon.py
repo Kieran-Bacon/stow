@@ -88,6 +88,28 @@ def etagComparator(*files: File) -> bool:
     return all(digests[0] == d for d in digests[1:])
 
 @dataclasses.dataclass
+class DeleteRoot:
+    root: Artefact
+    worker_config: WorkerPoolConfig
+    callback: AbstractCallback
+
+    count: int = 0
+    size: int = 0
+
+    def trigger_delete(self):
+        """ Start the delete process on the source object """
+        # TODO review - going directly avoids having to check the source again
+        # self.root.delete(force=True, callback=callback)
+        self.root._manager._rm(self.root.path, callback=self.callback, worker_config=self.worker_config)
+
+    def finish_task(self):
+        """ Finish a required task before the delete process - increment the count and delete the source if final task
+        """
+        self.count += 1
+        if self.count == self.size:
+            self.trigger_delete()
+
+@dataclasses.dataclass
 class DirStat:
     bucket: Optional[str]
     path: str
@@ -275,21 +297,33 @@ class Amazon(RemoteManager):
             bool: True if the bucket was created - False if it exists and we have permissions to it
         """
         try:
-            self._s3.head_bucket(Bucket=bucket)
+            self._s3.head_bucket(
+                Bucket=bucket
+            )
 
         except ClientError as e:
             status_code = e.response['ResponseMetadata']['HTTPStatusCode']
 
             if status_code == 404:
                 # We can create the bucket as it doesn't exist currently
-                log.warning('Creating s3 bucket=[%s] as it does not already exist and is available')
-                self._s3.create_bucket(Bucket=bucket)
+                log.warning('Creating s3 bucket=[%s] as it does not already exist and is available', bucket)
+                try:
+                    self._s3.create_bucket(
+                        Bucket=bucket,
+                        CreateBucketConfiguration={
+                            'LocationConstraint': self._aws_session.region_name
+                        }
+                    )
+                except:
+                    log.exception("Failed to create bucket [%s]", bucket)
+                    raise
                 return True
 
             elif status_code == 403:
                 # Bucket already exists and cannot be written too
-                raise exceptions.OperationNotPermitted('You do not have permissions to access s3 bucket [%s]') from e
+                raise exceptions.OperationNotPermitted(f'You do not have permissions to access s3 bucket [{bucket}]') from e
 
+            log.exception('Unexpected client error when trying to check connection to [%s] bucket', bucket)
             raise
         return False
 
@@ -336,6 +370,9 @@ class Amazon(RemoteManager):
     def _pathComponents(self, artefact: ArtefactOrStr, optional: Literal[True] = True) -> Tuple[Optional[str], str]:
         ...
     def _pathComponents(self, artefact: ArtefactOrStr, optional: bool = True) -> Tuple[Optional[str], str]:
+        """ Extract from the artefact provided, the bucket and key of the artefact for s3.
+
+        """
 
         artefactPath = artefact.path if isinstance(artefact, Artefact) else artefact
 
@@ -396,7 +433,7 @@ class Amazon(RemoteManager):
                     modifiedTime=response['LastModified'],
                     size=response['ContentLength'],
                     metadata=self._getMetadataFromHead(response),
-                    content_type=response['ContentType'],
+                    content_type=response.get('ContentType'),
                 )
 
             except ClientError as e:
@@ -421,9 +458,54 @@ class Amazon(RemoteManager):
     def _exists(self, managerPath: str):
         return self._identifyPath(managerPath) is not None
 
-    def _metadata(self, managerPath: str) -> typing.Dict[str, str]:
-        bucket, key = self._pathComponents(managerPath)
+    def _get_tags(self, artefact: ArtefactType) -> typing.Dict[str, str]:
 
+        bucket, key = self._pathComponents(artefact)
+        if bucket is None or key is None:
+            return {}
+
+        # Fetch the object tags - unpack and return
+        object_tagging = self._s3.get_object_tagging(
+            Bucket=bucket,
+            Key=key
+        )
+
+        return {tag['Key']: tag['Value'] for tag in object_tagging['TagSet']}
+
+    def _set_tags(self, artefact: ArtefactType, metadata: Metadata) -> Dict[str, str]:
+
+        # Freeze the metadata for the artefact
+        bucket, key = self._pathComponents(artefact, optional=False)
+        if bucket is None or key is None:
+            raise ValueError(f'S3 does not support setting tags on [{artefact}] - only files')
+
+
+        frozenMetadata = self._freezeMetadata(metadata, artefact)
+
+        # update the tagging on the object
+        self._s3.put_object_tagging(
+            Bucket=bucket,
+            Key=key,
+            Tagging={
+                'TagSet': [
+                    {'Key': k, 'Value': v}
+                    for k, v in frozenMetadata.items()
+                ]
+            }
+        )
+
+        # Fetch the object tags - unpack and return
+        object_tagging = self._s3.get_object_tagging(
+            Bucket=bucket,
+            Key=key
+        )
+
+        return {tag['Key']: tag['Value'] for tag in object_tagging['TagSet']}
+
+
+    def _get_metadata(self, artefact: ArtefactType) -> typing.Dict[str, str]:
+
+        bucket, key = self._pathComponents(artefact)
         if bucket is None or key is None:
             return {}
 
@@ -444,6 +526,34 @@ class Amazon(RemoteManager):
                         )
 
                 raise
+
+    def _set_metadata(self, artefact: ArtefactType, metadata: Metadata) -> Dict[str, str]:
+
+        # Freeze the metadata for the artefact
+        bucket, key = self._pathComponents(artefact, optional=False)
+        if bucket is None or key is None:
+            raise ValueError(f'S3 does not support setting metadata on [{artefact}] - only files')
+
+        frozenMetadata = self._freezeMetadata(metadata, artefact)
+
+        # To update the metadata we have to replace the object in place
+        self._s3.copy_object(
+            Bucket=bucket,
+            Key=key,
+            CopySource={
+                "Bucket": bucket,
+                "Key": key
+            },
+            Metadata=frozenMetadata,
+            MetadataDirective="REPLACE"
+        )
+
+        response = self._s3.head_object(
+            Bucket=bucket,
+            Key=key
+        )
+
+        return self._getMetadataFromHead(response)
 
     def _digest(self, file: File, algorithm: HashingAlgorithm):
 
@@ -725,7 +835,9 @@ class Amazon(RemoteManager):
         extra_args: typing.Dict[str, str],
         callback: AbstractCallback,
         content_type: Optional[str],
-        storage_class: AmazonStorageClass
+        storage_class: AmazonStorageClass,
+        delete_source: bool = False,
+        delete_root: Optional[DeleteRoot] = None
         ):
 
         with source.localise() as abspath:
@@ -742,6 +854,15 @@ class Amazon(RemoteManager):
                     Callback=callback.get_bytes_transfer(key, source.size),
                     Config=TransferConfig(use_threads=False)
                 )
+
+                if delete_source:
+                    # Delete the source that is being put - straight away
+                    source._manager._rm(path=source.path, callback=callback)
+
+                elif delete_root is not None:
+                    # Update the delete root shared object - delete source root once all tasks complete
+                    delete_root.finish_task()
+
 
             except boto3.exceptions.S3UploadFailedError as e:
 
@@ -763,6 +884,10 @@ class Amazon(RemoteManager):
                 else:
                     raise
 
+            except:
+                log.exception('Unhandled error on file put')
+                raise
+
         callback.written(key)
 
     def _put(
@@ -775,6 +900,8 @@ class Amazon(RemoteManager):
         content_type: Optional[str],
         storage_class: Optional[StorageClass],
         metadata: Optional[Metadata] = None,
+        delete_source: bool = False,
+        delete_root: Optional[DeleteRoot] = None,
         **kwargs
         ):
 
@@ -790,6 +917,14 @@ class Amazon(RemoteManager):
                     f'Attempting to overwrite... s3 [{destination}]. With a... file [{source}]'
                 )
 
+            if delete_source:
+                delete_root = DeleteRoot(
+                    root=source,
+                    callback=callback,
+                    worker_config=worker_config
+                )
+
+            # We are putting this directory at the bucket level - each artefact inside will become a bucket
             for artefact in source.iterls():
                 if isinstance(artefact, Directory):
                     self._ensureBucket(artefact.basename)
@@ -802,7 +937,9 @@ class Amazon(RemoteManager):
                         worker_config=worker_config,
                         content_type=content_type,
                         metadata=metadata,
-                        storage_class=storage_class
+                        storage_class=storage_class,
+                        delete_source=delete_source,
+                        delete_root=delete_root
                     )
 
                 else:
@@ -812,14 +949,26 @@ class Amazon(RemoteManager):
 
         else:
 
+            # Ensure that the bucket that we are writting to is available
+            self._ensureBucket(bucket)
+
             # Setup metadata about the objects being put
             amazon_storage_class = AmazonStorageClass.convert(storage_class or self.storage_class)
             extra_args = {}
 
             if isinstance(source, Directory):
+                # Putting a directory of artefacts - iterate through all subartefacts and put
 
+                # Set the initial directory to process + add a delete directory if needed
                 directories = [source]
+                if delete_source and delete_root is None:
+                    delete_root = DeleteRoot(
+                        root=source,
+                        callback=callback,
+                        worker_config=worker_config
+                    )
 
+                # Continue to process sub directories
                 while directories:
                     directory = directories.pop(0)
 
@@ -828,6 +977,9 @@ class Amazon(RemoteManager):
                         callback.writing(1)
 
                         if isinstance(artefact, File):
+
+                            if delete_root is not None:
+                                delete_root.size += 1
 
                             file_destination = self.join(
                                 key,
@@ -846,7 +998,9 @@ class Amazon(RemoteManager):
                                 extra_args=extra_args,
                                 callback=callback,
                                 content_type=content_type,
-                                storage_class=amazon_storage_class
+                                storage_class=amazon_storage_class,
+                                delete_source=False,
+                                delete_root=delete_root
                             )
 
                         else:
@@ -870,6 +1024,11 @@ class Amazon(RemoteManager):
 
                     callback.written(directory.path)
 
+                if delete_root is not None and delete_root.size == 0:
+                    # We moved a number of directories that didn't have any files inside them
+                    # We are safe to trigger the delete in the main thread of the directory source
+                    delete_root.trigger_delete()
+
             else:
 
                 if metadata is not None:
@@ -883,7 +1042,8 @@ class Amazon(RemoteManager):
                     extra_args=extra_args,
                     callback=callback,
                     content_type=content_type,
-                    storage_class=amazon_storage_class
+                    storage_class=amazon_storage_class,
+                    delete_source=delete_source
                 )
 
         return PartialArtefact(self, destination)
