@@ -1,7 +1,7 @@
 import os
 import abc
 import typing
-from typing import (IO, Any, Union, Optional, Literal, Dict, Tuple, Generator, overload)
+from typing import (IO, Any, Union, Optional, Literal, Dict, Tuple, Generator, overload, Type)
 import datetime
 
 from ..storage_classes import StorageClassInterface
@@ -25,8 +25,6 @@ class ManagerInterface:
     def _abspath(self, path: StrOrPathLike) -> str:
         pass
 
-    def _metadata(self, path: str) -> Dict[str, Any]:
-        ...
 
     def _get_content_type(self, path: str) -> str:
         ...
@@ -40,10 +38,22 @@ class ManagerInterface:
     def _isLink(self, artefact) -> bool:
         ...
 
-    def _rm(self, path: StrOrPathLike, *, callback: AbstractCallback):
+    def _rm(self, path: StrOrPathLike, *, callback: AbstractCallback = DefaultCallback(), worker_config: Optional[WorkerPoolConfig] = None):
         ...
 
-    def artefact(self, artefact: StrOrPathLike, type: Optional[os.PathLike[str]] = None) -> os.PathLike[str]:
+    def get_tags(self, artefact: os.PathLike) -> Dict[str, Any]:
+        ...
+
+    def set_tags(self, artefact: os.PathLike, metadata: Dict[str, str]):
+        ...
+
+    def get_metadata(self, artefact: os.PathLike) -> Dict[str, Any]:
+        ...
+
+    def set_metadata(self, artefact: os.PathLike, metadata: Dict[str, str]):
+        ...
+
+    def artefact(self, artefact: StrOrPathLike, type: Type[Artefact]) -> Artefact:
         ...
 
     def exists(self, artefact) -> bool:

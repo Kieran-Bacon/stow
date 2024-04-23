@@ -77,6 +77,58 @@ class AbstractManager:
         pass
 
     @abstractmethod
+    def _get_tags(self, artefact: ArtefactType) -> Dict[str, str]:
+        """ Fetch artefact tags
+
+        Args:
+            artefact (ArtefactType): The artefact to fetch the tags from
+
+        Returns:
+            Dict[str, str]: A dict of the artefact tags
+        """
+        raise NotImplementedError(f'Manager {self.__class__} does not support tags')
+
+    @abstractmethod
+    def _set_tags(self, artefact: ArtefactType, metadata: Metadata) -> Dict[str, str]:
+        """ Write the metadata provided as tags to the artefact specified
+
+        Args:
+            artefact (ArtefactType): The artefact the metadata is to be written onto as tags - must exist
+            metadata (Metadata): The metadata being written
+
+        Returns:
+            Dict[str, str]: Returns the metadata that is now set on the artefact - equal to value returned from `get_metadata`
+                it may differ from the metadata provided as managers have required and self managered metadata fields
+        """
+        raise NotImplementedError(f'Manager {self.__class__} does not support setting metadata')
+
+    @abstractmethod
+    def _get_metadata(self, artefact: ArtefactType) -> Dict[str, str]:
+        """ Fetch artefact metadata
+
+        Args:
+            path (str): The manager relative path to the artefact
+
+        Returns:
+            Dict[str, str]: A dict of the metadata key values
+        """
+        raise NotImplementedError(f'Manager {self.__class__} does not support metadata')
+
+    @abstractmethod
+    def _set_metadata(self, artefact: ArtefactType, metadata: Metadata) -> Dict[str, str]:
+        """ Write the metadata provided to the artefact specified
+
+        Args:
+            artefact (ArtefactType): The artefact the metadata is to be written onto - must exist
+            metadata (Metadata): The metadata being written
+
+        Returns:
+            Dict[str, str]: Returns the metadata that is now set on the artefact - equal to value returned from _get_metadata
+                it may differ from the metadata provided as managers have required and self managered metadata fields
+        """
+        raise NotImplementedError(f'Manager {self.__class__} does not support setting metadata')
+
+    @abstractmethod
     def _isLink(self, file: str) -> bool:
         """ Check if the file object given is a link/shortcut to another file """
         pass
@@ -140,6 +192,7 @@ class AbstractManager:
         content_type: Optional[str],
         storage_class: Optional[StorageClass],
         worker_config: WorkerPoolConfig,
+        delete_source: bool = False
         ) -> ArtefactType:
         """ Put the local filesystem object onto the underlying manager implementation using the absolute paths given.
 
