@@ -10,6 +10,52 @@ To extend the functionality by supporting another storage medium, you can inheri
     Add your managers to this entry point to integrate seamlessly with the `stow` stateless interface and connect utilities.
 
 
+## Threading considerations
+
+Inside stow is a system to share and use a thread pool executor for the parallel running of operations. This provides some managers a nice performance boost, but, it complicates subsequent actions that need to take place. The most prevelant example of this is when a file is being moved: A artefact is put/copied into place, and then the source is deleted.
+
+This is difficult to do in a threading environment because these steps must happen in this order. The put must complete beforehand and complete successfully. We are unable to create the delete operation as a parallel task as it cannot depend on the put task future or the effect of that task since this can lead to a deadlock, and we cannot allow the possibility of deleting the source before the put task is started/completed.
+
+Therefore, it follows that any implemention should combine these operations into a single task. The implementation of put should take a delete option and handle the delete itself. The next consideration is parent directories that should be deleted.
+
+When moving a directory with artefacts inside, the original directory has been deleted once the artefacts have been moved. For the same reasons that you cannot have the delete operation dependant on the put task, you cannot have the put directory task depending on the tasks that put it's children. Regardless of how you are defining tasks, this operations must be combined in the same task that puts a child artefact. *How you might be performing threading more generally is discussed below.*
+
+The file upload implementation likely is unaware of the context it is being invoked in, and it is not a given that it can tell whether its parent directory should be deleted, or even if it is even ready to be deleted. I suggest that a shared data object is given to the child tasks, so that they can communicate with each other as to when they are finished. The final task to complete can then delete the parent directory (the implication of the existance of this object in the first place) knowning that it and others have completed. This relies on the GIL and the atomic nature of some types.
+
+```python
+def _put_file_task(self, source, desintation, delete: bool = False, shared_data: Optional[SharedObject] = None):
+
+    client.upload(source, destination)
+
+    if delete:
+        source.delete()
+
+    if shared_object:
+        # We need to delete parent directory
+
+        shared_object.incr()
+        shared_object.is_complete()
+
+        try:
+            source.parent.delete()
+        except:
+            # Already deleted
+            pass
+```
+
+
+The implementation of the threading is down to the manager but I believe that there are two designs for threading that have a large implementation knock on effect.
+
+1. You thread leafs - One creates a task for every artefact to be put into the target. The main thread will iterate through the hierarchy and enqueue each artefact to be processed.
+
+2. You thread branches - You serially iterate through a hierarchy and put its contents as you go. At some level of the hiearchy (probably the top).
+
+### Threading the leafs - issues
+
+- Handling of directories - If you need the directory to exist before writing to it, you can either: have the main thread, which is performing the iteration, create those directories as it goes before enqueuing the file upload tasks; or have the task for creating a directory, recursively enqueue as task to upload the contents when the directory is created. Since creating of directories is usually very quick, the inefficieny of doing building the hierachy serially is likely to be preferred to the complexity of having a recursive task upload implementation.
+
+to have to have a task to create the directory and the subsequently enqueue it's contents to be uploaded. cannot enqueue it as a task and
+
 ## Base classes
 
 Managers should be implemented as either a `LocalManager` or `RemoteManager`

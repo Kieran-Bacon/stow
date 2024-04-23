@@ -54,6 +54,10 @@ The file system manager is responsible for handling artefacts on the local file 
 !!! Note
     The stateless interface will initialise the `Manager` at the root of the filesystem. This allows all absolute paths to work as expected.
 
+# TODO
+
+For windows users, stow will automatically resolve the issues of filename lengths being too long.
+
 ## Amazon S3
 
 ```python
