@@ -23,8 +23,45 @@ from botocore.exceptions import ClientError
 
 
 import stow.exceptions
+from stow.storage_classes import StorageClass
 from stow.cli import cli, cat
-from stow.managers.amazon import Amazon, etagComparator
+from stow.managers.amazon import Amazon, etagComparator, AmazonStorageClass
+from stow.managers.google import GoogleStorageClass
+
+class Test_AmazonStorageClass(unittest.TestCase):
+
+    def test_toGeneric(self):
+
+        self.assertEqual(AmazonStorageClass.toGeneric(AmazonStorageClass.STANDARD),StorageClass.STANDARD)
+        self.assertEqual(AmazonStorageClass.toGeneric(AmazonStorageClass.REDUCED_REDUNDANCY),StorageClass.REDUCED_REDUNDANCY)
+        self.assertEqual(AmazonStorageClass.toGeneric(AmazonStorageClass.STANDARD_IA),StorageClass.INFREQUENT_ACCESS)
+        self.assertEqual(AmazonStorageClass.toGeneric(AmazonStorageClass.ONEZONE_IA),StorageClass.INFREQUENT_ACCESS)
+        self.assertEqual(AmazonStorageClass.toGeneric(AmazonStorageClass.INTELLIGENT_TIERING),StorageClass.INTELLIGENT_TIERING)
+        self.assertEqual(AmazonStorageClass.toGeneric(AmazonStorageClass.GLACIER),StorageClass.ARCHIVE)
+        self.assertEqual(AmazonStorageClass.toGeneric(AmazonStorageClass.DEEP_ARCHIVE),StorageClass.ARCHIVE)
+        self.assertEqual(AmazonStorageClass.toGeneric(AmazonStorageClass.OUTPOSTS),StorageClass.HIGH_PERFORMANCE)
+
+    def test_fromGeneric(self):
+
+        self.assertEqual(AmazonStorageClass.fromGeneric(StorageClass.REDUCED_REDUNDANCY), AmazonStorageClass.REDUCED_REDUNDANCY)
+        self.assertEqual(AmazonStorageClass.fromGeneric(StorageClass.STANDARD), AmazonStorageClass.STANDARD)
+        self.assertEqual(AmazonStorageClass.fromGeneric(StorageClass.INFREQUENT_ACCESS), AmazonStorageClass.STANDARD_IA)
+
+
+        with self.assertRaises(NotImplementedError):
+            AmazonStorageClass.fromGeneric(StorageClass.ARCHIVE)
+
+        with self.assertRaises(NotImplementedError):
+            AmazonStorageClass.fromGeneric(StorageClass.INTELLIGENT_TIERING)
+
+        with self.assertRaises(NotImplementedError):
+            AmazonStorageClass.fromGeneric(StorageClass.HIGH_PERFORMANCE)
+
+    def test_convert(self):
+
+        self.assertEqual(AmazonStorageClass.STANDARD, AmazonStorageClass.convert(GoogleStorageClass.STANDARD))
+
+
 
 @mock_s3
 class Test_Amazon(unittest.TestCase):
@@ -158,7 +195,7 @@ class Test_Amazon(unittest.TestCase):
             file.metadata
 
         with pytest.raises(stow.exceptions.ArtefactNoLongerExists):
-            manager._metadata('/file-2.txt')
+            manager._get_metadata('/file-2.txt')
 
     @set_initial_no_auth_action_count(3)
     def test_metadata_forbidden(self):
@@ -166,7 +203,21 @@ class Test_Amazon(unittest.TestCase):
         manager.touch('/file.txt')
 
         with pytest.raises(ClientError):
-            manager._metadata('/file.txt')
+            manager._get_metadata('/file.txt')
+
+    def test_setting_metadata(self):
+
+        manager = Amazon('bucket_name')
+        file = manager.touch('file1.txt')
+
+        self.assertEqual(file.metadata, {'ETag': '"d41d8cd98f00b204e9800998ecf8427e"'})
+
+        file.metadata = {'something': 'new'}
+
+        self.assertEqual(file.metadata, {'ETag': '"d41d8cd98f00b204e9800998ecf8427e"', 'something': 'new'})
+        self.assertEqual(manager.artefact('file1.txt').metadata, {'ETag': '"d41d8cd98f00b204e9800998ecf8427e"', 'something': 'new'})
+
+
 
 
 
@@ -841,3 +892,23 @@ class Test_Amazon(unittest.TestCase):
             self.assertTrue(
                 etagComparator(*[stow.artefact(x, type=stow.File) for x in [stow.join(directory, 'file-4.txt'), stow.join(directory, 'file-4.txt')]])
             )
+
+    def test_local_mv_with_workconfig(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            local = stow.touch(stow.join(directory, 'file1.txt'))
+            local.content(b'HERE IS SOME CONTENT')
+
+            worker_config = stow.WorkerPoolConfig(max_workers=1, join=False)
+            stow.mkdir('s3://example-bucket')
+            stow.mv(
+                local,
+                's3://example-bucket/file1.txt',
+                worker_config=worker_config
+            )
+
+            self.assertEqual(len(worker_config.futures), 1)
+            worker_config.join()
+
+        self.assertEqual(stow.artefact('s3://example-bucket/file1.txt').content(), b'HERE IS SOME CONTENT')

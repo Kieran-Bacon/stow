@@ -74,11 +74,26 @@ class Artefact:
         return self._manager.artefact(self._manager.dirname(self._path), type=Directory)
 
     @property
+    def tags(self):
+        """ Get accessible file metadata as hosted by the manager """
+        if self._tags is None:
+            self._tags = self._manager.get_tags(self)
+        return self._tags
+
+    @tags.setter
+    def tags(self, metadata: Dict[str, str]):
+        self._tags = self._manager.set_tags(self, metadata)
+
+    @property
     def metadata(self):
         """ Get accessible file metadata as hosted by the manager """
         if self._metadata is None:
-            self._metadata = self._manager._metadata(self._path)
+            self._metadata = self._manager.get_metadata(self)
         return self._metadata
+
+    @metadata.setter
+    def metadata(self, metadata: Dict[str, str]):
+        self._metadata = self._manager.set_metadata(self, metadata)
 
     @property
     def createdTime(self) -> datetime.datetime:
@@ -163,7 +178,13 @@ class Artefact:
             worker_config=worker_config
         )
 
-    def delete(self, force: bool = False):
+    def delete(
+            self,
+            force: bool = False,
+            *,
+            worker_config: Optional[WorkerPoolConfig] = None,
+            callback: AbstractCallback = DefaultCallback()
+        ):
         """ Delete this artefact from the disk
 
         Args:
@@ -172,7 +193,7 @@ class Artefact:
         Raises:
             OperationNotPermitted: If directory and deletion has not been deleted
         """
-        self._manager.rm(self, recursive=force)
+        self._manager.rm(self, recursive=force, callback=callback, worker_config=worker_config)
 
 class File(Artefact):
     """ A filesystem file object - a container of bytes representing some data

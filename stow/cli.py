@@ -1,7 +1,6 @@
 import click
 from click_option_group import optgroup
 
-import dataclasses
 import logging
 import pkg_resources
 from typing import Tuple, Optional, List
@@ -9,7 +8,7 @@ from typing import Tuple, Optional, List
 from .manager import Manager
 from .artefacts import File, Directory
 from .types import HashingAlgorithm
-from .callbacks import AbstractCallback, DefaultCallback, ProgressCallback
+from .callbacks import DefaultCallback, ProgressCallback
 
 log = logging.getLogger(__name__)
 
@@ -30,14 +29,16 @@ for entry_point in pkg_resources.iter_entry_points('stow_managers'):
         continue
 
     managerConfigs[entry_point.name] = config
-    managerOptions.append(
-        optgroup.group(
-            f'{entryManager.__name__} configuration',
-            help=f'Options for the {entryManager.__name__} manager'
+    arguments = config.arguments()
+    if arguments:
+        managerOptions.append(
+            optgroup.group(
+                f'{entryManager.__name__} configuration',
+                help=f'Options for the {entryManager.__name__} manager'
+            )
         )
-    )
-    for args, kwargs in config.arguments():
-        managerOptions.append(optgroup.option(*args, **kwargs))
+        for args, kwargs in arguments:
+            managerOptions.append(optgroup.option(*args, **kwargs))
 
 cli_decorators = [
     click.option(
@@ -50,11 +51,6 @@ cli_decorators = [
     click.option('--debug/--no-debug', default=False),
     click.pass_context
 ]
-
-@dataclasses.dataclass
-class StowContext:
-    manager: Manager
-    callback: AbstractCallback
 
 def dynamicDecorators(cli_decorators):
     def wraps(func):
@@ -232,10 +228,12 @@ def ls(manager: Manager, artefact: str, recursive: bool, type: Optional[str], co
         print(f"{artefactObj.path} - Count: {len(manager.ls(artefactObj, recursive=recursive, ignore_missing=True))}")
 
     else:
+        source = manager.artefact(artefact, type=Directory)
+
         print()
         print('Name'.ljust(70)+'|Type'.ljust(10)+' |Creation Date')
         print('='*114)
-        for subArtefacts in manager.iterls(artefact, recursive=recursive, ignore_missing=True):
+        for subArtefacts in manager.iterls(source, recursive=recursive, ignore_missing=True):
             if type_ is not None and not isinstance(subArtefacts, type_):
                 continue
             print(f"{subArtefacts.path.ljust(70)} {subArtefacts.__class__.__name__.ljust(10)} {subArtefacts.modifiedTime}")

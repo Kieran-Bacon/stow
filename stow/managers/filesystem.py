@@ -75,11 +75,20 @@ class FS(LocalManager):
         COPY_BUFFER_SIZE = 64 * 1024
 
     def _abspath(self, path: str) -> str:
+
+        abspath = os.path.join(
+            self._path or self.SEPARATOR,
+            path.lstrip(self.SEPARATORS_STRING)
+        )
+
+        drive = self._drive
+        if os.name == 'nt' and len(abspath) > 258:
+            drive = '\\\\?\\' + drive
+
         return os.path.abspath(
             os.path.join(
-                self._drive,
-                self._path or self.SEPARATOR,
-                path.lstrip(self.SEPARATORS_STRING)
+                drive,
+                abspath
             )
         )
 
@@ -446,6 +455,7 @@ class FS(LocalManager):
         modified_time: Optional[float] = None,
         accessed_time: Optional[float] = None,
         worker_config: Optional[WorkerPoolConfig] = None,
+        delete_source: bool = False,
         **kwargs
         ):
         """ For remote sources - we want to 'get' the artefact and place it directly at the destination location. This
@@ -470,6 +480,10 @@ class FS(LocalManager):
             worker_config=worker_config,
             force=True
         )
+
+        # Trigger delete of source
+        if delete_source:
+            source._manager._rm(source.path, callback=callback, worker_config=worker_config)
 
         # Create a partial artefact for the newly downloaded file
         return PartialArtefact(self, destination)
@@ -614,7 +628,7 @@ class FS(LocalManager):
 
     @classmethod
     def _signatureFromURL(cls, url: urllib.parse.ParseResult):
-        return {'path': url.scheme and url.scheme + ':'}, os.path.join(os.getcwd(), url.path)
+        return {'path': url.scheme and url.scheme + ':'}, os.path.join(os.getcwd(), url.path) if not os.path.isabs(url.path) else url.path
 
     class CommandLineConfig:
         def __init__(self, manager):

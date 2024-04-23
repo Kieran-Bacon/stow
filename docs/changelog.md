@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.4.0] - 2024-04-23
+
+### Added
+
+- Implemented `get_tags`, `set_tags`, `get_metadata`, and `set_metadata` public methods on the `Manager` interface + expanded the artefact interface with `tags` and `metadata` properties.
+
+### Changes
+
+- Changed mv behaviour to rely on `delete_source` signal now passed to `_put` implementations. This is to ensure that `mv` continues to work correctly in a threaded environment. Deletes need to happen once puts have been completed.
+- Extended the artefact `delete` interface to resemble the options on the `Manager.rm` interface.
+
+### Fixes
+
+- Fixed issue with windows filesystem where stow couldn't process or accept artefacts with filepaths longer than 256 characters
+- Fixed issue with `S3` bucket creation not including the default region
+- Improved log error and warning messages
+- Fixed bug in `Manager` where a mv command between non-compatible managers would do nothing
+
 ## [1.3.1] - 2024-01-21
 
 ### Added

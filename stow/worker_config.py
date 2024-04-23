@@ -90,10 +90,21 @@ class WorkerPoolConfig:
         return WorkerPoolConfig(self._executor, join=True, shutdown=False)
 
     def join(self):
+        """ Join the active tasks - for all enqueued futures iterate through them and wait for them to complete.
+        """
         for future in concurrent.futures.as_completed(self.futures):
             future.result()
 
     def conclude(self, cancel: bool = False):
+        """ Trigger as per the config the finalisation of the work - If the join and shutdown is False then do nothing
+        else do what ever the config declares. Handle exceptions from the futures and ensure the internal worker pool is
+        cleaned up
+
+        Args:
+            cancel (bool): Interupt the work, cancelling any unstarted tasks and return early. Will still wait in-progress
+                tasks to finish.
+
+        """
         exception = None
         try:
             if not cancel and self._executor is not None and (self.will_shutdown or self.will_join):

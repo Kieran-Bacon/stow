@@ -1,7 +1,7 @@
 import os
 import abc
 import typing
-from typing import Union, Optional, Tuple, Any
+from typing import Union, Optional, Tuple, Any, Callable
 
 import tqdm
 import tqdm.notebook
@@ -44,7 +44,7 @@ class AbstractCallback(abc.ABC): # pragma: no cover
         ...
 
     @abc.abstractmethod
-    def get_bytes_transfer(self, path: str, bytes: int):
+    def get_bytes_transfer(self, path: str, bytes: Optional[int] = None) -> Callable[[int], None]:
         pass
 
 class NoneImplementedCallback(AbstractCallback):
@@ -181,7 +181,7 @@ class ProgressCallback(AbstractCallback):
         else:
             raise RuntimeError('File size exceeds all of human data to this point - so probs a problem')
 
-    def get_bytes_transfer(self, path, total_bytes_transfer):
+    def get_bytes_transfer(self, path, total_bytes_transfer: Optional[int] = None):
         log.debug('Initialising transfer for path=%s', path)
 
         if self._notebook:

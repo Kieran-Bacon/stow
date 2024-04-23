@@ -710,6 +710,36 @@ class Manager(AbstractManager):
         manager, artefact, _ = self._splitArtefactForm(artefact, require=True, external=False)
         return manager._set_artefact_time(artefact, modified_datetime, accessed_datetime)
 
+    def get_tags(
+            self,
+            artefact: ArtefactOrPathLike
+        ) -> Dict[str, str]:
+        manager, artefact, _ = self._splitArtefactForm(artefact, load=False, require=True, external=False)
+        return manager._get_tags(artefact)
+
+    def set_tags(
+            self,
+            artefact: ArtefactOrPathLike,
+            metadata: Metadata
+        ) -> Dict[str, str]:
+        manager, artefact, _ = self._splitArtefactForm(artefact, load=False, require=True, external=False)
+        return manager._set_tags(artefact, metadata)
+
+    def get_metadata(
+            self,
+            artefact: ArtefactOrPathLike
+        ) -> Dict[str, str]:
+        manager, artefact, _ = self._splitArtefactForm(artefact, load=False, require=True, external=False)
+        return manager._get_metadata(artefact)
+
+    def set_metadata(
+            self,
+            artefact: ArtefactOrPathLike,
+            metadata: Metadata
+        ) -> Dict[str, str]:
+        manager, artefact, _ = self._splitArtefactForm(artefact, load=False, require=True, external=False)
+        return manager._set_metadata(artefact, metadata)
+
     def exists(self, *artefacts: ArtefactOrPathLike) -> bool:
         """ Return true if the given artefact is a member of the manager, or the path is correct for the manager and it
         leads to a File or Directory.
@@ -1037,7 +1067,7 @@ class Manager(AbstractManager):
                 )
 
                 # Load the downloaded artefact from the local location and return
-                gottenArtefact = PartialArtefact(self.connect(manager="FS"), destination)
+                gottenArtefact = PartialArtefact(self.connect(manager="FS"), destinationAbspath)
 
             else:
                 if not isinstance(obj, File):
@@ -1350,10 +1380,9 @@ class Manager(AbstractManager):
             else:
 
                 # Moving between manager types - put the object and then delete the old one
-                movedArtefact = self.put(
+                movedArtefact = destinationManager._put(
                     sourceObj,
-                    destination,
-                    overwrite=overwrite,
+                    destinationPath,
                     callback=callback,
                     metadata=metadata,
                     modified_time=utils.timestampToFloatOrNone(modified_time),
@@ -1361,8 +1390,8 @@ class Manager(AbstractManager):
                     storage_class=storage_class,
                     worker_config=worker_config,
                     content_type=content_type,
+                    delete_source=True
                 )
-                sourceManager._rm(sourceObj.path, callback=callback, worker_config=worker_config)
 
             return movedArtefact
 
