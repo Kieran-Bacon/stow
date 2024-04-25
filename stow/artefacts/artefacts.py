@@ -35,6 +35,7 @@ class Artefact:
         createdTime: Optional[datetime.datetime] = None,
         modifiedTime: Optional[datetime.datetime] = None,
         accessedTime: Optional[datetime.datetime] = None,
+        tags: Optional[Dict[str, str]] = None,
         metadata: Optional[Dict[str, str]] = None,
         ):
 
@@ -44,6 +45,7 @@ class Artefact:
         self._createdTime = createdTime
         self._modifiedTime = modifiedTime
         self._accessedTime = accessedTime
+        self._tags = tags
         self._metadata = metadata
 
     def __reduce__(self):

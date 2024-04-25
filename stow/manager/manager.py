@@ -1117,6 +1117,7 @@ class Manager(AbstractManager):
         overwrite: bool = False,
         *,
         callback: AbstractCallback = DefaultCallback(),
+        tags: Optional[Metadata] = None,
         metadata: Optional[Metadata] = None,
         modified_time: Optional[TimestampLike] = None,
         accessed_time: Optional[TimestampLike] = None,
@@ -1132,6 +1133,7 @@ class Manager(AbstractManager):
         destination: ArtefactOrPathLike,
         overwrite: bool = False,
         *,
+        tags: Optional[Metadata] = None,
         metadata: Optional[Metadata] = None,
         callback: AbstractCallback = DefaultCallback(),
         modified_time: Optional[TimestampLike] = None,
@@ -1148,6 +1150,7 @@ class Manager(AbstractManager):
         destination: ArtefactOrPathLike,
         overwrite: bool = False,
         *,
+        tags: Optional[Metadata] = None,
         metadata: Optional[Metadata] = None,
         callback: AbstractCallback = DefaultCallback(),
         modified_time: Optional[TimestampLike] = None,
@@ -1163,6 +1166,7 @@ class Manager(AbstractManager):
         destination: ArtefactOrPathLike,
         overwrite: bool = False,
         *,
+        tags: Optional[Metadata] = None,
         metadata: Optional[Metadata] = None,
         callback: AbstractCallback = DefaultCallback(),
         modified_time: Optional[TimestampLike] = None,
@@ -1209,6 +1213,7 @@ class Manager(AbstractManager):
                 putArtefact = destinationManager._putBytes(
                     source,
                     destinationPath,
+                    tags=tags,
                     metadata=metadata,
                     callback=callback,
                     modified_time=utils.timestampToFloatOrNone(modified_time),
@@ -1233,6 +1238,7 @@ class Manager(AbstractManager):
                 putArtefact = destinationManager._put(
                     sourceObj,
                     destinationPath,
+                    tags=tags,
                     metadata=metadata,
                     callback=callback,
                     modified_time=modified_time,
@@ -1254,6 +1260,7 @@ class Manager(AbstractManager):
         overwrite: bool = False,
         *,
         callback: AbstractCallback = DefaultCallback(),
+        tags: Optional[Metadata] = None,
         metadata: Optional[Metadata] = None,
         modified_time: Optional[datetime.datetime] = None,
         accessed_time: Optional[datetime.datetime] = None,
@@ -1301,6 +1308,7 @@ class Manager(AbstractManager):
                     sourceObj,
                     destinationPath,
                     callback=callback,
+                    tags=tags,
                     metadata=metadata,
                     modified_time=utils.timestampToFloatOrNone(modified_time),
                     accessed_time=utils.timestampToFloatOrNone(accessed_time),
@@ -1312,7 +1320,18 @@ class Manager(AbstractManager):
             else:
 
                 log.warning('Cannot perform copy on manager - defaulting to put for %s->%s', source, destination)
-                copiedArtefact = self.put(sourceObj, destination, callback=callback, worker_config=worker_config)
+                copiedArtefact = destinationManager._put(
+                    sourceObj,
+                    destinationPath,
+                    callback=callback,
+                    tags=tags,
+                    metadata=metadata,
+                    modified_time=utils.timestampToFloatOrNone(modified_time),
+                    accessed_time=utils.timestampToFloatOrNone(accessed_time),
+                    storage_class=storage_class,
+                    content_type=content_type,
+                    worker_config=worker_config,
+                )
 
             return copiedArtefact
 
@@ -1326,6 +1345,7 @@ class Manager(AbstractManager):
         overwrite: bool = False,
         *,
         callback: AbstractCallback = DefaultCallback(),
+        tags: Optional[Metadata] = None,
         metadata: Optional[Metadata] = None,
         content_type: Optional[str] = None,
         modified_time: Optional[datetime.datetime] = None,
@@ -1369,6 +1389,7 @@ class Manager(AbstractManager):
                     sourceObj,
                     destinationPath,
                     callback=callback,
+                    tags=tags,
                     metadata=metadata,
                     modified_time=utils.timestampToFloatOrNone(modified_time),
                     accessed_time=utils.timestampToFloatOrNone(accessed_time),
@@ -1384,6 +1405,7 @@ class Manager(AbstractManager):
                     sourceObj,
                     destinationPath,
                     callback=callback,
+                    tags=tags,
                     metadata=metadata,
                     modified_time=utils.timestampToFloatOrNone(modified_time),
                     accessed_time=utils.timestampToFloatOrNone(accessed_time),
@@ -1579,6 +1601,7 @@ class Manager(AbstractManager):
 
         content_type: Optional[str] = None,
         storage_class: Optional[StorageClass] = None,
+        tags: Optional[Metadata] = None,
         metadata: Optional[Metadata] = None,
         modified_time: Optional[datetime.datetime] = None,
         accessed_time: Optional[datetime.datetime] = None,
@@ -1616,6 +1639,7 @@ class Manager(AbstractManager):
                 destinationPath,
                 overwrite=overwrite,
                 callback=callback,
+                tags=tags,
                 metadata=metadata,
                 modified_time=modified_time,
                 accessed_time=accessed_time,
@@ -1634,6 +1658,7 @@ class Manager(AbstractManager):
             sync_method = destinationManager._put
 
         sync_arguments = {
+            "tags": tags,
             "metadata": metadata,
             "modified_time": utils.timestampToFloatOrNone(modified_time),
             "accessed_time": utils.timestampToFloatOrNone(accessed_time),
@@ -1787,6 +1812,7 @@ class Manager(AbstractManager):
         modified_time: Optional[TimestampLike] = None,
         accessed_time: Optional[TimestampLike] = None,
         *,
+        tags: Optional[Metadata] = None,
         metadata: Optional[Metadata] = None,
         content_type: Optional[str] = None,
         storage_class: Optional[StorageClass] = None
@@ -1814,6 +1840,7 @@ class Manager(AbstractManager):
             return manager._putBytes(
                 b'',
                 path,
+                tags=tags,
                 metadata=metadata,
                 callback=DefaultCallback(),
                 modified_time=utils.timestampToFloatOrNone(modified_time),

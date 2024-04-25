@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.4.1] - 2024-04-25
+
+### Changed
+
+- Added tags to the interface of the abstract implementations
+- Added tags to the interface in the manager
+- Updated amazon to use the tags field
+- Add tests for the setting of tags via mv, put, and putBytes.
+
+### Fixed
+
+- Fixed error with artefact tags where `_tags` was not defined and could not be used to return.
+
 ## [1.4.0] - 2024-04-23
 
 ### Added
