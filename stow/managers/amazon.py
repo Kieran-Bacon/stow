@@ -899,6 +899,7 @@ class Amazon(RemoteManager):
         worker_config: WorkerPoolConfig,
         content_type: Optional[str],
         storage_class: Optional[StorageClass],
+        tags: Optional[Metadata] = None,
         metadata: Optional[Metadata] = None,
         delete_source: bool = False,
         delete_root: Optional[DeleteRoot] = None,
@@ -936,6 +937,7 @@ class Amazon(RemoteManager):
                         callback=callback,
                         worker_config=worker_config,
                         content_type=content_type,
+                        tags=tags,
                         metadata=metadata,
                         storage_class=storage_class,
                         delete_source=delete_source,
@@ -987,6 +989,9 @@ class Amazon(RemoteManager):
                                 separator='/'
                             )
 
+                            if tags is not None:
+                                extra_args['Tagging'] = urllib.parse.urlencode(self._freezeMetadata(tags, artefact))
+
                             if metadata is not None:
                                 extra_args['Metadata'] = self._freezeMetadata(metadata, artefact)
 
@@ -1031,6 +1036,9 @@ class Amazon(RemoteManager):
 
             else:
 
+                if tags is not None:
+                    extra_args['Tagging'] = urllib.parse.urlencode(self._freezeMetadata(tags, source))
+
                 if metadata is not None:
                     extra_args['Metadata'] = self._freezeMetadata(metadata, source)
 
@@ -1054,6 +1062,7 @@ class Amazon(RemoteManager):
         destination: str,
         *,
         callback: AbstractCallback,
+        tags: Optional[Metadata] = None,
         metadata: Optional[Metadata] = None,
         content_type: Optional[str],
         storage_class: Optional[StorageClass],
@@ -1080,6 +1089,7 @@ class Amazon(RemoteManager):
                 ExtraArgs={
                     "StorageClass": amazon_storage_class.value,
                     "ContentType": (content_type or mimetypes.guess_type(destination)[0] or 'application/octet-stream'),
+                    "Tagging": (urllib.parse.urlencode({str(k): str(v) for k, v in tags.items()}) if tags else ""),
                     "Metadata": ({str(k): str(v) for k, v in metadata.items()} if metadata else {})
                 },
                 Callback=callback.get_bytes_transfer(destination, len(fileBytes)),
@@ -1187,7 +1197,8 @@ class Amazon(RemoteManager):
         *,
         move: bool = False,
         callback: AbstractCallback,
-        metadata: Optional[Metadata] = None,
+        tags: Optional[Metadata],
+        metadata: Optional[Metadata],
         content_type: Optional[str],
         storage_class: Optional[StorageClassInterface],
         worker_config: WorkerPoolConfig,
@@ -1217,6 +1228,7 @@ class Amazon(RemoteManager):
                     '/'.join((destination, bucket['Name'])),
                     move=False,
                     callback=callback,
+                    tags=tags,
                     metadata=metadata,
                     content_type=content_type,
                     storage_class=storage_class,
@@ -1237,6 +1249,7 @@ class Amazon(RemoteManager):
                             '/' + artefact.basename,
                             move=False,
                             callback=callback,
+                            tags=tags,
                             metadata=metadata,
                             content_type=content_type,
                             storage_class=storage_class,
@@ -1260,6 +1273,9 @@ class Amazon(RemoteManager):
                     callback.writing(len(result))
 
                     for sourceSubKey, sourceSubFile in zip(result.keys, result.files):
+
+                        if tags is not None:
+                            copy_args['Tagging'] = urllib.parse.urlencode(self._freezeMetadata(tags, sourceSubFile))
 
                         if metadata is not None:
                             copy_args['Metadata'] = self._freezeMetadata(metadata, sourceSubFile)

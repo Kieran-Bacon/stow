@@ -912,3 +912,40 @@ class Test_Amazon(unittest.TestCase):
             worker_config.join()
 
         self.assertEqual(stow.artefact('s3://example-bucket/file1.txt').content(), b'HERE IS SOME CONTENT')
+
+    def test_mv_with_tags_set(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            local = stow.join(directory, 'file1.txt')
+            with open(local, 'w') as handle:
+                handle.write('HERE IS SOME CONTENT')
+
+            stow.mkdir('s3://example-bucket')
+            remote = stow.mv(
+                local,
+                's3://example-bucket/file1.txt',
+                tags={
+                    'tag': 'example'
+                }
+            )
+
+            self.assertDictEqual(remote.tags, {"tag": "example"})
+
+    def test_put_with_tags(self):
+
+        amazon = Amazon('bucket_name')
+
+        file = amazon.put(b"content", 'file1.txt', tags={'hello': 'there'})
+        self.assertEqual(file.tags, {'hello': 'there'})
+
+        with tempfile.TemporaryDirectory() as directory:
+
+            local = stow.join(directory, 'file.txt')
+
+            with open(local, 'w') as handle:
+                handle.write('something')
+
+            file = amazon.put(local, 'file2.txt', tags={'hello': 'buddy'})
+            self.assertEqual(file.tags, {'hello': 'buddy'})
+
