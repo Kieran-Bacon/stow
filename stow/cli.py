@@ -1,16 +1,21 @@
 import click
 from click_option_group import optgroup
 
+import shutil
 import logging
 import pkg_resources
-from typing import Tuple, Optional, List
+import functools
+import datetime
+from typing import Tuple, Optional, List, Any
 
 from .manager import Manager
-from .artefacts import File, Directory
+from .artefacts import Artefact, File, Directory
 from .types import HashingAlgorithm
 from .callbacks import DefaultCallback, ProgressCallback
+from .exceptions import ArtefactTypeError
 
 log = logging.getLogger(__name__)
+type_builtin = type
 
 # Build the initial stow cli options from loaded managers
 managerConfigs = {}
@@ -25,7 +30,7 @@ for entry_point in pkg_resources.iter_entry_points('stow_managers'):
 
     except:
         # The Manager is not installed or cannot be loaded
-        log.warning('Manager %s could not be loaded', entry_point.name)
+        log.debug('Manager %s could not be loaded', entry_point.name)
         continue
 
     managerConfigs[entry_point.name] = config
@@ -86,7 +91,11 @@ def cli(ctx: click.Context, debug: bool, manager: str, **kwargs):
 
     else:
         config = managerConfigs[manager]
-        managerObj = config.initialise(kwargs)
+        try:
+            managerObj = config.initialise(kwargs)
+        except Exception as e:
+            log.error("Failed to initialise manager [%s] with reason: %s", manager, e)
+            exit()
 
     # Update all default callbacks to
     DefaultCallback.become(ProgressCallback())
@@ -211,11 +220,13 @@ def get(manager: Manager, source: str, destination: str, overwrite: bool):
 
 @cli.command()
 @click.argument('artefact', default=None, required=False)
-@click.option('--recursive', default=False, is_flag=True, help='List artefacts recursively')
+@click.option('-r', '--recursive', default=False, is_flag=True, help='List artefacts recursively')
 @click.option('-t', '--type', default=None, type=click.Choice(('File', 'Directory')), help='Filter artefacts to type given')
 @click.option('--count', default=False, is_flag=True, help='Return the count of artefacts not the artefact paths')
+@click.option('-c', '--columns', default='type,createdTime', type=str, help="Comma separated list of artefact metadata to tabulate e.g. modifiedTime,size")
+@click.option('-o', '--order', default='type', type=str, help='Comma separated list of fields to order the files by e.g type,createdTime')
 @click.pass_obj
-def ls(manager: Manager, artefact: str, recursive: bool, type: Optional[str], count: bool = False):
+def ls(manager: Manager, artefact: str, recursive: bool, type: Optional[str], count: bool = False, columns: str = 'type,createdTime', order: str = 'type'):
     """ List artefacts in a directory """
 
     if type is not None:
@@ -228,17 +239,207 @@ def ls(manager: Manager, artefact: str, recursive: bool, type: Optional[str], co
         print(f"{artefactObj.path} - Count: {len(manager.ls(artefactObj, recursive=recursive, ignore_missing=True))}")
 
     else:
-        source = manager.artefact(artefact, type=Directory)
+        try:
+            source = manager.artefact(artefact)
+        except Exception as e:
+            print(str(e))
+            exit(1)
 
-        print()
-        print('Name'.ljust(70)+'|Type'.ljust(10)+' |Creation Date')
-        print('='*114)
-        for subArtefacts in manager.iterls(source, recursive=recursive, ignore_missing=True):
-            if type_ is not None and not isinstance(subArtefacts, type_):
+        if isinstance(source, File):
+            raise ArtefactTypeError(f'Cannot perform ls commad on a file: {source}')
+
+        # Extract the list of fields to be used
+        columns: List[str] = list(dict.fromkeys(columns.split(',')))
+        column_types: List[Any] = []
+        rows: List[List[Any]] = []
+
+        include_type = "type" in columns
+        if include_type:
+            columns.remove('type')
+
+        # Iterate over the artefacts in the location and build the row data
+        for artefactIndex, subArtefact in enumerate(manager.iterls(source, recursive=recursive, ignore_missing=True)):
+            if type_ is not None and not isinstance(subArtefact, type_):
                 continue
-            print(f"{subArtefacts.path.ljust(70)} {subArtefacts.__class__.__name__.ljust(10)} {subArtefacts.modifiedTime}")
-        print()
 
+            row = [source.relpath(subArtefact)]
+
+            if include_type:
+                row.append(subArtefact.__class__.__name__)
+
+            for column_index, column in enumerate(columns):
+                try:
+                    value = getattr(subArtefact, column)
+                except:
+                    if manager.SUPPORTS_METADATA and isinstance(subArtefact, File):
+                        value = subArtefact.metadata.get(column)
+                    else:
+                        value = None
+
+                row.append(value)
+                value_type = type_builtin(value)
+
+                if not artefactIndex:
+                    # First time creating the column type
+                    column_types.append(value_type)
+
+                elif value is not None:
+                    column_type = column_types[column_index]
+                    if issubclass(column_type, type_builtin(None)):
+                        column_types[column_index] = value_type
+                    else:
+                        assert column_type == value_type, (columns[column_index], column_type, column_type is None, value_type)
+
+            rows.append(row)
+
+        # Add the special fields to the columns list
+        columns.insert(0, 'path')
+        column_types.insert(0, str)
+        if include_type:
+            columns.insert(1, 'type')
+            column_types.insert(1, Artefact)
+
+        # Extract the order and apply
+        descending = '-' == order[0]
+        if descending: order = order[1:]
+        order_indexes = [columns.index(x) for x in order.split(',') if x in columns]
+        if order_indexes:
+            rows = sorted(rows, key=lambda r: tuple(r[i] for i in order_indexes), reverse=descending)
+
+
+
+        # Convert data into a render able table
+
+        # Fetch the dimensions of the display
+        gui_dimensions = shutil.get_terminal_size()
+
+        # Create the initial strings of display rows/data
+        rows_rendered = [[str(v) if v is not None else '' for v in row] for row in rows]
+
+        # Iteratively improve the row display until a solution has been found
+        while True:
+
+            # Reduce the row data down to a single list of the length of columns whose with the length of the value
+            max_column_widths = functools.reduce(
+                lambda counts, row: [max(len(r), c) for r, c in zip(row, counts)],
+                [columns] + rows_rendered,  # Include the column names
+                [0]*len(columns) # Default initial values
+            )
+
+            # Find out the required max length to display all information including the spaces between the columns
+            sum_data_width = sum(max_column_widths)
+            required_data_width = sum_data_width + len(columns) - 1
+
+
+            if required_data_width < gui_dimensions.columns:
+                # The display data is less than the display region - we can break out
+
+                white_space_per_column = min((gui_dimensions.columns - sum(max_column_widths) - 10)//len(columns), 4)
+                max_width = sum(max_column_widths) + (len(columns) - 1) * white_space_per_column
+
+                break
+
+            else:
+                # The lines are too large, we must find ways to reduce the data
+
+                # Identify the largest columns for reduction first
+                resize_target_columns = [i for i, s in enumerate(max_column_widths) if s == max(max_column_widths)]
+
+                # Iteratively reduce those columns
+                for column_index in resize_target_columns:
+
+                    column_type = column_types[column_index]
+                    print(column_type, column_index)
+
+                    if issubclass(column_type, str):
+                        # Half the string length and use elipses
+
+                        new_max_length = (max_column_widths[column_index]//2) - 3
+                        print(max_column_widths[column_index], new_max_length)
+
+                        for row_index in range(len(rows)):
+                            value_render = rows_rendered[row_index][column_index]
+
+                            if len(value_render) > new_max_length:
+                                rows_rendered[row_index][column_index] = '...' + value_render[-new_max_length:]
+
+                    elif issubclass(column_type, datetime.datetime):
+                        # The datetime will get its precision dropped
+
+                        datetime.datetime.now(datetime.timezone.utc)
+
+                        for row_index in range(len(rows)):
+
+
+                            value = rows[row_index][column_index]
+                            value_render = rows_rendered[row_index][column_index]
+
+                            # print(value, value_render)
+
+                            if value_render == '...':
+                                break
+
+                            # Formats
+                            value_renders = [
+                                value.strftime(f) for f in (
+                                    '%Y-%m-%d %H:%M:%S.%f',
+                                    '%Y-%m-%d %H:%M:%S',
+                                    '%Y-%m-%d',
+                                    '%y-%m-%d',
+                                )
+                            ]
+                            value_renders.insert(0, str(value))
+
+
+
+                            # Create a mapping from current to next style
+                            next_style_mapper = {cs: ns for cs, ns in zip(value_renders, value_renders[1:])}
+
+                            print(next_style_mapper)
+
+                            print(value_render, value_render in next_style_mapper)
+
+                            if value_render in next_style_mapper:
+                                # We have a next style to use instead
+                                value_render = next_style_mapper[value_render]
+                            else:
+                                value_render = '...'
+
+                            rows_rendered[row_index][column_index] = value_render
+
+                        else:
+                            # We didn't break meaning that values were updated
+                            continue
+
+                        # Delete column
+                        del columns[column_index]
+                        for row_index in range(len(rows)):
+                            del rows[row_index][column_index]
+                            del rows_rendered[row_index][column_index]
+
+                    else:
+                        raise ValueError(f'Unhandled row type: {value_type}')
+
+        print() # Create buffer line in output
+        print('Directory:', source.abspath)
+        print(
+            "|".join(
+                (
+                    column.ljust(width + white_space_per_column)
+                    for column, width in zip(columns, max_column_widths)
+                )
+            )
+        )
+        print("="*(max_width + len(columns)))
+        for row in rows_rendered:
+            print(
+                "|".join(
+                    (
+                        r.ljust(width + white_space_per_column)
+                        for r, width in zip(row, max_column_widths)
+                    )
+                )
+            )
 
 @cli.command()
 @click.argument('source')
