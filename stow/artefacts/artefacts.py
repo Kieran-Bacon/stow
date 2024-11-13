@@ -135,7 +135,6 @@ class Artefact:
     @property
     def basename(self):
         """ Basename of the artefact - holding directory path removed leaving filename and extension """
-        self._manager.basename(self.abspath)
         return self._manager.basename(self)
     @basename.setter
     def basename(self, basename: str):
