@@ -57,6 +57,7 @@ class Manager(AbstractManager):
     ISOLATED = False
     SAFE_FILE_OVERWRITE = False
     SAFE_DIRECTORY_OVERWRITE = False
+    SUPPORTS_METADATA: bool = False
 
     _READONLYMODES = ["r", "rb"]
     _MULTI_SEP_REGEX = re.compile(r"(\\{2,})|(\/{2,})")
@@ -799,11 +800,7 @@ class Manager(AbstractManager):
 
         for segment in paths:
 
-            if isinstance(segment, Artefact):
-                # Convert artefacts to paths
-                segment = segment.path
-
-            elif isinstance(segment, os.PathLike):
+            if isinstance(segment, os.PathLike):
                 segment = os.fspath(segment)
 
             if not segment:
