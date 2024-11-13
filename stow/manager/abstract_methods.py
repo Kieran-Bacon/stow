@@ -17,10 +17,6 @@ class AbstractManager:
     by developers that want to extend the stow manager library
     """
 
-    # @abstractmethod
-    # def __repr__(self):
-    #     pass
-
     @abstractmethod
     def _cwd(self) -> str:
         """ Return the default working directory for the manager - used to default the artefact path if no path provided
