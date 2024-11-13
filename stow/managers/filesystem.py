@@ -637,7 +637,7 @@ class FS(LocalManager):
         @staticmethod
         def arguments() -> typing.List[typing.Tuple]:
             return [
-                (('-r', '--root'), {'help': 'The root/cwd location of the manager'})
+                (('--root',), {'help': 'The root/cwd location of the manager'}),
             ]
 
         def initialise(self, kwargs):

@@ -177,6 +177,7 @@ class Amazon(RemoteManager):
 
     """
 
+    SUPPORTS_METADATA = True
     SAFE_FILE_OVERWRITE = True
     SAFE_DIRECTORY_OVERWRITE = False  # The directory can have lingering artefacts during - must remove files beforehand
     SEPARATOR = '/'
@@ -1454,11 +1455,11 @@ class Amazon(RemoteManager):
         @staticmethod
         def arguments() -> typing.List[typing.Tuple]:
             return [
-                (('-k', '--access-key'), {'help': 'AWS access key id'}),
-                (('-s', '--secret-key'), {'help': 'AWS secret access key'}),
-                (('-t', '--token'), {'help': 'AWS session token'}),
-                (('-r', '--region-name'), {'help': 'Region name'}),
-                (('-p', '--profile'), {'help': 'Select aws profile credentials'}),
+                (('--access-key',), {'help': 'AWS access key id'}),
+                (('--secret-key',), {'help': 'AWS secret access key'}),
+                (('--token',), {'help': 'AWS session token'}),
+                (('--region-name',), {'help': 'Region name'}),
+                (('--profile',), {'help': 'Select aws profile credentials'}),
             ]
 
         def initialise(self, kwargs):
