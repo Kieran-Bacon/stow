@@ -2,6 +2,9 @@
 
 ## Packages
 
+::: stow
+::: stow.callbacks
+
 ### ![mkapi](stow.manager|plain|apilink)
 
 ## Modules

@@ -1,10 +1,13 @@
 site_name: Stow
 # theme: readthedocs
 theme:
-    name: material
+    name: readthedocs
 markdown_extensions:
     - tables
     - attr_list
+    - admonition
+    - pymdownx.details
+    - pymdownx.superfences
 # extra_css: [static/css/main.css]
 nav:
     - Home: index.md

@@ -1,14 +1,16 @@
 # Stow
 
-`stow` is a package that supercharges your interactions with files and directories, and enables you to write filesystem agnostic code. With `stow` you can access and manipulate local and remote artefacts seamlessly with a rich and familiar interface. `stow` gives abstraction from storage implementations and solves compatibility issues, allowing code to be highly flexible.
+`stow` is a package that supercharges your interactions storage artefacts, and enables you to write filesystem agnostic code you can rely on. With `stow` you can access and manipulate local and remote artefacts seamlessly with a rich and familiar interface. `stow` gives abstraction from storage implementations and solves compatibility issues, allowing code to be highly flexible.
 
-`stow` is meant to be a drop in replacement for the `os.path` module, providing full coverage of its interface. Furthermore, `stow` extends the interface to work with remote files and directories and to include methods that follow conventional artefact manipulation paradigms like `put`, `get`, `ls`, `rm`, in a concise and highly functional manner.
+`stow` can be a to be a drop in replacement for the `os.path` module, providing full coverage of its interface. The principal artefact objects also implement the `os.pathlike` interface making them highly compatible with buildin and third party libraries.
+
+Furthermore, the `stow` interface provides powerful convient functions for artefact manipluation, such as `sync`, `digest`, `prune`, all of which work with local and remote storage artefacts seamlessly.
 
 ```python
 import stow
 
-for art in stow.ls():
-    print(art)
+for artefact in stow.ls():
+    print(artefact)
 # <stow.Directory: /home/kieran/stow/.pytest_cache>
 # <stow.Directory: /home/kieran/stow/tests>
 # <stow.File: /home/kieran/stow/mkdocs.yml modified(2020-06-27 10:24:10.909885) size(68 bytes)>
@@ -22,17 +24,42 @@ with stow.open("requirements.txt", "r") as handle:
 # boto3
 
 
-stow.put("requirements.txt", "s3://example-bucket/projects/stow/requirements.txt")
+remote_file = stow.put("requirements.txt", "s3://example-bucket/projects/stow/requirements.txt")
 
-with stow.open("s3://example-bucket/projects/stow/requirements.txt", "r") as handle:
+with stow.open(remote_file, "r") as handle:
     print(handle.read())
 # tqdm
 # pyini
 # boto3
 
+
 print(stow.getmtime("s3://example-bucket/projects/stow/requirements.txt"))
 # 1617381185.341602
+print(stow.getmtime(remote_file))
+# 1617381185.341602
+print(remote_file.modifiedTime)
+# 2020-05-25 14:00:59.423165
 ```
+
+## Installation
+
+```bash
+$ pip install stow
+$ pip install stow==1.0.0
+$ pip install stow[all,cli,s3,k8s,ssh,test]
+```
+
+By default, stow provides local artefact manipulation only, and does not depend on packages required by remote storage implementations. To enable backends like **amazon's S3**, you will need to enable them by specifying them as extra-requirements e.g. `pip install stow[s3,ssh]`
+
+Additionally, to enable to CLI part, you will need to explicitly install `pip install stow[cli]`
+
+Alternatively you can install everything (except testing dependancies) by `pip install stow[all]`
+
+!!! Note
+    The latest development version can always be found on [GitHub](https://github.com/Kieran-Bacon/stow){target=_blank}.
+
+    For best results, please ensure your version of Python is up-to-date. For more information on how to get the latest version of Python, please refer to the official [Python documentation](https://www.python.org/downloads/){target=_blank}.
+
 
 ## Why use stow?
 
@@ -143,27 +170,7 @@ configs = loadInConfigs('ssh://admin:password@.../configs')  # SSH
 
 And with that you can handle configurations files being stored locally, on s3, on another container. Simple yet powerful.
 
-## Installation
 
-You can get stow by:
-
-```bash
-$ pip install stow
-$ pip install stow==1.0.0
-```
-
-To use `stow`, simply import the package and begin to use its rich interface
-
-```python
-import stow
-
-stow.ls()
-```
-
-!!! Note
-    The latest development version can always be found on [GitHub](https://github.com/Kieran-Bacon/stow){target=_blank}.
-
-    For best results, please ensure your version of Python is up-to-date. For more information on how to get the latest version of Python, please refer to the official [Python documentation](https://www.python.org/downloads/){target=_blank}.
 
 ## Paths, Artefacts, and Managers
 
