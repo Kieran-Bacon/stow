@@ -16,7 +16,7 @@ import functools
 import pkg_resources
 
 from .abstract_methods import AbstractManager
-from ..worker_config import WorkerPoolConfig
+from ..worker_config import WorkerPoolConfig, SchedulableThreadPool
 from ..localiser import Localiser
 from ..types import StrOrPathLike, TimestampLike, TimestampAble, HashingAlgorithm
 from ..storage_classes import StorageClass
@@ -997,7 +997,7 @@ class Manager(AbstractManager):
         callback: AbstractCallback = DefaultCallback(),
         modified_time: Optional[TimestampLike] = None,
         accessed_time: Optional[TimestampLike] = None,
-        worker_config: Optional[WorkerPoolConfig] = None,
+        thread_pool: Optional[SchedulableThreadPool] = None,
         ) -> bytes:
         pass
     @overload
@@ -1010,7 +1010,7 @@ class Manager(AbstractManager):
         callback: AbstractCallback = DefaultCallback(),
         modified_time: Optional[TimestampLike] = None,
         accessed_time: Optional[TimestampLike] = None,
-        worker_config: Optional[WorkerPoolConfig] = None,
+        thread_pool: Optional[SchedulableThreadPool] = None,
         ) -> ArtefactType:
         pass
     def get(
@@ -1022,7 +1022,7 @@ class Manager(AbstractManager):
         callback: AbstractCallback = DefaultCallback(),
         modified_time: Optional[TimestampLike] = None,
         accessed_time: Optional[TimestampLike] = None,
-        worker_config: Optional[WorkerPoolConfig] = None,
+        thread_pool: Optional[SchedulableThreadPool] = None,
         ) -> Union[Artefact, bytes]:
         """ Get an artefact from a local or remote source and download the artefact either to a local artefact or as bytes
 
@@ -1035,46 +1035,42 @@ class Manager(AbstractManager):
             Artefact|bytes: The local artefact downloaded, or the bytes of the source artefact.
         """
 
-        worker_config = worker_config or WorkerPoolConfig(shutdown=True)
+        # Split into object and path - Ensure that the artefact to get is from this manager
+        manager, obj, _ = self._splitArtefactForm(source, external=False)
 
-        try:
-            # Split into object and path - Ensure that the artefact to get is from this manager
-            manager, obj, _ = self._splitArtefactForm(source, external=False)
+        # Ensure the destination - Remove or raise issue for a local artefact at the location where the get is called
+        if destination is not None:
+            localManager: Manager = self.connect(manager="FS")
+            destinationAbspath = os.path.join(os.getcwd(), destination)
 
-            # Ensure the destination - Remove or raise issue for a local artefact at the location where the get is called
-            if destination is not None:
-                localManager: Manager = self.connect(manager="FS")
-                destinationAbspath = os.path.join(os.getcwd(), destination)
+            if os.path.exists(destinationAbspath):
+                localManager.rm(destinationAbspath, recursive=overwrite)
 
-                if os.path.exists(destinationAbspath):
-                    localManager.rm(destinationAbspath, recursive=overwrite)
+            else:
+                # Ensure the directory that this object exists with
+                os.makedirs(self.dirname(destinationAbspath), exist_ok=True)
 
-                else:
-                    # Ensure the directory that this object exists with
-                    os.makedirs(self.dirname(destinationAbspath), exist_ok=True)
-
-                # Get the object using the underlying manager implementation
+            # Get the object using the underlying manager implementation
+            thread_pool = thread_pool or SchedulableThreadPool()
+            with thread_pool:
                 manager._get(
                     obj,
                     destinationAbspath,
                     callback=callback,
                     modified_time=utils.timestampToFloatOrNone(modified_time),
                     accessed_time=utils.timestampToFloatOrNone(accessed_time),
-                    worker_config=worker_config
+                    thread_pool=thread_pool
                 )
 
-                # Load the downloaded artefact from the local location and return
-                gottenArtefact = PartialArtefact(self.connect(manager="FS"), destinationAbspath)
+            # Load the downloaded artefact from the local location and return
+            gottenArtefact = PartialArtefact(self.connect(manager="FS"), destinationAbspath)
 
-            else:
-                if not isinstance(obj, File):
-                    raise exceptions.ArtefactTypeError("Cannot get file bytes of {}".format(obj))
-                gottenArtefact = manager._getBytes(obj, callback=callback)
+        else:
+            if not isinstance(obj, File):
+                raise exceptions.ArtefactTypeError("Cannot get file bytes of {}".format(obj))
+            gottenArtefact = manager._getBytes(obj, callback=callback)
 
-            return gottenArtefact
-
-        finally:
-            worker_config.conclude()
+        return gottenArtefact
 
     def _overwrite(
             self,
@@ -1082,10 +1078,12 @@ class Manager(AbstractManager):
             artefact: Optional[ArtefactType],
             overwrite: bool,
             callback: AbstractCallback,
-            worker_config: WorkerPoolConfig
+            thread_pool: SchedulableThreadPool
         ):
+        """ Perform the necessary actions to make the artefact location writtable - remove artefacts """
 
         if artefact is None:
+            # If the destination is None then it cannot surely be overwritten and no action should be taken
             return
 
         if isinstance(artefact, File):
@@ -1103,7 +1101,7 @@ class Manager(AbstractManager):
             recursive=overwrite,
             callback=callback,
             ignore_missing=True,
-            worker_config=worker_config
+            thread_pool=thread_pool
         )
 
     @overload
@@ -1120,7 +1118,7 @@ class Manager(AbstractManager):
         accessed_time: Optional[TimestampLike] = None,
         content_type: Optional[str] = None,
         storage_class: Optional[StorageClass] = None,
-        worker_config: Optional[WorkerPoolConfig] = None,
+        thread_pool: Optional[SchedulableThreadPool] = None,
         ) -> File:
         pass
     @overload
@@ -1137,7 +1135,7 @@ class Manager(AbstractManager):
         accessed_time: Optional[TimestampLike] = None,
         content_type: Optional[str] = None,
         storage_class: Optional[StorageClass] = None,
-        worker_config: Optional[WorkerPoolConfig] = None,
+        thread_pool: Optional[SchedulableThreadPool] = None,
         ) -> Directory:
         pass
     @overload
@@ -1154,7 +1152,7 @@ class Manager(AbstractManager):
         accessed_time: Optional[TimestampLike] = None,
         content_type: Optional[str] = None,
         storage_class: Optional[StorageClass] = None,
-        worker_config: Optional[WorkerPoolConfig] = None,
+        thread_pool: Optional[SchedulableThreadPool] = None,
         ) -> ArtefactType:
         pass
     def put(
@@ -1170,7 +1168,7 @@ class Manager(AbstractManager):
         accessed_time: Optional[TimestampLike] = None,
         content_type: Optional[str] = None,
         storage_class: Optional[StorageClass] = None,
-        worker_config: Optional[WorkerPoolConfig] = None,
+        thread_pool: Optional[SchedulableThreadPool] = None,
         ) -> ArtefactType:
         """ Put a local artefact onto the remote at the location given.
 
@@ -1188,24 +1186,24 @@ class Manager(AbstractManager):
 
         """
 
-        worker_config = worker_config or WorkerPoolConfig(shutdown=True)
+        # Load in the information about the destination
+        destinationManager, destinationObj, destinationPath = self._splitArtefactForm(
+            destination, require=False, external=False
+        )
 
-        try:
-            # Load in the information about the destination
-            destinationManager, destinationObj, destinationPath = self._splitArtefactForm(
-                destination, require=False, external=False
+        thread_pool = thread_pool or SchedulableThreadPool()
+        with thread_pool:
+
+            self._overwrite(
+                destinationManager,
+                destinationObj,
+                overwrite=overwrite,
+                callback=callback,
+                thread_pool=thread_pool
             )
 
-            # Note - we are not deleting the destination until after we have validated the source
             if isinstance(source, (bytes, bytearray, memoryview)):
-
-                self._overwrite(
-                    destinationManager,
-                    destinationObj,
-                    overwrite=overwrite,
-                    callback=callback,
-                    worker_config=worker_config
-                )
+                # The source is the file contents in bytes that should be written to the destination
 
                 putArtefact = destinationManager._putBytes(
                     source,
@@ -1224,14 +1222,6 @@ class Manager(AbstractManager):
                 # Validate source before deleting destination
                 _, sourceObj, _ = self._splitArtefactForm(source)
 
-                self._overwrite(
-                    destinationManager,
-                    destinationObj,
-                    overwrite=overwrite,
-                    callback=callback,
-                    worker_config=worker_config
-                )
-
                 putArtefact = destinationManager._put(
                     sourceObj,
                     destinationPath,
@@ -1242,13 +1232,10 @@ class Manager(AbstractManager):
                     accessed_time=accessed_time,
                     content_type=content_type,
                     storage_class=storage_class,
-                    worker_config=worker_config
+                    thread_pool=thread_pool
                 )
 
             return putArtefact
-
-        finally:
-            worker_config.conclude()
 
     def cp(
         self,
@@ -1263,7 +1250,7 @@ class Manager(AbstractManager):
         accessed_time: Optional[datetime.datetime] = None,
         storage_class: Optional[StorageClass] = None,
         content_type: Optional[str] = None,
-        worker_config: Optional[WorkerPoolConfig] = None,
+        thread_pool: Optional[SchedulableThreadPool] = None,
         ) -> ArtefactType:
         """ Copy the artefacts at the source location to the provided destination location. Overwriting items at the
         destination.
@@ -1277,16 +1264,16 @@ class Manager(AbstractManager):
             Artefact: The destination artefact object
         """
 
-        worker_config = worker_config or WorkerPoolConfig(shutdown=True)
+        log.debug('copying %s into %s', source, destination)
 
-        try:
-            log.debug('copying %s into %s', source, destination)
+        # Load the source object that is to be copied
+        sourceManager, sourceObj, _ = self._splitArtefactForm(source, external=False)
+        destinationManager, destinationObj, destinationPath = self._splitArtefactForm(
+            destination, require=False, external=False
+        )
 
-            # Load the source object that is to be copied
-            sourceManager, sourceObj, _ = self._splitArtefactForm(source, external=False)
-            destinationManager, destinationObj, destinationPath = self._splitArtefactForm(
-                destination, require=False, external=False
-            )
+        thread_pool = thread_pool or SchedulableThreadPool()
+        with thread_pool:
 
             # Prevent the overwriting of a directory without permission
             self._overwrite(
@@ -1294,7 +1281,7 @@ class Manager(AbstractManager):
                 destinationObj,
                 overwrite=overwrite,
                 callback=callback,
-                worker_config=worker_config
+                thread_pool=thread_pool
             )
 
             # Check if the source and destination are from the same manager class
@@ -1311,7 +1298,7 @@ class Manager(AbstractManager):
                     accessed_time=utils.timestampToFloatOrNone(accessed_time),
                     storage_class=storage_class,
                     content_type=content_type,
-                    worker_config=worker_config,
+                    thread_pool=thread_pool,
                 )
 
             else:
@@ -1327,13 +1314,10 @@ class Manager(AbstractManager):
                     accessed_time=utils.timestampToFloatOrNone(accessed_time),
                     storage_class=storage_class,
                     content_type=content_type,
-                    worker_config=worker_config,
+                    thread_pool=thread_pool,
                 )
 
             return copiedArtefact
-
-        finally:
-            worker_config.conclude()
 
     def mv(
         self,
@@ -1348,7 +1332,7 @@ class Manager(AbstractManager):
         modified_time: Optional[datetime.datetime] = None,
         accessed_time: Optional[datetime.datetime] = None,
         storage_class: Optional[StorageClass] = None,
-        worker_config: Optional[WorkerPoolConfig] = None,
+        thread_pool: Optional[SchedulableThreadPool] = None,
         ) -> ArtefactType:
         """ Copy the artefacts at the source location to the provided destination location. Overwriting items at the
         destination.
@@ -1362,14 +1346,15 @@ class Manager(AbstractManager):
             Artefact: The destination artefact object (source object updated if source was on manager originally)
         """
 
-        worker_config = worker_config or WorkerPoolConfig(shutdown=True)
 
-        try:
-            # Load the source object that is to be copied
-            sourceManager, sourceObj, _ = self._splitArtefactForm(source, external=False)
-            destinationManager, destinationObj, destinationPath = self._splitArtefactForm(
-                destination, require=False, external=False
-            )
+        # Load the source object that is to be copied
+        sourceManager, sourceObj, _ = self._splitArtefactForm(source, external=False)
+        destinationManager, destinationObj, destinationPath = self._splitArtefactForm(
+            destination, require=False, external=False
+        )
+
+        thread_pool = thread_pool or SchedulableThreadPool()
+        with thread_pool:
 
             # Prevent the overwriting of a directory without permission
             self._overwrite(
@@ -1377,7 +1362,7 @@ class Manager(AbstractManager):
                 destinationObj,
                 overwrite=overwrite,
                 callback=callback,
-                worker_config=worker_config
+                thread_pool=thread_pool
             )
 
             # Check if the source and destination are from the same manager class
@@ -1392,7 +1377,7 @@ class Manager(AbstractManager):
                     accessed_time=utils.timestampToFloatOrNone(accessed_time),
                     storage_class=storage_class,
                     content_type=content_type,
-                    worker_config=worker_config or WorkerPoolConfig(shutdown=True),
+                    thread_pool=thread_pool,
                 )
 
             else:
@@ -1407,15 +1392,12 @@ class Manager(AbstractManager):
                     modified_time=utils.timestampToFloatOrNone(modified_time),
                     accessed_time=utils.timestampToFloatOrNone(accessed_time),
                     storage_class=storage_class,
-                    worker_config=worker_config,
+                    thread_pool=thread_pool,
                     content_type=content_type,
                     delete_source=True
                 )
 
-            return movedArtefact
-
-        finally:
-            worker_config.conclude()
+        return movedArtefact
 
     def rm(
         self,
@@ -1423,7 +1405,7 @@ class Manager(AbstractManager):
         recursive: bool = False,
         callback: AbstractCallback = DefaultCallback(),
         ignore_missing: bool = False,
-        worker_config: Optional[WorkerPoolConfig] = None
+        thread_pool: Optional[SchedulableThreadPool] = None
         ) -> None:
         """ Remove an artefact from the manager using the artefact object or its relative path. If its a directory,
         remove it if it is empty, or all of its contents if recursive has been set to true.
@@ -1433,7 +1415,7 @@ class Manager(AbstractManager):
             recursive (bool) = False: whether to accept the deletion of a directory which has contents
         """
 
-        worker_config = worker_config or WorkerPoolConfig(shutdown=True)
+        thread_pool = thread_pool or SchedulableThreadPool()
 
         # For each of the managers groups created to delete the items
         groupedDeletes: Dict[Self, List[str]] = {}
@@ -1451,13 +1433,9 @@ class Manager(AbstractManager):
 
                 groupedDeletes.setdefault(manager, []).append(path)
 
-        try:
+        with thread_pool:
             for manager, group in groupedDeletes.items():
-                manager._rm(*group, callback=callback, worker_config=worker_config)
-
-        finally:
-            worker_config.conclude()
-
+                manager._rm(*group, callback=callback, thread_pool=thread_pool)
 
     def _sync(
         self,
@@ -1474,7 +1452,7 @@ class Manager(AbstractManager):
 
         sync_method: Callable,
         sync_arguments: Dict[str, Any],
-        worker_config: WorkerPoolConfig
+        thread_pool: SchedulableThreadPool,
     ) -> ArtefactType:
 
         callback.reviewing(1)
@@ -1491,7 +1469,7 @@ class Manager(AbstractManager):
         elif isinstance(destinationObj, File):
             if isinstance(sourceObj, Directory):
                 # The source is a directory - we simply replace the file
-                destinationManager._rm(destinationObj.path, callback=callback, worker_config=worker_config)
+                destinationManager._rm(destinationObj.path, callback=callback, thread_pool=thread_pool)
                 sync_method(
                     sourceObj,
                     destinationObj.path,
@@ -1504,7 +1482,7 @@ class Manager(AbstractManager):
                 ):
 
                 if not destinationManager.SAFE_FILE_OVERWRITE:
-                    destinationManager._rm(destinationObj.path, callback=callback, worker_config=worker_config)
+                    destinationManager._rm(destinationObj.path, callback=callback, thread_pool=thread_pool)
 
                 sync_method(
                     sourceObj,
@@ -1525,7 +1503,7 @@ class Manager(AbstractManager):
                         f'During sync operation - cannot overwrite directory [{destinationObj}] with file [{sourceObj}] as overwrite has not been set to true')
 
                 if not destinationManager.SAFE_DIRECTORY_OVERWRITE:
-                    destinationManager._rm(destinationObj.path, callback=callback, worker_config=worker_config)
+                    destinationManager._rm(destinationObj.path, callback=callback, thread_pool=thread_pool)
 
                 sync_method(
                     sourceObj,
@@ -1553,7 +1531,7 @@ class Manager(AbstractManager):
                             delete=delete,
                             callback=callback,
                             overwrite=overwrite,
-                            worker_config=worker_config,
+                            thread_pool=thread_pool,
                             sync_method=sync_method,
                             sync_arguments=sync_arguments
                         )
@@ -1578,7 +1556,7 @@ class Manager(AbstractManager):
                     destinationManager._rm(
                         *delete_targets,
                         callback=callback,
-                        worker_config=worker_config
+                        thread_pool=thread_pool
                     )
 
                     callback.reviewed(len(destinationMap))
@@ -1603,7 +1581,7 @@ class Manager(AbstractManager):
         modified_time: Optional[datetime.datetime] = None,
         accessed_time: Optional[datetime.datetime] = None,
         overwrite: bool = False,
-        worker_config: Optional[WorkerPoolConfig] = None,
+        thread_pool: Optional[SchedulableThreadPool] = None,
         callback: AbstractCallback = DefaultCallback()
         ) -> ArtefactType:
         """ Put artefacts from the source location into the destination location if they have more recently been edited.
@@ -1641,12 +1619,11 @@ class Manager(AbstractManager):
                 modified_time=modified_time,
                 accessed_time=accessed_time,
                 storage_class=storage_class,
-                worker_config=worker_config
+                thread_pool=thread_pool
             )
 
         # Setup the worker_pool config
-        worker_config = worker_config or WorkerPoolConfig(shutdown=True)
-        extended_config = worker_config.extend()
+        thread_pool = thread_pool or SchedulableThreadPool()
 
         if type(sourceManager) == type(destinationManager) and not sourceManager.ISOLATED:
             sync_method = destinationManager._cp
@@ -1663,10 +1640,10 @@ class Manager(AbstractManager):
             "overwrite": overwrite,
             "callback": callback,
             "content_type": content_type,
-            "worker_config": extended_config
+            "worker_config": thread_pool
         }
 
-        try:
+        with thread_pool:
             return self._sync(
                 sourceManager,
                 sourceObj,
@@ -1679,14 +1656,8 @@ class Manager(AbstractManager):
                 overwrite=overwrite,
                 sync_method=sync_method,
                 sync_arguments=sync_arguments,
-                worker_config=extended_config
+                thread_pool=thread_pool
             )
-        except:
-            worker_config.conclude(cancel=True)
-            raise
-
-        finally:
-            worker_config.conclude()
 
     def iterls(
         self,
@@ -1695,7 +1666,7 @@ class Manager(AbstractManager):
         *,
         ignore_missing: bool = False,
         include_metadata: bool = False,
-        worker_config: Optional[WorkerPoolConfig] = None,
+        thread_pool: Optional[SchedulableThreadPool] = None,
         ) -> typing.Generator[ArtefactType, None, None]:
         """ List contents of the directory path/artefact given.
 
@@ -1720,14 +1691,14 @@ class Manager(AbstractManager):
             raise
 
         # Yield the contents of the directory
-        worker_config = worker_config or WorkerPoolConfig(shutdown=True)
-        yield from manager._ls(
-            artPath,
-            recursive=recursive,
-            include_metadata=include_metadata,
-            worker_config=worker_config,
-        )
-        worker_config.conclude()
+        thread_pool = thread_pool or SchedulableThreadPool()
+        with thread_pool:
+            yield from manager._ls(
+                artPath,
+                recursive=recursive,
+                include_metadata=include_metadata,
+                thread_pool=thread_pool,
+            )
 
     def ls(
         self,
@@ -1736,7 +1707,7 @@ class Manager(AbstractManager):
         *,
         ignore_missing: bool = False,
         include_metadata: bool = False,
-        worker_config: Optional[WorkerPoolConfig] = None,
+        thread_pool: Optional[SchedulableThreadPool] = None,
         ) -> typing.Set[Union[File, Directory]]:
         """ List contents of the directory path/artefact given.
 
@@ -1748,7 +1719,7 @@ class Manager(AbstractManager):
         Returns:
             {Artefact}: The artefact objects which are within the directory
         """
-        return set(self.iterls(art, recursive, ignore_missing=ignore_missing, include_metadata=include_metadata, worker_config=worker_config))
+        return set(self.iterls(art, recursive, ignore_missing=ignore_missing, include_metadata=include_metadata, thread_pool=thread_pool))
 
     def mkdir(self, path: str, ignore_exists: bool = True, overwrite: bool = False) -> Directory:
         """ Make a directory at the location of the path provided. By default - do nothing in the event that the

@@ -6,7 +6,7 @@ from typing import (
 from typing_extensions import Self
 import contextlib
 
-from ..worker_config import WorkerPoolConfig
+from ..worker_config import WorkerPoolConfig, SchedulableThreadPool
 from ..types import TimestampLike, HashingAlgorithm
 from ..storage_classes import StorageClass
 from ..artefacts import Artefact, File, Directory, ArtefactType, ArtefactOrPathLike, Metadata
@@ -141,7 +141,7 @@ class AbstractManager:
         destination: str,
         /,
         callback: AbstractCallback,
-        worker_config: WorkerPoolConfig,
+        thread_pool: SchedulableThreadPool,
         modified_time: Optional[float],
         accessed_time: Optional[float],
         ):
@@ -188,7 +188,7 @@ class AbstractManager:
         accessed_time: Optional[TimestampLike],
         content_type: Optional[str],
         storage_class: Optional[StorageClass],
-        worker_config: WorkerPoolConfig,
+        thread_pool: SchedulableThreadPool,
         delete_source: bool = False
         ) -> ArtefactType:
         """ Put the local filesystem object onto the underlying manager implementation using the absolute paths given.
@@ -240,7 +240,7 @@ class AbstractManager:
         destination: str,
         /,
         callback: AbstractCallback,
-        worker_config: WorkerPoolConfig,
+        thread_pool: SchedulableThreadPool,
         tags: Optional[Metadata],
         metadata: Optional[Metadata],
         modified_time: Optional[float],
@@ -269,7 +269,7 @@ class AbstractManager:
         destination: str,
         /,
         callback: AbstractCallback,
-        worker_config: WorkerPoolConfig,
+        thread_pool: SchedulableThreadPool,
         tags: Optional[Metadata],
         metadata: Optional[Metadata],
         modified_time: Optional[float],
@@ -328,7 +328,7 @@ class AbstractManager:
         pass
 
     @abstractmethod
-    def _rm(self, *artefact: str, callback: AbstractCallback, worker_config: WorkerPoolConfig):
+    def _rm(self, *artefact: str, callback: AbstractCallback, thread_pool: SchedulableThreadPool):
         """ Delete the underlying artefact data on the manager.
 
         To avoid possible user error in deleting directories, the user must have already indicated that they want to

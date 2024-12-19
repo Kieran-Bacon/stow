@@ -24,7 +24,7 @@ import boto3.exceptions
 from botocore.exceptions import ClientError, UnauthorizedSSOTokenError
 
 from .. import utils as utils
-from ..worker_config import WorkerPoolConfig
+from ..worker_config import SchedulableThreadPool
 from ..types import HashingAlgorithm
 from ..artefacts import Artefact, PartialArtefact, File, Directory, ArtefactType, Metadata, ArtefactOrPathLike, ArtefactOrStr
 from ..manager import RemoteManager, AbstractCommandLineConfig
@@ -90,7 +90,7 @@ def etagComparator(*files: File) -> bool:
 @dataclasses.dataclass
 class DeleteRoot:
     root: Artefact
-    worker_config: WorkerPoolConfig
+    thread_pool: SchedulableThreadPool
     callback: AbstractCallback
 
     count: int = 0
@@ -725,11 +725,11 @@ class Amazon(RemoteManager):
 
     def _get(
         self,
-        source: ArtefactType,
+        source: ArtefactOrStr,
         destination: str,
         *,
         callback: AbstractCallback,
-        worker_config: WorkerPoolConfig,
+        thread_pool: SchedulableThreadPool,
         modified_time: Optional[float],
         accessed_time: Optional[float]
         ):
@@ -740,20 +740,16 @@ class Amazon(RemoteManager):
 
         if bucket is None:
 
-            worker_config = worker_config.detach()
-
             for bucket in self._s3.list_buckets()['Buckets']:
-                worker_config.submit(
+                thread_pool.submit(
                     self._get,
                     self.join(source, bucket['Name']),
                     self.join(destination, bucket['Name']),
                     callback=callback,
                     modified_time=modified_time,
                     accessed_time=accessed_time,
-                    worker_config=worker_config
+                    thread_pool=thread_pool
                 )
-
-            worker_config.conclude()
 
         else:
 
@@ -775,7 +771,7 @@ class Amazon(RemoteManager):
                             # Ensure the directory for that object
                             os.makedirs(os.path.dirname(destinationPath), exist_ok=True)
 
-                            worker_config.submit(
+                            thread_pool.submit(
                                 self._download_file,
                                 s3File,
                                 destinationPath,
@@ -791,7 +787,7 @@ class Amazon(RemoteManager):
                 callback.written(source.path)
 
             else:
-                worker_config.submit(
+                thread_pool.submit(
                     self._download_file,
                     source,
                     destination,
@@ -897,7 +893,7 @@ class Amazon(RemoteManager):
         destination: str,
         *,
         callback: AbstractCallback,
-        worker_config: WorkerPoolConfig,
+        thread_pool: SchedulableThreadPool,
         content_type: Optional[str],
         storage_class: Optional[StorageClass],
         tags: Optional[Metadata] = None,
@@ -1106,7 +1102,7 @@ class Amazon(RemoteManager):
         recursive: bool = False,
         *,
         include_metadata: bool = False,
-        worker_config: WorkerPoolConfig
+        thread_pool: SchedulableThreadPool
         ) -> Generator[ArtefactType, None, None]:
 
         bucket, key = self._pathComponents(directory)
@@ -1202,7 +1198,7 @@ class Amazon(RemoteManager):
         metadata: Optional[Metadata],
         content_type: Optional[str],
         storage_class: Optional[StorageClassInterface],
-        worker_config: WorkerPoolConfig,
+        thread_pool: SchedulableThreadPool,
         **kwargs
     ) -> ArtefactType:
 
