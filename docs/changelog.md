@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.4.2] - 2025-01-09
+
+### Fixed
+
+- Added `py.typed` to the package allowing for type annotations to be used.
+
 ## [1.4.1] - 2024-04-25
 
 ### Changed
