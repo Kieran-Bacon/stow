@@ -2,7 +2,7 @@ import unittest
 
 import io
 import boto3
-from moto import mock_s3
+from moto import mock_aws
 
 import stow
 from stow.manager.manager import Manager
@@ -21,7 +21,7 @@ class Test_BaseManager(unittest.TestCase):
 class Test_LocalManager(unittest.TestCase):
     pass
 
-@mock_s3
+@mock_aws
 class Test_RemoteManager(unittest.TestCase):
 
     def setUp(self):

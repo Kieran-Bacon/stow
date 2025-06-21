@@ -1,5 +1,5 @@
 import unittest
-from moto import mock_s3
+from moto import mock_aws
 
 import boto3
 import tempfile
@@ -7,7 +7,7 @@ import tempfile
 import stow
 from stow.managers.amazon import Amazon
 
-@mock_s3
+@mock_aws
 class Test_ProgressCallback(unittest.TestCase):
 
     def setUp(self):

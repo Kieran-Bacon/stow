@@ -1,6 +1,6 @@
 import unittest
 import boto3
-from moto import mock_s3
+from moto import mock_aws
 
 import os
 import tempfile
@@ -757,7 +757,7 @@ class Test_Stateless(unittest.TestCase):
 
             stow.cp(dir1, dir2, overwrite=True)
 
-    @mock_s3
+    @mock_aws
     def test_cp_between_managers(self):
 
         s3 = boto3.client('s3')
@@ -822,7 +822,7 @@ class Test_Stateless(unittest.TestCase):
             stow.mv(dir1, dir2, overwrite=True)
 
 
-    @mock_s3
+    @mock_aws
     def test_mv_between_managers(self):
 
         s3 = boto3.client('s3')

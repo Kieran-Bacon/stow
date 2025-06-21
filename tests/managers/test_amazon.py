@@ -15,7 +15,7 @@ import time
 import unittest
 from click.testing import CliRunner
 import pytest
-from moto import mock_s3
+from moto import mock_aws
 from moto.core import set_initial_no_auth_action_count
 
 import boto3
@@ -63,7 +63,7 @@ class Test_AmazonStorageClass(unittest.TestCase):
 
 
 
-@mock_s3
+@mock_aws
 class Test_Amazon(unittest.TestCase):
 
     def setUp(self):
