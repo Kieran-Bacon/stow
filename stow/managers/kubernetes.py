@@ -641,11 +641,11 @@ class Kubernetes(RemoteManager):
             self._manager = manager
 
         @staticmethod
-        def arguments() -> List[Tuple[Tuple[str, str], Dict[str, Any]]]:
+        def arguments() -> List[Tuple[Tuple[str], Dict[str, Any]]]:
             return [
-                (('-p', '--path',), {'help': 'The default path for the manager'}),
-                (('-k', '--kube-config-path',), {'help': 'Provide path to kube config to load for credentials'}),
-                (('-c', '--context',), {'help': 'Select the kubernetes context'}),
+                (('--path',), {'help': 'The default path for the manager'}),
+                (('--kube-config-path',), {'help': 'Provide path to kube config to load for credentials'}),
+                (('--context',), {'help': 'Select the kubernetes context'}),
             ]
 
         def initialise(self, kwargs: Dict[str, str]):
