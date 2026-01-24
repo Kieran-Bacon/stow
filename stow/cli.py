@@ -3,7 +3,7 @@ from click_option_group import optgroup
 
 import logging
 import pkg_resources
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional, List, Union
 
 from .manager import Manager
 from .artefacts import File, Directory
@@ -306,3 +306,38 @@ def rm(manager: Manager, artefacts: Tuple[str], recursive: bool):
     """ Remove artefact """
     for artefact in artefacts:
         manager.rm(artefact, recursive=recursive)
+
+def _pruneDirectory(manager: Manager, directory: Union[str, Directory]):
+
+    content_count = 0
+    for artefact in manager.iterls(artefact=directory):
+        content_count += 1
+
+        if isinstance(artefact, Directory):
+            if _pruneDirectory(manager, artefact):
+                content_count -= 1
+
+        elif artefact.size == 0:
+            print('Removing empty file:', artefact.abspath)
+            manager.rm(artefact)
+            content_count -= 1
+
+    # If there is no content - remove the directory
+    if not content_count:
+        manager.rm(directory)
+        print('Removing empty directory:', manager.abspath(directory))
+        return True
+    return False
+
+
+
+
+@cli.command()
+@click.argument('directory')
+@click.pass_obj
+def prune(manager: Manager, directory: str):
+    """ Remove empty directories in the tree that stem from the artefact choosen """
+
+    print('Pruning:', directory)
+    _pruneDirectory(manager, directory)
+

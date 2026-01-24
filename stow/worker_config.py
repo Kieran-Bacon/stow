@@ -41,7 +41,7 @@ class WorkerPoolConfig:
         executor: Optional[concurrent.futures.Executor] = None,
         join: bool = True,
         shutdown: bool = False,
-        max_workers: Optional[int] = None
+        max_workers: Optional[int] = 4
     ):
 
         self._externalExecutor = True
